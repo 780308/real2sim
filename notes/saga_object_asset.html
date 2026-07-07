@@ -1,0 +1,64 @@
+<!doctype html><html><head><meta charset="utf-8"><title>SAGA: Segment Any 3D Gaussians</title><style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.65;max-width:1120px;margin:32px auto;padding:0 24px;color:#17202a;background:#fbfbf8}
+h1{font-size:30px;margin-bottom:8px}h2{font-size:22px;margin-top:30px;border-bottom:1px solid #ddd;padding-bottom:4px}h3{font-size:18px;margin-top:22px}
+p,li{font-size:15px}.meta{color:#555}.card{border:1px solid #ddd;border-radius:8px;padding:14px 16px;background:#fff;margin:14px 0}
+.table-line{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;background:#fff;padding:2px 6px;margin:0;border-left:1px solid #ddd;border-right:1px solid #ddd}
+pre{background:#111827;color:#f9fafb;padding:14px;border-radius:8px;overflow:auto}
+</style></head><body><h1>SAGA: Segment Any 3D Gaussians</h1>
+
+<h2>定位</h2>
+<p>适合作为交互式选择指定物体/部件的工具，不负责重建/补全。</p>
+
+<p class="table-line">| 字段 | 内容 |</p>
+<p class="table-line">| --- | --- |</p>
+<p class="table-line">| priority / score | P1 / 3.15/5 |</p>
+<p class="table-line">| family | promptable 3D Gaussian segmentation |</p>
+<p class="table-line">| sources | https://github.com/Jumpat/SegAnyGAussians&lt;br&gt;https://arxiv.org/abs/2312.00860 |</p>
+<p class="table-line">| local_pdf | ref/saga_2312_00860.pdf |</p>
+<p class="table-line">| local_supplementary_pdfs | 无 |</p>
+<p class="table-line">| local_repo | repos/SegAnyGAussians |</p>
+<p class="table-line">| commit / license | 4acdaa6 / LICENSE (cloned) |</p>
+
+<h2>Inputs / Outputs</h2>
+<ul>
+<li>Inputs: trained 3DGS, SAM-generated masks/features, 2D visual prompts, optional physical scale prompt.</li>
+<li>Outputs: prompted 3D Gaussian object/part segmentation in milliseconds.</li>
+</ul>
+
+<h2>Full Method Pipeline</h2>
+<ul>
+<li>Attach scale-gated affinity features to Gaussians.</li>
+<li>Distill SAM masks into 3D features with scale-aware contrastive learning.</li>
+<li>At inference, map 2D prompts to 3D queries and segment corresponding Gaussians.</li>
+<li>Use scale gate to handle multi-granularity ambiguity.</li>
+</ul>
+
+<h2>Losses / Objectives</h2>
+<p>scale-aware contrastive loss over rendered affinity features and SAM-derived mask correspondences.</p>
+
+<h2>Assumptions</h2>
+<p>已有较好 3DGS；prompt/mask质量足够；scale选择影响结果。</p>
+
+<h2>Failure Modes</h2>
+<p>多粒度部件边界不稳定；不输出 mesh/collision。</p>
+
+<h2>对 Directional View Gap 的关系</h2>
+<p>不补视角；用于指定补齐对象的 selection layer。</p>
+
+<h2>Isaac Sim Transfer</h2>
+<p>adapter needed: segmented Gaussians 经 mesh extraction 后才可进入 Isaac。</p>
+
+<h2>可迁移模块</h2>
+<ul>
+<li>scene/object representation: promptable 3D Gaussian segmentation</li>
+<li>view/object completion: 不补视角；用于指定补齐对象的 selection layer。</li>
+<li>geometry/collision: prompted 3D Gaussian object/part segmentation in milliseconds.</li>
+<li>simulator integration: adapter needed: segmented Gaussians 经 mesh extraction 后才可进入 Isaac。</li>
+<li>evaluation metrics: mesh watertightness, collision proxy validity, object-level novel-view consistency, task success / collision rate.</li>
+</ul>
+
+<h2>Recommended Role</h2>
+<p>P1 interactive object/part picking utility。</p>
+
+<h2>Next Experiment</h2>
+<p>用 2D prompt 选门把手/椅腿等细部，测试后续 mesh extraction 是否保持部件边界。</p></body></html>

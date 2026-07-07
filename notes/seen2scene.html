@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Seen2Scene: Completing Realistic 3D Scenes with Visibility-Guided Flow</title>
+<style>
+body { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; line-height:1.65; margin:0; color:#202124; background:#f7f7f5; }
+main { max-width: 980px; margin: 0 auto; padding: 32px 24px 56px; background:#fff; }
+h1 { font-size: 30px; margin:0 0 8px; }
+h2 { margin-top: 30px; border-top:1px solid #ddd; padding-top:18px; }
+.meta { color:#5f6368; }
+.badge { display:inline-block; padding:2px 8px; border:1px solid #ccc; border-radius:6px; margin-right:6px; background:#fafafa; }
+table { border-collapse: collapse; width:100%; margin: 14px 0; }
+td, th { border:1px solid #ddd; padding:8px; vertical-align:top; }
+th { background:#f1f3f4; }
+code { background:#f1f3f4; padding:2px 4px; border-radius:4px; }
+</style>
+</head>
+<body><main>
+<h1>Seen2Scene: Completing Realistic 3D Scenes with Visibility-Guided Flow</h1>
+<p class="meta"><span class="badge">P1</span><span class="badge">standard</span><span class="badge">score 3.45/5</span><span class="badge">real-scan 3D scene completion</span></p>
+<h2>资料状态</h2>
+<table>
+<tr><th>类型</th><td>repo</td></tr>
+<tr><th>本地 PDF</th><td>无 / 技术项目</td></tr>
+<tr><th>本地 repo</th><td>repos/seen2scene</td></tr>
+<tr><th>commit</th><td>6618a96</td></tr>
+<tr><th>license 文件</th><td>未在 repo 根目录确认</td></tr>
+</table>
+<h2>Sources</h2><ul><li>https://github.com/quan-meng/seen2scene</li><li>https://arxiv.org/abs/2603.28548</li></ul>
+<h2>对 directional view coverage gap 的定位</h2><p>P1+。作为 GenRC/SceneCompleter 的最新替代线持续关注。</p>
+<h2>Inputs / Outputs</h2>
+<ul><li><strong>Inputs:</strong> incomplete real-world 3D scans, TSDF sparse grids, layout boxes。</li><li><strong>Outputs:</strong> completed realistic 3D scenes。</li></ul>
+<h2>Method Pipeline</h2><ul><li>visibility-guided flow matching mask unknown regions in real scans。</li><li>sparse transformer models complex scene structures。</li><li>layout boxes provide conditioning。</li></ul>
+<h2>Objectives / Losses</h2><p>flow matching objective with visibility masking。</p>
+<h2>Assumptions</h2><p>repo 当前很轻，完整代码/weights 状态需持续跟踪；但问题定义极贴合 partial observation。</p>
+<h2>Failure Modes</h2><p>需要 TSDF/scan preprocessing；与 Go2 3DGS/point cloud 的接口需实现。</p>
+<h2>Isaac Sim / 平台迁移判断</h2><p>adapter needed; strong for Isaac mesh proxy if code matures。</p>
+<h2>Transfer Matrix 摘要</h2>
+<table>
+<tr><th>method family</th><td>real-scan 3D scene completion</td></tr>
+<tr><th>camera-pose conditioning</th><td>中/弱</td></tr>
+<tr><th>large-angle support</th><td>需验证</td></tr>
+<tr><th>3D consistency</th><td>4.0/5</td></tr>
+<tr><th>Isaac Sim path</th><td>adapter needed; strong for Isaac mesh proxy if code matures。</td></tr>
+<tr><th>code/weights</th><td>2.0/5</td></tr>
+<tr><th>priority score</th><td>3.45/5</td></tr>
+</table>
+</main></body></html>

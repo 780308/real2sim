@@ -1,0 +1,64 @@
+<!doctype html><html><head><meta charset="utf-8"><title>PhysForge: Generating Physics-Grounded 3D Assets for Interactive Virtual World</title><style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.65;max-width:1120px;margin:32px auto;padding:0 24px;color:#17202a;background:#fbfbf8}
+h1{font-size:30px;margin-bottom:8px}h2{font-size:22px;margin-top:30px;border-bottom:1px solid #ddd;padding-bottom:4px}h3{font-size:18px;margin-top:22px}
+p,li{font-size:15px}.meta{color:#555}.card{border:1px solid #ddd;border-radius:8px;padding:14px 16px;background:#fff;margin:14px 0}
+.table-line{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;background:#fff;padding:2px 6px;margin:0;border-left:1px solid #ddd;border-right:1px solid #ddd}
+pre{background:#111827;color:#f9fafb;padding:14px;border-radius:8px;overflow:auto}
+</style></head><body><h1>PhysForge: Generating Physics-Grounded 3D Assets for Interactive Virtual World</h1>
+
+<h2>定位</h2>
+<p>长期非常相关：直接面向可交互资产而非静态 mesh，但当前代码成熟度和真实场景锚定弱。</p>
+
+<p class="table-line">| 字段 | 内容 |</p>
+<p class="table-line">| --- | --- |</p>
+<p class="table-line">| priority / score | P1 / 3.46/5 |</p>
+<p class="table-line">| family | physics-grounded part-aware asset generation |</p>
+<p class="table-line">| sources | https://github.com/HKU-MMLab/PhysForge&lt;br&gt;https://arxiv.org/abs/2605.05163&lt;br&gt;https://hku-mmlab.github.io/PhysForge/ |</p>
+<p class="table-line">| local_pdf | ref/physforge_2605_05163.pdf |</p>
+<p class="table-line">| local_supplementary_pdfs | 无 |</p>
+<p class="table-line">| local_repo | repos/PhysForge |</p>
+<p class="table-line">| commit / license | adfdca8 / n/a (cloned) |</p>
+
+<h2>Inputs / Outputs</h2>
+<ul>
+<li>Inputs: single image plus VLM-generated Hierarchical Physical Blueprint.</li>
+<li>Outputs: functionally plausible simulation-ready 3D assets with part materials, masses, joint types, affordances, kinematic parameters.</li>
+</ul>
+
+<h2>Full Method Pipeline</h2>
+<ul>
+<li>VLM planner acts as physical architect and generates hierarchical physical blueprint.</li>
+<li>Blueprint defines part layout, materials, mass, function, joint type, affordances.</li>
+<li>Diffusion stage uses KineVoxel Injection to jointly synthesize geometry and kinematic parameters.</li>
+<li>Assets are demonstrated in physics simulator/game virtual world.</li>
+</ul>
+
+<h2>Losses / Objectives</h2>
+<p>diffusion generation objective conditioned on blueprint and KineVoxel; VLM planning is prompt/annotation-driven.</p>
+
+<h2>Assumptions</h2>
+<p>VLM blueprint 正确；生成资产不需要和真实扫描严格一致。</p>
+
+<h2>Failure Modes</h2>
+<p>容易生成 plausible interactive object 但不是当前真实物体；repo 目前较轻，短期复现风险高。</p>
+
+<h2>对 Directional View Gap 的关系</h2>
+<p>可补未观测部件/关节，但不是 real-scene anchored completion。</p>
+
+<h2>Isaac Sim Transfer</h2>
+<p>adapter needed: blueprint 可映射 USD/URDF/PhysX，但需实际 exporter。</p>
+
+<h2>可迁移模块</h2>
+<ul>
+<li>scene/object representation: physics-grounded part-aware asset generation</li>
+<li>view/object completion: 可补未观测部件/关节，但不是 real-scene anchored completion。</li>
+<li>geometry/collision: functionally plausible simulation-ready 3D assets with part materials, masses, joint types, affordances, kinematic parameters.</li>
+<li>simulator integration: adapter needed: blueprint 可映射 USD/URDF/PhysX，但需实际 exporter。</li>
+<li>evaluation metrics: mesh watertightness, collision proxy validity, object-level novel-view consistency, task success / collision rate.</li>
+</ul>
+
+<h2>Recommended Role</h2>
+<p>P1 long-term prior；不作为短期主线。</p>
+
+<h2>Next Experiment</h2>
+<p>抽取其 blueprint schema，用于给 Hunyuan3D/GaussianObject mesh 自动生成 Isaac 物理默认值。</p></body></html>

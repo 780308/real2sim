@@ -1,0 +1,64 @@
+<!doctype html><html><head><meta charset="utf-8"><title>RoboSimGS: High-Fidelity Simulated Data Generation for Real-World Zero-Shot Robotic Manipulation Learning with Gaussian Splatting</title><style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.65;max-width:1120px;margin:32px auto;padding:0 24px;color:#17202a;background:#fbfbf8}
+h1{font-size:30px;margin-bottom:8px}h2{font-size:22px;margin-top:30px;border-bottom:1px solid #ddd;padding-bottom:4px}h3{font-size:18px;margin-top:22px}
+p,li{font-size:15px}.meta{color:#555}.card{border:1px solid #ddd;border-radius:8px;padding:14px 16px;background:#fff;margin:14px 0}
+.table-line{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;background:#fff;padding:2px 6px;margin:0;border-left:1px solid #ddd;border-right:1px solid #ddd}
+pre{background:#111827;color:#f9fafb;padding:14px;border-radius:8px;overflow:auto}
+</style></head><body><h1>RoboSimGS: High-Fidelity Simulated Data Generation for Real-World Zero-Shot Robotic Manipulation Learning with Gaussian Splatting</h1>
+
+<h2>定位</h2>
+<p>强化“可交互物体不应只用 3DGS”的结论：背景可 3DGS，物体必须有 mesh/physics/articulation。</p>
+
+<p class="table-line">| 字段 | 内容 |</p>
+<p class="table-line">| --- | --- |</p>
+<p class="table-line">| priority / score | P0 / 3.88/5 |</p>
+<p class="table-line">| family | R2S2R hybrid 3DGS background + mesh interactive objects |</p>
+<p class="table-line">| sources | https://github.com/Maxwell-Zhao/RoboSimGS&lt;br&gt;https://robosimgs.github.io/&lt;br&gt;https://arxiv.org/abs/2510.10637 |</p>
+<p class="table-line">| local_pdf | ref/robosimgs_2510_10637.pdf |</p>
+<p class="table-line">| local_supplementary_pdfs | 无 |</p>
+<p class="table-line">| local_repo | repos/RoboSimGS |</p>
+<p class="table-line">| commit / license | 3f767f5 / n/a (cloned) |</p>
+
+<h2>Inputs / Outputs</h2>
+<ul>
+<li>Inputs: multi-view real-world images, segmentation, MLLM physical/articulation inference, simulator alignment.</li>
+<li>Outputs: photorealistic 3DGS static background, interactive mesh objects, inferred density/stiffness/hinge/rail parameters, simulated data.</li>
+</ul>
+
+<h2>Full Method Pipeline</h2>
+<ul>
+<li>Reconstruct a hybrid scene where 3DGS captures static photorealism and mesh primitives represent interactive objects.</li>
+<li>Use MLLM to infer physical properties and kinematic structure from visual data.</li>
+<li>Align hybrid scene with simulator and apply holistic augmentation over objects, cameras, lighting, and trajectories.</li>
+<li>Train manipulation policy on generated data for zero-shot sim-to-real.</li>
+</ul>
+
+<h2>Losses / Objectives</h2>
+<p>standard reconstruction/policy losses; MLLM-inferred physical properties are not directly supervised by real measurements in the paper pipeline.</p>
+
+<h2>Assumptions</h2>
+<p>MLLM 能合理推断物体物理/运动结构；真实场景对齐可靠；代码成熟度需进一步核验。</p>
+
+<h2>Failure Modes</h2>
+<p>VLM/MLLM 物理参数可能 plausible but wrong；对门/抽屉等 articulated object 需要强校验。</p>
+
+<h2>对 Directional View Gap 的关系</h2>
+<p>不以补视角为核心，但 hybrid design 能接收 GaussianObject/Hunyuan3D 生成的物体 mesh。</p>
+
+<h2>Isaac Sim Transfer</h2>
+<p>adapter needed; paper目标是 physics engine interactive environments，和 Isaac 资产需求高度一致。</p>
+
+<h2>可迁移模块</h2>
+<ul>
+<li>scene/object representation: R2S2R hybrid 3DGS background + mesh interactive objects</li>
+<li>view/object completion: 不以补视角为核心，但 hybrid design 能接收 GaussianObject/Hunyuan3D 生成的物体 mesh。</li>
+<li>geometry/collision: photorealistic 3DGS static background, interactive mesh objects, inferred density/stiffness/hinge/rail parameters, simulated data.</li>
+<li>simulator integration: adapter needed; paper目标是 physics engine interactive environments，和 Isaac 资产需求高度一致。</li>
+<li>evaluation metrics: mesh watertightness, collision proxy validity, object-level novel-view consistency, task success / collision rate.</li>
+</ul>
+
+<h2>Recommended Role</h2>
+<p>P0/P1 之间的设计参考；用于物体 articulation/physical property 默认值生成。</p>
+
+<h2>Next Experiment</h2>
+<p>让 VLM/LLM 为门、椅子生成候选 joint/material/mass schema，再和 Isaac 交互测试中的碰撞/关节行为对照。</p></body></html>

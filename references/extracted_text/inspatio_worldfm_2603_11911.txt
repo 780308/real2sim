@@ -1,0 +1,710 @@
+                                            InSpatio-WorldFM: An Open-Source Real-Time Generative
+                                                                Frame Model
+                                                                       InSpatio Team (alphabetical order)
+                                                Donghui Shen, Guofeng Zhang, Haomin Liu, Haoyu Ji, Jialin Liu, Jing Guo,
+                                               Nan Wang, Siji Pan, Weihong Pan, Weijian Xie, Xiaojun Xiang, Xiaoyu Zhang,
+                                               Xianbin Liu, Yifu Wang, Yipeng Chen, Zhewen Le, Zhichao Ye, Ziqiang Zhao
+arXiv:2603.11911v3 [cs.CV] 6 May 2026
+
+
+
+
+                                        We present InSpatio-WorldFM, an open-source real-time frame model for spatial intelligence. Un-
+                                        like video-based world models that rely on sequential frame generation and incur substantial latency
+                                        due to window-level processing, InSpatio-WorldFM adopts a frame-based paradigm that generates
+                                        each frame independently, enabling low-latency real-time spatial inference. By enforcing multi-view
+                                        spatial consistency through explicit 3D anchors and implicit spatial memory, the model preserves
+                                        global scene geometry while maintaining fine-grained visual details across viewpoint changes. We
+                                        further introduce a progressive three-stage training pipeline that transforms a pretrained image dif-
+                                        fusion model into a controllable frame model and finally into a real-time generator through few-step
+                                        distillation. Experimental results show that InSpatio-WorldFM achieves strong multi-view consistency
+                                        while supporting interactive exploration on consumer-grade GPUs, providing an efficient alternative
+                                        to traditional video-based world models for real-time world simulation.
+                                        Project Website: https://inspatio.github.io/worldfm/
+                                        Github: https://github.com/inspatio/worldfm
+
+
+
+
+                                        Figure 1: Examples of generated worlds across diverse styles, including photorealistic, science-fiction,
+                                        game-like, and artistic environments. The joystick interface enables real-time interactive exploration
+                                        with negligible latency.
+
+
+
+
+                                                                                           1
+1    Introduction
+Recent advances in generative models [27, 18, 19, 30, 5, 24] have significantly improved visual realism
+and temporal coherence. These models learn rich motion patterns and camera dynamics from large-
+scale video datasets [22, 51, 41], which has sparked growing interest in using generative models to
+simulate persistent realistic environments. As a result, the research focus is gradually shifting from
+traditional text-to-video generation [4, 28, 6, 40, 7, 33] toward the broader goal of building world models
+capable of representing and interacting with structured environments [50, 39, 9, 44, 43, 14], such as
+HY-World [31] and LingBot-World [32], as well as the models that incorporate predefined rules or
+constraints [23, 47, 25], such as Genie 3 [10].
+     Despite this progress, most existing world models [16, 38, 26, 11, 48, 29] are still built upon video
+generation architectures. Leveraging video models allows these systems to inherit strong priors about
+motion, appearance, and camera movement learned from large-scale video data. However, this paradigm
+also introduces several fundamental limitations.
+     Interactive latency remains inevitable. Most video-based world models generate frames sequen-
+tially within a temporal window. With bidirectional attention and full-window decoding, each genera-
+tion step must process all frames in the window, resulting in substantial inference overhead. Even with
+distillation-based acceleration, this window-level dependency fundamentally limits the ability of such
+models to support truly real-time interaction.
+     Spatial errors accumulate over time. Video models are primarily optimized for short-term tem-
+poral continuity rather than long-term spatial consistency. As generation progresses, small spatial in-
+accuracies may accumulate, leading to structural drift or inconsistencies in scene geometry. Without
+explicit mechanisms to enforce global spatial constraints, correcting these accumulated errors remains
+challenging.
+     Recently, World Labs proposed a real-time frame model (RTFM) [37], exploring the potential of
+frame-based world modeling. However, the technical details provided are quite limited and the source
+code is not publicly available. To further explore this direction and address the limitations of video-
+based world models, we propose InSpatio-WorldFM, a frame-based world model designed for real-time
+spatial reasoning and generation. Unlike video-based approaches that model the world as a sequence
+of dependent frames, InSpatio-WorldFM directly incorporates spatial structure into the generation of
+individual frames. By conditioning each frame on explicit spatial information, the model can maintain
+consistent scene geometry while enabling low-latency frame synthesis. This design allows the system
+to generate spatially coherent observations while supporting real-time interaction. We introduce several
+key components:
+
+    • Multi-view consistent training data curation. We construct training data with explicit multi-
+      view consistency, allowing the model to learn stable spatial relationships across viewpoints.
+
+    • Progressive three-stage training pipeline that evolves a foundation image generator (Stage I),
+      into a controllable frame model with spatial memory (Stage II), and finally into a real-time few-
+      step generator (Stage III).
+
+    • Real-time generation enabled by few-step distillation [42] through 2-step denoising. Experi-
+      mental results demonstrate that InSpatio-WorldFM can generate frames with strong multi-view
+      consistency while achieving real-time inference without interactive latency.
+
+   Together, these components enable InSpatio-WorldFM to serve as an efficient foundation for real-
+time spatial intelligence, providing a practical alternative to traditional video-based world models.
+
+
+
+
+                                                    2
+         Offline                                    Input view
+
+    Multi-View Model                                Generated view
+                                                                                                            ……   Image
+                                                                                                                 Token
+
+                                                    Consistency
+                                                                                                                  Cam
+                                                                                                                 Token
+
+
+
+
+                                                                               Multi-View Diffusion Model
+
+
+
+
+                                                                                                            ……
+
+
+
+         Online
+      Frame Model           Global Scene                         VAE
+                                                                          Scene
+                                                                         Condition
+                                                                                                        Image
+                                                                                                        Token
+
+
+                                                                                                        Camera
+                                                                                                        Token
+
+
+
+
+                                                                                Realtime Multi-View
+                                                                                  Diffusion Model
+                                           Update
+
+
+
+
+                                                          Local Scene
+                           history
+                                                                                      Generated Image
+
+
+
+
+Figure 2: Overview. In the offline stage, a multi-view-consistent model generates plausible observations
+that provide 3D anchors and reference appearances. In the online stage, frame model performs fast real-
+time inference while updating scene content at keyframes.
+
+
+2     InSpatio-WorldFM
+2.1     Overview
+As illustrated in Fig. 2, the framework of InSpatio-WorldFM consists of an offline stage and an online
+stage. In the offline stage, a single image is used as input to a multi-view consistent model (e.g., [49,
+14]) to generate multi-view consistent observations, which provide reference appearances, while the
+3D anchors can be obtained using a reconstruction model (e.g., [34, 36, 35]). Alternatively, a simpler
+approach is to generate a panoramic image, which can also provide 360° scene constraints, and several
+open-source methods are already available for this task [31, 13, 46]. In the online stage, we introduce
+an efficient frame model that performs real-time inference and generation.
+
+2.2     Formulation
+We formulate InSpatio-WorldFM as a conditional generative frame model that synthesizes novel-view
+images of a 3D scene from a single reference image under user-defined camera motion. Let xref ∈
+RH×W ×3 denotes the reference image with its associated camera pose πref = (Kref , Eref ), where K and
+E represent the camera intrinsic and extrinsic matrices, respectively. Given a target camera pose πtgt ,
+our goal is to generate the corresponding target-view image xtgt that is geometrically consistent with
+xref .
+     We approach this task within a latent diffusion framework. Let E and D denote the encoder and
+decoder of a pretrained variational autoencoder (VAE), respectively. The generation is formulated as
+learning a conditional denoising model ϵθ that reverses a forward diffusion process in the latent space
+z = E(x). Specifically, the model learns to predict the noise ϵ added to the target latent ztgt at diffusion
+timestep t:
+                                                     h                     i
+                               L = Eztgt ,ϵ∼N (0,I),t ∥ϵ − ϵθ (zt , t, C)∥2 ,
+
+
+                                                                     3
+where zt = αt ztgt + σt ϵ is the noised latent at timestep t following a predefined noise schedule (αt , σt ),
+and C = {xref , πref , πtgt , x̂tgt } represents the full condition set. Here x̂tgt denotes the point cloud render-
+ing at the target viewpoint with 3D foundation models [34, 36, 35, 21], which serves as an explicit 3D
+spatial anchor.
+    To achieve real-time / interactive rendering, we adopt a three-stage training pipeline that progres-
+sively evolves a foundation image generator into an efficient real-time frame model:
+
+      • Stage I: Pre-Training. We establish a high-fidelity image generation prior by selecting an ef-
+        ficient and expressive Diffusion Transformer as our backbone. The choice of the base model
+        is driven by both generation quality and computational efficiency, as the latter directly impacts
+        real-time deployment feasibility.
+
+      • Stage II: Middle-Training. We transform the pretrained image generator into a controllable
+        frame model with spatial memory. This stage involves constructing dedicated training data from
+        real-world video datasets and synthetic environments, introducing architectural modifications for
+        camera-conditioned generation, and developing a hybrid spatial memory mechanism that com-
+        bines explicit 3D anchors with implicit neural memory.
+
+      • Stage III: Post-Training. We distill the multi-step diffusion model into an efficient few-step
+        generator through distribution matching distillation, enabling real-time / interactive rendering on
+        consumer-grade GPUs.
+
+2.3     Pre-Training
+The choice of the base image generation model is critical, as it must simultaneously satisfy two require-
+ments: high-fidelity generation with physically plausible textures and scene geometry, and computa-
+tional efficiency sufficient for downstream real-time deployment. We select PixArt-Σ [8] as our foun-
+dation model. PixArt-Σ is an efficient Diffusion Transformer (DiT) [24] for text-to-image generation
+that achieves quality competitive with state-of-the-art models at significantly lower computational cost,
+providing an effective balance between generation quality and inference throughput that is well-suited
+as the backbone for a real-time frame model.
+
+2.4     Middle-Training
+The middle-training stage transforms the pretrained image diffusion model into a controllable frame
+model capable of generating spatially consistent and interactive visual content. Although foundation
+diffusion model demonstrates strong potential in high-fidelity image synthesis, it is inherently limited to
+generating single, isolated images without any notion of spatial coherence or interactive controllability.
+We therefore construct dedicated training data and introduce architectural modifications to endow the
+model with action-conditioned control and spatial consistency.
+
+2.4.1    Fundamental Frame Model
+To achieve true real-time performance, we adopt a minimal frame-based architecture as the online infer-
+ence model, generating each frame independently. To maintain multi-view consistency across succes-
+sive inferences without relying on multi-frame processing, we integrate explicit 3D anchors (point cloud
+rendering) with implicit spatial memory (reference frame attention), enabling the model to preserve
+geometric coherence while operating on individual frames.
+Model Architecture. InSpatio-WorldFM generates target-view images by receiving a reference image,
+noisy target latents, and user-defined camera motion as inputs.
+    We adopt a self-attention-only transformer architecture for condition injection. Empirically, we
+find that injecting condition information through self-attention yields higher generation quality than
+cross-attention alternatives. The input to the transformer is formed by spatially concatenating three
+
+
+                                                        4
+    Reference Image       Noisy Target Latents   Point Cloud Rendering     Input Latent Feature       Ref. Pose    Target Pose
+
+
+
+
+                                                               Explicit       Projection &
+                                                               Anchor
+                                                                           Position Embedding
+                                Concat
+                                                                             PRoPE-modulated
+                                                                               Self-Attention
+    Ref. Pose                                                                                     Q
+                       DiT     DiT    ……     DiT
+                                                                                                  K
+                      Block   Block         Block
+   Target Pose
+                                                                                                  V
+
+
+
+
+                                                                                              FFN
+                                                                                                                  DiT Block
+
+
+                        Target Image Output                                        Output Latent Feature
+        Conditional Novel-View Synthesis Pipeline                         Detailed WorldFM DiT Block Architecture
+
+
+Figure 3: The pipeline of InSpatio-WorldFM. The left part illustrates the conditional novel-view syn-
+thesis pipeline of WorldFM. WorldFM takes a reference image xref (implicit scene memory), noisy
+latents zt , and point cloud rendering x̂tgt (explicit 3D anchor) as inputs, which are spatially concatenated
+along the width dimension. Reference pose πref and target pose πtgt are also injected as control sig-
+nals. The frame-based Diffusion Transformer Blocks process these conditions and synthesizes the target
+view Itgt in real-time via Distribution Matching Distillation (DMD). The right part shows the detailed
+architecture of the DiT blocks in WorldFM. Camera geometry control is achieved through the Projection
+Relative Position Embedding (PRoPE) strategy, enhancing cross-view geometric reasoning. The hybrid
+spatial memory mechanism combines point cloud rendering (explicit 3D anchor) and reference image
+(implicit memory), interacting solely through self-attention to achieve robust 3D consistency.
+
+components along the width dimension: the noisy target latent zt , the point cloud rendering of the target
+viewpoint (cond1), and the reference frame image (cond2). All three components are independently
+projected into patch tokens via a shared patch embedding layer and augmented with sinusoidal positional
+embeddings. After passing through the full transformer, the output is split along the width dimension
+and only the target portion is retained as the final prediction.
+    Camera Pose Encoding. Encoding camera geometry into the transformer is essential for control-
+lable novel-view generation. We explore three strategies for injecting camera pose information:
+
+    • Plücker ray embedding [15, 1, 2]. For each patch token, the 6-dimensional Plücker coordinates
+      (o × d, d) are computed in world coordinates, where o is the camera origin and d is the ray
+      direction through the patch center. These features are projected to the hidden dimension via a
+      two-layer MLP and added to the patch embeddings. This approach provides an explicit per-
+      token geometric prior but encodes camera information additively without directly modulating the
+      attention computation.
+
+    • Projected Relative Positional Encoding (PRoPE) [20]. PRoPE integrates camera geometry di-
+      rectly into the attention mechanism by applying camera-dependent linear transformations to the
+      query, key, and value tensors. Specifically, given camera projection matrices Pi for each view
+      i, PRoPE applies Pi⊤ to queries and Pi−1 to keys/values, combined with 2D rotary position em-
+      beddings for intra-image spatial structure. This formulation enables the attention mechanism to
+      reason about cross-view geometric correspondences natively.
+
+                                                                   5
+    • Pure parametric injection [3]. Camera pose parameters (rotation and translation matrices) are
+      directly mapped to token-level embeddings through a learned MLP and added to the hidden rep-
+      resentations, without imposing explicit geometric structure such as ray directions or projection
+      matrices.
+
+    We adopt PRoPE for InSpatio-WorldFM, as it exhibits the fastest convergence and the most stable
+camera control among the three strategies in our experiments. Compared with Plücker ray embed-
+ding, which encodes camera information additively, PRoPE directly modulates the attention computa-
+tion through camera-dependent linear transformations, enabling the attention mechanism to reason about
+cross-view geometric correspondences natively.
+Hybrid Spatial Memory. A core challenge in maintaining spatial consistency across generated frames
+is preserving a coherent memory of the 3D scene. RTFM [37] relies on posed frames as primitive
+spatial memory, while StarGen [45] warps features extracted from posed keyframes to provide spatial
+conditioning. To achieve more persistent and stable spatial memory, we adopt a hybrid design that
+integrates explicit 3D anchors with implicit neural memory:
+
+    • Explicit anchors. For each target viewpoint, a point cloud rendering and the corresponding target
+      camera pose provide stable 3D geometric constraints, serving as global 3D priors that anchor the
+      generation in 3D space. While point clouds effectively maintain coarse geometric structures, they
+      are complemented by implicit memory to preserve fine-grained appearance details.
+
+    • Implicit memory. The reference frame and its associated camera pose supply appearance infor-
+      mation from a previously observed viewpoint. The transformer attends to these tokens through
+      the self-attention mechanism, allowing the model to implicitly retrieve and transfer relevant visual
+      content to the target view.
+
+    By combining both forms of spatial memory, InSpatio-WorldFM achieves robust consistency: ex-
+plicit anchors maintain coarse geometric structures and provide global 3D priors, while implicit memory
+preserves fine-grained appearance details and enables the model to hallucinate plausible content in un-
+observed regions.
+Training Data. We construct training pairs from three sources: publicly available videos (e.g., internet
+videos and video datasets such as DL3DV [22], RealEstate10K [51]), our own captured videos, and
+the synthetic data generated using Unreal Engine (UE) [12]. For each real video clip, we randomly
+sample 16 frames and apply a feedforward reconstruction model (e.g., MapAnything [17]) to estimate
+per-frame camera poses and depth maps. From these 16 frames, 4 are selected as the reference frame
+group to construct the global point cloud, while the remaining 12 serve as training targets. For each
+target frame, the reference frame is selected as the temporally closest one from the 4-frame reference
+group. The point cloud rendering at the target viewpoint is obtained by projecting the global point cloud
+onto the target camera plane. To ensure robustness, we apply random shuffling and masking strategies,
+simulating the disorder and discreteness encountered in real-world scenarios.
+Training Strategy. We introduce several training strategies to encourage stable geometric learning and
+robust spatial memory:
+
+    • Noise schedule biasing. To prioritize learning stable geometric structure over fine-grained texture
+      details, we increase the sampling probability of high-noise timesteps during training. This biased
+      schedule encourages the model to first capture the coarse spatial layout before refining appearance.
+
+    • Progressive condition injection. We observe that simultaneously exposing the model to both
+      the explicit anchor (point cloud rendering) and the implicit memory (reference frame) from the
+      beginning of training leads to rapid overfitting to the explicit anchor, as it provides a much stronger
+      and more direct signal. This causes the model to neglect the implicit memory pathway. To ensure
+      robustness and avoid overfitting, we adopt a progressive injection strategy: in the early phase of
+      training, only the reference frame (implicit memory) is provided as a condition, forcing the model
+
+                                                     6
+        to develop a robust ability to extract and utilize implicit spatial cues. The explicit anchor is then
+        gradually introduced to enhance control precision.
+
+      • Random anchor masking. In the later stages of training, we randomly mask the explicit anchor
+        with a certain probability. This regularization encourages the model to maintain its ability to
+        leverage implicit memory, preventing it from becoming overly dependent on the explicit 3D prior.
+
+2.4.2    Finetuning with Synthetic Data
+Although the fundamental frame model trained on real data acquires reasonable and geometrically con-
+sistent generation capabilities, the depth and pose estimates produced by feedforward reconstruction
+models inevitably contain errors. These inaccuracies introduce inter-view inconsistencies in the point
+cloud renderings, which undermine the stability of viewpoint transitions and content persistence.
+     To address this, we construct a synthetic dataset using Unreal Engine [12] that provides precise
+ground-truth camera poses and depth information. Specifically, our approach begins by selecting an
+initial camera pose from semantically valid regions within the scene. The trajectory is then synthesized
+using either stochastic motion sampling or pre-defined motion templates. Throughout generation, we
+enforce spatial constraints through collision avoidance to guarantee viewpoint validity. Training pairs
+are then constructed analogously to the real data pipeline: 4 frames serve as the reference group and 12
+as targets.
+     We finetune the fundamental frame model on this synthetic dataset for a limited number of steps.
+The controlled exposure to synthetic data is intentional — excessive finetuning on synthetic distributions
+would compromise the model’s ability to generate realistic appearances on natural images. Empirically,
+we find that even a small amount of synthetic finetuning yields a significant improvement in the stability
+of camera-controlled viewpoint transitions, suggesting that the model effectively leverages the geometric
+precision of synthetic data to refine its spatial reasoning without losing its natural appearance priors.
+
+2.5     Post-Training
+The goal of post-training is to transform the multi-step frame model from Stage II into an efficient
+generator capable of real-time interactive rendering. We achieve this through Distribution Matching
+Distillation (DMD) [42], which distills the multi-step diffusion model into a few-step generator with
+minimal loss in spatial consistency and visual fidelity.
+    Distribution Matching Distillation. DMD trains a few-step diffusion student to match the output
+distribution of a pretrained multi-step diffusion model. The core idea is to minimize an approximate
+KL divergence between the real distribution (defined by the base model) and the synthetic distribution
+(produced by the generator). This is achieved by maintaining two diffusion models — a frozen copy
+of the base model estimating the real score, and a dynamically-updated model continually trained on
+generator outputs estimating the fake score — and using the difference between their denoising predic-
+tions as the gradient signal to update the generator. A complementary regression loss on pre-computed
+noise-image pairs from the base model’s deterministic sampler stabilizes training and preserves mode
+coverage. Extending the idea of Variational Score Distillation (VSD), DMD enables few-step inference
+acceleration while maintaining generation quality.
+    Adaptation for InSpatio-WorldFM. We apply DMD to distill our middle-trained frame model into
+a few-step generator. Through extensive experimentation, we arrive at two key findings:
+
+      • Two-step denoising outperforms one-step. While DMD was originally designed for one-step gen-
+        eration, we find that a 2-step denoising schedule produces noticeably sharper details and better
+        preserves fine-grained textures. Single-step denoising from pure noise can recover coarse geo-
+        metric structure effectively but struggles to reconstruct fine-grained details in a single forward
+        pass. The additional denoising step provides a dedicated refinement phase that addresses this
+        limitation.
+
+
+                                                      7
+Figure 4: Qualitative results of teacher model.
+
+
+
+
+                      8
+0
+
+
+
+
+Figure 5: Qualitative results of InSpatio-WorldFM.
+
+
+
+
+                        9
+Figure 6: Qualitative results of InSpatio-WorldFM.
+
+
+
+
+                       10
+Figure 7: Qualitative results of InSpatio-WorldFM.
+
+
+
+
+                       11
+Figure 8: Qualitative results of InSpatio-WorldFM. Across observations at varying viewing distances,
+the content and fine details generated by the FrameModel remain consistent.
+    • Intermediate timestep selection is critical. In the 2-step schedule, the first step denoises from
+      t = T to an intermediate timestep tmid , and the second step denoises from tmid to t = 0. If
+      tmid is set too large (i.e., the first step terminates at a still high-noise state), the second step must
+      perform single-step denoising from a high noise level — encountering the same difficulty as 1-
+      step generation in recovering fine details. Through systematic evaluation, we find that tmid = 200
+      (on a 1000-step schedule) yields the best balance: the first step handles the majority of denoising
+      and establishes the coarse spatial structure, while the second step refines from a relatively clean
+      state where fine detail recovery is effective.
+
+    The distilled model maintains spatial consistency and visual fidelity over extended interactive ses-
+sions, producing temporally coherent frames without noticeable drift even during prolonged exploration.
+
+
+3    Evaluation
+We assess the spatial consistency and generation quality of InSpatio-WorldFM by examining the visual
+outputs from both the middle-trained fundamental frame model and the post-trained distilled variant
+across diverse scene types.
+    As illustrated in Fig. 4, each example consists of a reference image alongside a sequence of 10 frames
+rendered from different camera viewpoints. The fundamental frame model exhibits strong multi-view
+coherence, maintaining geometric structure and appearance consistency across substantial viewpoint
+changes. The generated frames preserve fine-grained details while adapting naturally to novel perspec-
+tives, demonstrating the model’s capacity to reason about 3D spatial relationships.
+    To enable real-time interaction, we apply distribution matching distillation to obtain a distilled model
+for low-latency deployment. In its baseline configuration at 512×512 resolution, InSpatio-WorldFM
+achieves around 25 FPS on a single H-series GPU through engineering optimizations such as KV-cache
+management and efficient VAE latent caching. Moreover, due to its low GPU memory footprint, the
+model can run at 10 FPS on an RTX 4090. While distillation introduces a quality-speed trade-off, the
+
+                                                     12
+perceptual difference remains minimal in practice. Visual comparison between the fundamental model
+and the distilled variant reveals that InSpatio-WorldFM successfully retains spatial coherence and geo-
+metric accuracy. The accelerated model continues to generate plausible content across diverse camera
+trajectories without noticeable degradation in structural consistency or the emergence of visual artifacts,
+confirming that our distillation approach effectively balances real-time performance with generation fi-
+delity.
+    In long rendering tests under different historical frame contexts, InSpatio-WorldFM maintains con-
+sistent geometry and fine details across varying viewing distances, demonstrating the effectiveness of
+the memory strategy in guiding generation.
+
+
+4     Discussion and Conclusions
+In this report, we introduce InSpatio-WorldFM, an open-source real-time generative frame model de-
+signed for spatial intelligence. By adopting a frame-based generation paradigm and incorporating ex-
+plicit 3D anchors with implicit spatial memory, the model maintains multi-view spatial consistency
+while enabling low-latency real-time inference.
+
+4.1     Limitations
+Despite the progress made, achieving an immersive real-time generative world model still faces several
+challenges.
+
+      • Stable generation of dynamic content. Both the frame-based model and the multi-view con-
+        sistency training data contain limited dynamic content, which makes it difficult for the model to
+        generate dynamic scenes with high quality and stability.
+
+      • Limited motion boundary. The current historical memory relies on multi-view consistent ob-
+        servations or panoramic observations. However, these generation models suffer from high com-
+        putational complexity and substantial memory consumption, restricting them to offline operation,
+        which inevitably introduces motion boundaries during online inference.
+
+      • Interactive visual stability The frame-based modeling strategy reduces interaction latency and
+        improves responsiveness. However, due to the lack of temporal constraints between consecutive
+        frames, the visual stability is limited, leading to noticeable frame jitter during interaction.
+
+4.2     Future Work
+Real-time spatial inference still has significant room for improvement. The frame-based inference archi-
+tecture can benefit from many mature acceleration techniques, such as linear attention, efficient caching
+mechanisms, and various VAE optimizations, to further reduce computational cost and improve FPS.
+These improvements would enable spatial inference to be performed more efficiently on edge devices.
+Using Gaussian Splatting (GS) primitives as 3D anchors could further enhance visual fidelity and reflec-
+tive effects. Beyond efficiency and visual fidelity, we will focus on two key directions: (1) improving
+the generation of dynamic content, and (2) real-time expansion of the generation range. These
+efforts will provide the foundation for efficient real-world modeling and spatial inference at effectively
+unbounded scales.
+
+
+
+
+                                                    13
+References
+ [1] Niket Agarwal, Arslan Ali, Maciej Bala, Yogesh Balaji, Erik Barker, Tiffany Cai, Prithvijit Chattopadhyay,
+     Yongxin Chen, Yin Cui, Yifan Ding, et al. Cosmos world foundation model platform for physical ai. arXiv
+     preprint arXiv:2501.03575, 2025.
+
+ [2] Hassan Abu Alhaija, Jose Alvarez, Maciej Bala, Tiffany Cai, Tianshi Cao, Liz Cha, Joshua Chen, Mike
+     Chen, Francesco Ferroni, Sanja Fidler, et al. Cosmos-transfer1: Conditional world generation with adaptive
+     multimodal control. arXiv preprint arXiv:2503.14492, 2025.
+
+ [3] Jianhong Bai, Menghan Xia, Xiao Fu, Xintao Wang, Lianrui Mu, Jinwen Cao, Zuozhu Liu, Haoji Hu, Xiang
+     Bai, Pengfei Wan, et al. ReCammaster: Camera-controlled generative rendering from a single video. In
+     Proceedings of the IEEE/CVF International Conference on Computer Vision, pages 14834–14844, 2025.
+
+ [4] Omer Bar-Tal, Hila Chefer, Omer Tov, Charles Herrmann, Roni Paiss, Shiran Zada, Ariel Ephrat, Junhwa
+     Hur, Guanghui Liu, Amit Raj, Yuanzhen Li, Michael Rubinstein, Tomer Michaeli, Oliver Wang, Deqing Sun,
+     Tali Dekel, and Inbar Mosseri. Lumiere: A space-time diffusion model for video generation. In SIGGRAPH
+     Asia, 2024.
+
+ [5] Andreas Blattmann, Tim Dockhorn, Sumith Kulal, Daniel Mendelevitch, Maciej Kilian, Dominik Lorenz,
+     Yam Levi, Zion English, Vikram Voleti, Adam Letts, Varun Jampani, and Robin Rombach. Stable video
+     diffusion: Scaling latent video diffusion models to large datasets. arXiv preprint arXiv:2311.15127, 2023.
+
+ [6] Tim Brooks, Bill Peebles, Connor Holmes, Will DePue, Yufei Guo, Li Jing, David Schnurr, Joe Taylor, Troy
+     Luhman, Eric Luhman, Clarence Ng, Ricky Wang, and Aditya Ramesh. Video generation models as world
+     simulators. OpenAI Blog, 2024.
+
+ [7] Tim Brooks, Bill Peebles, Connor Holmes, Will DePue, Yufei Guo, Li Jing, David Schnurr, Joe Taylor, Troy
+     Luhman, Eric Luhman, Clarence Ng, Ricky Wang, and Aditya Ramesh. Video generation models as world
+     simulators. 2024.
+
+ [8] Junsong Chen, Chongjian Ge, Enze Xie, Yue Wu, Lewei Yao, Xiaozhe Ren, Zhongdao Wang, Ping Luo,
+     Huchuan Lu, and Zhenguo Li. Pixart-σ: Weak-to-strong training of diffusion transformer for 4k text-to-
+     image generation. In European Conference on Computer Vision, pages 74–91. Springer, 2024.
+
+ [9] Jaeyoung Chung, Suyoung Lee, Hyeongjin Nam, Jaerin Lee, and Kyoung Mu Lee. LucidDreamer: Domain-
+     free generation of 3D gaussian splatting scenes. arXiv preprint arXiv:2311.13384, 2023.
+
+[10] Google DeepMind. Genie 3: A new frontier for world models. https://deepmind.google/blog/
+     genie-3-a-new-frontier-for-world-models/, 2025.
+
+[11] Jingtao Ding, Yunke Zhang, Yu Shang, Jie Feng, Yuheng Zhang, Zefang Zong, Yuan Yuan, Hongyuan Su,
+     Nian Li, Jinghua Piao, Yucheng Deng, Nicholas Sukiennik, Chen Gao, Fengli Xu, and Yong Li. Under-
+     standing world or predicting future? a comprehensive survey of world models. ACM Computing Surveys,
+     2025.
+
+[12] Epic Games. Unreal Engine. https://www.unrealengine.com/, 2023. Accessed: 2026-01-25.
+
+[13] Mengyang Feng, Jinlin Liu, Miaomiao Cui, and Xuansong Xie. Diffusion360: Seamless 360 degree
+     panoramic image generation based on diffusion models. arXiv preprint arXiv:2311.13141, 2023.
+
+[14] Ruiqi Gao, Aleksander Holynski, Philipp Henzler, Arthur Brussee, Ricardo Martin-Brualla, Pratul Srini-
+     vasan, Jonathan T Barron, and Ben Poole. Cat3D: Create anything in 3d with multi-view diffusion models.
+     arXiv preprint arXiv:2405.10314, 2024.
+
+[15] Hao He, Ceyuan Yang, Shanchuan Lin, Yinghao Xu, Meng Wei, Liangke Gui, Qi Zhao, Gordon Wetzstein,
+     Lu Jiang, and Hongsheng Li. Cameractrl ii: Dynamic scene exploration via camera-controlled video diffu-
+     sion models. In Proceedings of the IEEE/CVF International Conference on Computer Vision, pages 13416–
+     13426, 2025.
+
+[16] Tianyu Huang, Wangguandong Zheng, Tengfei Wang, Yuhao Liu, Zhenwei Wang, Junta Wu, Jie Jiang, Hui
+     Li, Rynson Lau, Wangmeng Zuo, et al. Voyager: Long-range and world-consistent video diffusion for
+     explorable 3d scene generation. ACM Transactions on Graphics (TOG), 44(6):1–15, 2025.
+
+
+                                                      14
+[17] Nikhil Keetha, Norman Müller, Johannes Schönberger, Lorenzo Porzi, Yuchen Zhang, Tobias Fischer, Arno
+     Knapitsch, Duncan Zauss, Ethan Weber, Nelson Antunes, et al. MapAnything: Universal feed-forward
+     metric 3d reconstruction. arXiv preprint arXiv:2509.13414, 2025.
+
+[18] Black Forest Labs. Flux. https://github.com/black-forest-labs/flux, 2024.
+
+[19] Black Forest Labs, Stephen Batifol, Andreas Blattmann, Frederic Boesel, Saksham Consul, Cyril Diagne,
+     Tim Dockhorn, Jack English, Zion English, Patrick Esser, Sumith Kulal, Kyle Lacey, Yam Levi, Cheng Li,
+     Dominik Lorenz, Jonas Müller, Dustin Podell, Robin Rombach, Harry Saini, Axel Sauer, and Luke Smith.
+     FLUX.1 kontext: Flow matching for in-context image generation and editing in latent space, 2025.
+
+[20] Ruilong Li, Brent Yi, Junchen Liu, Hang Gao, Yi Ma, and Angjoo Kanazawa. Cameras as relative positional
+     encoding. arXiv preprint arXiv:2507.10496, 2025.
+
+[21] Zhengqi Li and Noah Snavely. MegaDepth: Learning single-view depth prediction from internet photos. In
+     Proceedings of the IEEE conference on computer vision and pattern recognition, pages 2041–2050, 2018.
+
+[22] Lu Ling, Yichen Sheng, Zhi Tu, Wentian Zhao, Cheng Xin, Kun Wan, Lantao Yu, Qianyu Guo, Zixun Yu,
+     Yawen Lu, et al. DL3DV-10K: A large-scale scene dataset for deep learning-based 3d vision. In Proceedings
+     of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 22160–22169, 2024.
+
+[23] Fangfu Liu, Hanyang Wang, Shunyu Yao, Shengjun Zhang, Jie Zhou, and Yueqi Duan. Physics3D: Learning
+     physical properties of 3D gaussians via video diffusion. arXiv preprint arXiv:2406.04338, 2024.
+
+[24] William Peebles and Saining Xie. Scalable diffusion models with transformers. In ICCV, 2023.
+
+[25] Alexander Raistrick, Lingjie Mei, Karhan Kayan, David Yan, Yiming Zuo, Beining Han, Hongyu Wen,
+     Meenal Parakh, Stamatis Alexandropoulos, Lahav Lipson, et al. Infinigen indoors: Photorealistic indoor
+     scenes using procedural generation. In Proceedings of the IEEE/CVF Conference on Computer Vision and
+     Pattern Recognition, pages 21783–21794, 2024.
+
+[26] Xuanchi Ren, Tianchang Shen, Jiahui Huang, Huan Ling, Yifan Lu, Merlin Nimier-David, Thomas Müller,
+     Alexander Keller, Sanja Fidler, and Jun Gao. Gen3c: 3d-informed world-consistent video generation with
+     precise camera control. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recog-
+     nition, pages 6121–6132, 2025.
+
+[27] Robin Rombach, Andreas Blattmann, Dominik Lorenz, Patrick Esser, and Björn Ommer. High-resolution
+     image synthesis with latent diffusion models. In Proceedings of the IEEE/CVF conference on computer
+     vision and pattern recognition, pages 10684–10695, 2022.
+
+[28] Uriel Singer, Adam Polyak, Thomas Hayes, Xi Yin, Jie An, Songyang Zhang, Qiyuan Hu, Harry Yang, Oron
+     Ashual, Oran Gafni, Devi Parikh, Sonal Gupta, and Yaniv Taigman. Make-a-video: Text-to-video generation
+     without text-video data. arXiv preprint arXiv:2209.14792, 2022.
+
+[29] Wenqiang Sun, Haiyu Zhang, Haoyuan Wang, Junta Wu, Zehan Wang, Zhenwei Wang, Yunhong Wang,
+     Jun Zhang, Tengfei Wang, and Chunchao Guo. Worldplay: Towards long-term geometric consistency for
+     real-time interactive world modeling. arXiv preprint arXiv:2512.14614, 2025.
+
+[30] Hunyuan Foundation Model Team. Hunyuanvideo: A systematic framework for large video generative
+     models. arXiv preprint arXiv:2412.03603, 2024.
+
+[31] HunyuanWorld Team, Zhenwei Wang, Yuhao Liu, Junta Wu, Zixiao Gu, Haoyuan Wang, Xuhui Zuo, Tianyu
+     Huang, Wenhuan Li, Sheng Zhang, et al. Hunyuanworld 1.0: Generating immersive, explorable, and inter-
+     active 3d worlds from words or pixels. arXiv preprint arXiv:2507.21809, 2025.
+
+[32] Robbyant Team, Zelin Gao, Qiuyu Wang, Yanhong Zeng, Jiapeng Zhu, Ka Leong Cheng, Yixuan Li, Hanlin
+     Wang, Yinghao Xu, Shuailei Ma, Yihang Chen, Jie Liu, Yansong Cheng, Yao Yao, Jiayi Zhu, Yihao Meng,
+     Kecheng Zheng, Qingyan Bai, Jingye Chen, Zehong Shen, Yue Yu, Xing Zhu, Yujun Shen, and Hao Ouyang.
+     Advancing open-source world models. arXiv preprint arXiv:2601.20540, 2026.
+
+[33] Wan Team. Wan: Open and advanced large-scale video generative models. arXiv preprint arXiv:2503.20314,
+     2025.
+
+
+                                                     15
+[34] Jianyuan Wang, Minghao Chen, Nikita Karaev, Andrea Vedaldi, Christian Rupprecht, and David Novotny.
+     VGGT: Visual geometry grounded transformer. In Proceedings of the Computer Vision and Pattern Recog-
+     nition Conference, pages 5294–5306, 2025.
+
+[35] Ruicheng Wang, Sicheng Xu, Cassie Dai, Jianfeng Xiang, Yu Deng, Xin Tong, and Jiaolong Yang. MoGe:
+     Unlocking accurate monocular geometry estimation for open-domain images with optimal training supervi-
+     sion, 2024.
+
+[36] Shuzhe Wang, Vincent Leroy, Yohann Cabon, Boris Chidlovskii, and Jerome Revaud. Dust3R: Geometric 3d
+     vision made easy. In Proceedings of the IEEE/CVF conference on computer vision and pattern recognition,
+     pages 20697–20709, 2024.
+
+[37] WorldLabs. RTFM: A real-time frame model. https://www.worldlabs.ai/blog/rtfm, 2025.
+
+[38] Tong Wu, Shuai Yang, Ryan Po, Yinghao Xu, Ziwei Liu, Dahua Lin, and Gordon Wetzstein. Video world
+     models with long-term spatial memory. arXiv preprint arXiv:2506.05284, 2025.
+
+[39] Shuai Yang, Jing Tan, Mengchen Zhang, Tong Wu, Gordon Wetzstein, Ziwei Liu, and Dahua Lin. Layer-
+     pano3D: Layered 3d panorama for hyper-immersive scene generation. In Proceedings of the special interest
+     group on computer graphics and interactive techniques conference conference papers, pages 1–10, 2025.
+
+[40] Zhuoyi Yang, Jiayan Teng, Wendi Zheng, Ming Ding, Shiyu Huang, Jiazheng Xu, Yuanming Yang, Wenyi
+     Hong, Xiaohan Zhang, Guanyu Feng, et al. Cogvideox: Text-to-video diffusion models with an expert
+     transformer. arXiv preprint arXiv:2408.06072, 2024.
+
+[41] Yao Yao, Zixin Luo, Shiwei Li, Jingyang Zhang, Yufan Ren, Lei Zhou, Tian Fang, and Long Quan. Blend-
+     edMVS: A large-scale dataset for generalized multi-view stereo networks. In Proceedings of the IEEE/CVF
+     conference on computer vision and pattern recognition, pages 1790–1799, 2020.
+
+[42] Tianwei Yin, Michaël Gharbi, Richard Zhang, Eli Shechtman, Fredo Durand, William T Freeman, and
+     Taesung Park. One-step diffusion with distribution matching distillation. In CVPR, 2024.
+
+[43] Hong-Xing Yu, Haoyi Duan, Charles Herrmann, William T Freeman, and Jiajun Wu. WonderWorld: In-
+     teractive 3d scene generation from a single image. In Proceedings of the Computer Vision and Pattern
+     Recognition Conference, pages 5916–5926, 2025.
+
+[44] Hong-Xing Yu, Haoyi Duan, Junhwa Hur, Kyle Sargent, Michael Rubinstein, William T Freeman, Forrester
+     Cole, Deqing Sun, Noah Snavely, Jiajun Wu, et al. WonderJourney: Going from anywhere to everywhere. In
+     Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 6658–6667,
+     2024.
+
+[45] Shangjin Zhai, Zhichao Ye, Jialin Liu, Weijian Xie, Jiaqi Hu, Zhen Peng, Hua Xue, Danpeng Chen, Xi-
+     aomeng Wang, Lei Yang, et al. StarGen: A spatiotemporal autoregression framework with video diffusion
+     model for scalable and controllable scene generation. In Proceedings of the Computer Vision and Pattern
+     Recognition Conference, pages 26822–26833, 2025.
+
+[46] Cheng Zhang, Qianyi Wu, Camilo Cruz Gambardella, Xiaoshui Huang, Dinh Phung, Wanli Ouyang, and
+     Jianfei Cai. Taming stable diffusion for text to 360 panorama image generation. In Proceedings of the
+     IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 6347–6357, 2024.
+
+[47] Tianyuan Zhang, Hong-Xing Yu, Rundi Wu, Brandon Y Feng, Changxi Zheng, Noah Snavely, Jiajun Wu,
+     and William T Freeman. PhysDreamer: Physics-based interaction with 3d objects via video generation. In
+     European Conference on Computer Vision, pages 388–406. Springer, 2024.
+
+[48] Yifan Zhang, Chunli Peng, Boyang Wang, Puyi Wang, Qingcheng Zhu, Fei Kang, Biao Jiang, Zedong Gao,
+     Eric Li, Yang Liu, and Yahui Zhou. Matrix-game: Interactive world foundation model. arXiv preprint
+     arXiv:2506.18701, 2025.
+
+[49] Jensen Zhou, Hang Gao, Vikram Voleti, Aaryaman Vasishta, Chun-Han Yao, Mark Boss, Philip Torr, Chris-
+     tian Rupprecht, and Varun Jampani. Stable virtual camera: Generative view synthesis with diffusion models.
+     In Proceedings of the IEEE/CVF International Conference on Computer Vision, pages 12405–12414, 2025.
+
+
+
+                                                      16
+[50] Mengqi Zhou, Yuxi Wang, Jun Hou, Shougao Zhang, Yiwei Li, Chuanchen Luo, Junran Peng, and Zhaox-
+     iang Zhang. SceneX: Procedural controllable large-scale scene generation. In Proceedings of the AAAI
+     Conference on Artificial Intelligence, volume 39, pages 10806–10814, 2025.
+
+[51] Tinghui Zhou, Richard Tucker, John Flynn, Graham Fyffe, and Noah Snavely. Stereo magnification: Learn-
+     ing view synthesis using multiplane images. arXiv preprint arXiv:1805.09817, 2018.
+
+
+
+
+                                                    17
+

@@ -1,0 +1,64 @@
+<!doctype html><html><head><meta charset="utf-8"><title>3DGRT/3DGUT/3DGRUT and NVIDIA NuRec-oriented Gaussian Rendering</title><style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.65;max-width:1120px;margin:32px auto;padding:0 24px;color:#17202a;background:#fbfbf8}
+h1{font-size:30px;margin-bottom:8px}h2{font-size:22px;margin-top:30px;border-bottom:1px solid #ddd;padding-bottom:4px}h3{font-size:18px;margin-top:22px}
+p,li{font-size:15px}.meta{color:#555}.card{border:1px solid #ddd;border-radius:8px;padding:14px 16px;background:#fff;margin:14px 0}
+.table-line{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;background:#fff;padding:2px 6px;margin:0;border-left:1px solid #ddd;border-right:1px solid #ddd}
+pre{background:#111827;color:#f9fafb;padding:14px;border-radius:8px;overflow:auto}
+</style></head><body><h1>3DGRT/3DGUT/3DGRUT and NVIDIA NuRec-oriented Gaussian Rendering</h1>
+
+<h2>定位</h2>
+<p>不解决 object geometry/collision，但非常重要：Isaac Sim 5.0/Omniverse 的 Gaussian visual layer 可能走 NuRec/USDZ/3DGRUT 生态。</p>
+
+<p class="table-line">| 字段 | 内容 |</p>
+<p class="table-line">| --- | --- |</p>
+<p class="table-line">| priority / score | P0 / 3.63/5 |</p>
+<p class="table-line">| family | production-ready Gaussian rendering / USD export / distorted cameras |</p>
+<p class="table-line">| sources | https://github.com/nv-tlabs/3DGRUT&lt;br&gt;https://research.nvidia.com/labs/toronto-ai/3DGUT&lt;br&gt;https://developer.nvidia.com/omniverse/nurec |</p>
+<p class="table-line">| local_pdf | ref/3dgrut_2412_12507.pdf |</p>
+<p class="table-line">| local_supplementary_pdfs | 无 |</p>
+<p class="table-line">| local_repo | repos/3DGRUT |</p>
+<p class="table-line">| commit / license | 21bd44d / LICENSE (cloned) |</p>
+
+<h2>Inputs / Outputs</h2>
+<ul>
+<li>Inputs: 3DGS/3DGRT/3DGUT scenes, COLMAP/NCore datasets, masks, complex camera models.</li>
+<li>Outputs: trained Gaussian scenes, USD/PLY/NuRec export, rendering with distorted cameras, rolling shutter, secondary rays.</li>
+</ul>
+
+<h2>Full Method Pipeline</h2>
+<ul>
+<li>Replace 3DGS projection linearization with Unscented Transform to support nonlinear camera projection.</li>
+<li>Unify rasterization and ray tracing formulation for primary/secondary rays.</li>
+<li>Train/export scenes in a production-oriented pipeline.</li>
+<li>Use USD/NuRec path for Omniverse/Isaac rendering integration.</li>
+</ul>
+
+<h2>Losses / Objectives</h2>
+<p>standard 3DGS reconstruction losses with 3DGUT projection/rendering changes.</p>
+
+<h2>Assumptions</h2>
+<p>主要关心渲染而非物理；collision 仍需 mesh。</p>
+
+<h2>Failure Modes</h2>
+<p>视觉层接入成功不代表可交互；复杂 camera 支持不补 missing geometry。</p>
+
+<h2>对 Directional View Gap 的关系</h2>
+<p>可更准确支持 Go2/广角/畸变相机训练与渲染，但不生成 unseen view。</p>
+
+<h2>Isaac Sim Transfer</h2>
+<p>direct for visual layer: USD/NuRec/Omniverse 方向最值得关注。</p>
+
+<h2>可迁移模块</h2>
+<ul>
+<li>scene/object representation: production-ready Gaussian rendering / USD export / distorted cameras</li>
+<li>view/object completion: 可更准确支持 Go2/广角/畸变相机训练与渲染，但不生成 unseen view。</li>
+<li>geometry/collision: trained Gaussian scenes, USD/PLY/NuRec export, rendering with distorted cameras, rolling shutter, secondary rays.</li>
+<li>simulator integration: direct for visual layer: USD/NuRec/Omniverse 方向最值得关注。</li>
+<li>evaluation metrics: mesh watertightness, collision proxy validity, object-level novel-view consistency, task success / collision rate.</li>
+</ul>
+
+<h2>Recommended Role</h2>
+<p>P0 visual layer integration path；和 SuGaR/OpenReal2Sim 的 geometry layer 并行。</p>
+
+<h2>Next Experiment</h2>
+<p>把现有 3DGS/3DGRUT 输出转 NuRec/USDZ，在 Isaac Sim 5.0 中测试 RGB camera rendering 与 mesh collision 同步。</p></body></html>

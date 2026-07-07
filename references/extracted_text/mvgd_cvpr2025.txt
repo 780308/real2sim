@@ -1,0 +1,882 @@
+                        This CVPR paper is the Open Access version, provided by the Computer Vision Foundation.
+                                     Except for this watermark, it is identical to the accepted version;
+                               the final published version of the proceedings is available on IEEE Xplore.
+
+
+
+
+Zero-Shot Novel View and Depth Synthesis with Multi-View Geometric Diffusion
+
+                        Vitor Guizilini1    Muhammad Zubair Irshad1    Dian Chen1
+                                    Greg Shakhnarovich2  Rares Ambrus1
+          Toyota Research Institute (TRI)1                Toyota Technological Institute at Chicago (TTIC)2
+
+
+
+
+Figure 1. MVGD is a state-of-the-art method that generates images and scale-consistent depth maps from novel viewpoints given
+an arbitrary number of posed input views. In the above, red cameras are used as conditioning to directly generate RGB-D predictions from
+green cameras. To highlight the multi-view consistency of our method, predicted colored pointclouds from all novel viewpoints are stacked
+together for visualization without any post-processing. More examples and videos can be found in https://mvgd.github.io/
+
+                          Abstract                                      (3DGS) [53] and other neural methods [34, 77, 83] for con-
+                                                                        structing a parameterized 3D representation of the scene ob-
+Current methods for 3D scene reconstruction from sparse                 served from different viewpoints. Novel views, and by ex-
+posed images employ intermediate 3D representations such                tension depth maps observed from novel viewpoints, can be
+as neural fields, voxel grids, or 3D Gaussians, to achieve              generated via volumetric rendering or rasterization from the
+multi-view consistent scene appearance and geometry. In                 3D model, once it is constructed from available input views.
+this paper we introduce MVGD, a diffusion-based archi-                  Subsequent work introduced improvements including gen-
+tecture capable of direct pixel-level generation of images              eralization to novel scenes [12, 13, 118], better sample-
+and depth maps from novel viewpoints, given an arbitrary                efficiency [15, 74, 101], reduced memory cost [36], and
+number of input views. Our method uses raymap condition-                rendering speedups [36, 83]. Despite these advances, the
+ing to both augment visual features with spatial information            ability to generalize to novel scenes remains limited, espe-
+from different viewpoints, as well as to guide the generation           cially with increasing numbers of input views [12, 13].
+of images and depth maps from novel views. A key aspect                     We pursue a compelling alternative to creating a pa-
+of our approach is the multi-task generation of images and              rameterized 3D representation: the direct rendering of
+depth maps, using learnable task embeddings to guide the                novel views and depth maps as a conditional generative
+diffusion process towards specific modalities. We train this            task. Our work is inspired by light and depth field net-
+model on a collection of more than 60 million multi-view                works [34, 36, 77, 83] and recent developments on multi-
+samples from publicly available datasets, and propose tech-             view diffusion [22, 41, 103, 108]. Diffusion-based methods
+niques to enable efficient and consistent learning in such              for novel view synthesis have so far been limited to simpler
+diverse conditions. We also propose a novel strategy that               settings [58, 59] or as a source of 2D priors for downstream
+enables the efficient training of larger models by incremen-            3D reconstruction [22, 103]. This is largely due to a key
+tally fine-tuning smaller ones, with promising scaling be-              challenge: the difficulty, without an intermediate 3D scene
+havior. Through extensive experiments, we report state-of-              representation, to impose multi-view consistency when gen-
+the-art results in multiple novel view synthesis benchmarks,            erating novel views. Our proposed solution to this problem
+as well as multi-view stereo and video depth estimation.                is to train a single diffusion model for the joint task of novel
+                                                                        view and depth synthesis, using direct conditioning on the
+1. Introduction                                                         input views and known input camera geometry via raymap
+We investigate the task of generalizable novel view synthe-             conditioning. We show that this leads to the generation of
+sis and depth estimation from sparse posed images. This                 scale-aware and multi-view consistent predictions without
+task has received much attention with the advent of Neu-                any intermediate 3D representation or special mechanisms.
+ral Radiance Fields (NeRFs) [63], 3D Gaussian Splatting                     To train such a model that learns to implicitly represent
+
+
+
+                                                                  764
+multi-view consistent 3D scenes from sparse observations,               Dataset               Syn. Dyn. Met. I/O V/M # Sequences      # Samples
+we curated more than 60M multi-view samples (see Tab. 1)                ArgoVerse2 [102]           ✓    ✓   O VM          1043      3, 909, 297
+                                                                        BlendedMVG [114]                    O M             502        115, 142
+from publicly available datasets, including real-world and              CO3Dv2 [72]                          I V        25, 243     5, 088, 873
+                                                                        DROID [54]                      ✓    I M        76, 792     7, 340, 712
+synthetic images from a widely diverse range of driving, in-            LSD [35]                   ✓    ✓   O VM        17, 647     1, 057, 920
+                                                                        LyftL5 [40]                ✓    ✓   O VM            394        347, 508
+doors, and robotics scenarios. To properly leverage such                MVImgNet [119]                       I V       194, 368     5, 768, 120
+diverse data, we introduce novel techniques for effective               NuScenes [6]               ✓    ✓   O VM            850        204, 894
+                                                                        Taskonomy [120]                 ✓   O M             533     4, 584, 462
+training in heterogeneous conditions. First, to handle possi-           HM3D [69]                       ✓   O M             900     9, 531, 876
+                                                                        Hypersim [73]                   ✓   O M             457         74, 619
+bly sparse real-world depth, we use an efficient Transformer            P. Domain [30, 33]    ✓    ✓    ✓   IO VM        5, 449        555, 000
+                                                                        RealEstate10k [121]             —   O V         74, 532    10, 115, 793
+architecture [47] to perform pixel-level diffusion, thus re-            RTMV [94]             ✓              I M         1, 909        286, 350
+moving the need for dedicated auto-encoders [37]. Second,               ScanNet [14]
+                                                                        TartanAir [99]        ✓    ✓
+                                                                                                        ✓
+                                                                                                        ✓
+                                                                                                            O V
+                                                                                                            O VM
+                                                                                                                         1, 513
+                                                                                                                            369
+                                                                                                                                    2, 477, 378
+                                                                                                                                       613, 274
+we use learnable task embeddings to determine which out-                VKITTI2 [5]           ✓    ✓    ✓   O VM             45         38, 268
+                                                                        Waymo [90]            ✓         ✓   O VM         1, 000        990, 340
+put should be generated from the same conditioned latent                WildRGBD [105]                       I V        23, 049     8, 026, 495
+tokens, enabling unified training on datasets with or without           Total                                         426, 595 61, 126, 321
+depth labels. Lastly, to handle non-metric datasets, we pro-
+                                                                      Table 1. Datasets used to train MVGD. Syn indicates if the
+pose a novel scene scale normalization (SSN) procedure, to            dataset is synthetic, Dyn. if it contains dynamic objects, Met. if
+generate scale-aware and multi-view consistent depth maps.            depth labels are metric, I/O if cameras are looking inwards and/or
+These strategies enable the effective scaling of our method,          outwards, and M/V if it contains multiple cameras and/or videos.
+resulting in robust generalization across diverse scenarios.
+                                                                      2. Related Work
+   Our proposed Multi-View Geometric Diffusion (MVGD)                 Generalizable Radiance Fields. Traditionally, radiance
+framework outperforms existing baselines on several in-               field representations [1, 46, 53, 63, 64] are trained at a
+domain and zero-shot benchmarks, establishing a new state-            per-scene basis, incurring expensive optimization. Gener-
+of-the-art in novel view synthesis with varying amounts               alizable formulations [12, 45, 118] tackle the problem of
+of conditioning views (2-9). To further showcase our im-              few-shot view-synthesis, hence reducing their dependency
+plicit geometric reasoning, we also evaluate MVGD for the             on dense captures. These methods [45, 77, 77, 95, 95, 118]
+tasks of stereo and video depth estimation, reporting state           utilize local features as conditioners in a feed-forward
+of the art results on the ScanNet benchmark. We show that             neural network for effective few-view synthesis. By
+MVGD can process arbitrarily large numbers of condition-              leveraging a vast collection of multi-view posed data from
+ing views (100+), and propose an incremental conditioning             various scenes, they can learn transferable priors. However,
+strategy designed to further improve multi-view consistency           performance declines when the input views fall outside the
+over long sequences. Finally, we report promising scaling             distribution. More recently, this idea has been extended to
+behavior in which increasing model complexity improves                3D Gaussian Splatting [12, 13] for real-time few-shot ren-
+results, and present a strategy for incremental fine-tuning           dering. Alternatively, other methods rely on regularizing the
+from smaller models that cuts down on training time by up             scene’s geometry [66, 85, 104], ensuring semantic consis-
+to 70%. In summary, our contributions are as follows:                 tency [48], or utilizing sparse depth-supervision [15, 26, 74]
+                                                                      to improve rendering quality given few views.
+• A novel multi-task diffusion architecture (MVGD) ca-                Generative Models for Novel View Synthesis. Gener-
+  pable of multi-view consistent image and depth synthesis            ating novel views outside the distribution of inputs views
+  from an arbitrary number of posed images (up to thou-               requires extrapolating unseen parts of the scene. Exist-
+  sands) without an intermediate 3D representation.                   ing works have utilized Generative Adversarial Networks
+• A set of techniques designed to enable training on                  (GANs) [8, 9, 16, 65, 81] for conditional or uncondi-
+  a large-scale, heterogeneous dataset with over 60M                  tional scene generation. Owing to the impressive suc-
+  multi-view samples from diverse visual domains, differ-             cess of Diffusion models [38] for text-to-image genera-
+  ent levels of 3D supervision, varying numbers of views              tion [70, 75], recent works have utilized Diffusion Mod-
+  and cameras, and a broad range of scene scales.                     els [10, 25, 50, 58, 59, 93, 117] for the task of novel view
+• A strategy for the efficient training of larger MVGD                synthesis. Existing methods [58, 100] train the conditional
+  models by incrementally fine-tuning smaller ones, with              diffusion model with relative poses as inputs and show great
+  promising scaling behavior in terms of performance.                 generalization on object-centric scenes. Follow-up works
+                                                                      extended this idea to real-world scenes, achieving impres-
+The combined effect of these contributions allows us to es-           sive zero-shot generalization. Notably, ZeroNVS [78] fine-
+tablish a new state of the art in generalizable novel view            tunes a diffusion model on large-scale real-world scenes, fo-
+synthesis, as well as multi-view stereo and video depth es-           cusing on single-frame reconstruction. Reconfusion [103]
+timation, on a number of well established benchmarks.                 trains a conditional diffusion model in combination with
+
+
+
+                                                                765
+Figure 2. Diagram of our proposed Multi-View Geometric Diffusion (MVGD) framework, at inference time. N input images Inc with
+cameras Ccn are used for scene conditioning, and a different camera Ct is selected for novel view and depth synthesis.
+                                                                                                                                                                               Qt
+a PixelNeRF [118] objective for more accurate condition-                                                                                       where ϵ ∼ N (0, I), αt = s=1 (1 − βs ) and {βt }Tt=1 is
+ing. CAT3D [22] trains a multi-view conditional diffusion                                                                                      the variance schedule for a process with T steps. A neural
+model along with a feed-forward 3D reconstruction pipeline                                                                                     network ϵ̂ = fθ (xt , t, c) is trained to estimate the noise ϵ̂t
+to render 3D consistent novel views.                                                                                                           added to a sample x0 at timestep t, given a conditioning
+Multi-View Depth Estimation. Earlier works [20, 23,                                                                                            variable c used to control the generative process [17, 58,
+29, 32] concentrated on in-domain depth estimation, which                                                                                      75]. At inference time, a novel x0 is reconstructed from a
+overfits to the specific camera geometry and requires sim-                                                                                     normally-distributed variable xT ∼ N (0, I) by iteratively
+ilar training and testing domains. Most recently, zero-shot                                                                                    applying the learned transition function fθ over T steps.
+monocular depth estimation [3, 19, 35, 71] has gained sig-                                                                                         A key choice when designing diffusion models is the ar-
+nificant interest, where models are trained on large-scale                                                                                     chitecture used to parameterize fθ . Initial implementations
+mixture of datasets and demonstrate impressive generaliza-                                                                                     relied on convolutional architectures [17, 39, 75, 76], due
+tion to out-of-domain inference without finetuning. No-                                                                                        to their simplicity and easiness to train. At high resolu-
+tably, [4, 19, 42, 71, 111, 112, 116] scale up their training to                                                                               tions this becomes costly, which led to the popularization
+large-scale real or a mix of real and synthetic datasets. Re-                                                                                  of latent diffusion, in which fθ is not trained in pixel space,
+cent works have also used priors from 2D diffusion models                                                                                      but in a lower-dimensional latent space of an image auto-
+as denoisers [21, 27, 51] for monocular depth estimation,                                                                                      encoder [97]. Although more efficient, this approach has its
+as well as explored video [43, 61, 82] and multi-view set-                                                                                     drawbacks: the loss of fine-grained details due to compres-
+tings [41, 52, 113]. Notably, very few works have focused                                                                                      sion, and the need for dense 2D grid-like inputs.
+on the task of novel depth synthesis [34], relying on inter-
+mediate 3D representations to generate scene geometry.
+                                                                                                                                               3.1.2   RIN Architecture
+3. Multi-View Geometric Diffusion
+                                                                                                                                               Transformer-based architectures [67] have been explored as
+Given a collection IC = {I, C}N      n=1 of input images In ∈                                                                                  a more scalable alternative that does not require structured
+RH×W ×3 and corresponding cameras Cn = {K, T} with                                                                                             grid-like inputs. However, the squared complexity of atten-
+intrinsics K ∈ R3×3 and extrinsics T ∈ R4×4 , our goal                                                                                         tion still poses a challenge at higher resolutions. Hence, in
+is to generate a predicted image Ît ∈ RH×W ×3 and depth                                                                                       this work we use Recurrent Interface Networks (RIN) [47]
+map D̂t ∈ RH×W for a novel target camera Ct . We use a                                                                                         as a more efficient Transformer-based architecture. The
+diffusion model fθ ∼ p(Ît , D̂t |Ct , IC ) to learn a conditional                                                                             key idea is the separation of computation into input tokens
+distribution from which to sample novel target images and                                                                                      X ∈ RN ×D and latent tokens Z ∈ RL×D , where the former
+depth maps. A diagram of our proposed Multi-View Geo-                                                                                          is obtained by tokenizing input data (and thus depends on
+metric Diffusion (MVGD) architecture is shown in Figure 2,                                                                                     the input size N ), but L is a fixed dimension. At each RIN
+and below we describe each of its components in detail.                                                                                        block, the latents Z are first cross-attended with the inputs
+                                                                                                                                               X, followed by several self-attention layers on Z, and the
+3.1. Preliminaries
+                                                                                                                                               resulting latents are cross-attended back with X.
+3.1.1   Diffusion Overview                                                                                                                        The fact that the bulk of our computation (i.e., self-
+Diffusion models [11, 38, 84] operate by learning a state                                                                                      attention) operates on a fixed number of L latent tokens,
+transition function from a noise tensor ϵ to a sample x0 from                                                                                  rather than on all N input tokens, makes it affordable to
+a learned data distribution. Such function is defined as:                                                                                      learn fθ directly in pixel space. It also enables the use of
+                                                                                                                                               significantly more conditioning views to generate scene to-
+                    \textbf {x}_t = \sqrt {\alpha _t} \textbf {x}_0 + \sqrt {1 - \alpha _t}\bm {\epsilon } \label {eq:velocity}    (1)         kens (as shown in the supplementary material). Moreover,
+
+
+
+                                                                                                                                         766
+we show that RIN latent tokens can be incrementally ex-                    repository, and fine-tune it end-to-end during training. A
+                                                                                                                        H   W
+panded to allow the training of larger models by fine-tuning               H × W input image I will result in FI ∈ R 4 × 4 ×448 fea-
+smaller ones, with promising scaling behavior in terms of                  tures. These features are flattened and processed by a lin-
+performance versus complexity (Sec. 4.5).                                  ear layer LI448→DI to produce image embeddings EcI,n ∈
+                                                                             HW
+
+3.2. Scene Scale Normalization                                             R 16 ×DI . This process is repeated for each conditioning
+                                                                           view, resulting in N sets of image embeddings.
+Scale estimation is an inherently ambiguous problem in 3D                  Ray Encoder. We use Fourier encoding [34, 35, 63] to to-
+computer vision. Single-frame methods are unable to di-                    kenize input cameras, parameterized as a raymap contain-
+rectly estimate scale, and must rely on other sources to dis-                                          T
+                                                                           ing origin tijk = [x, y, z]k and viewing direction rijk =
+ambiguate [28, 31, 35, 37, 68, 116]. Multi-frame methods                            −1             T
+                                                                           (Kk Rk ) [uij , vij , 1] for each pixel pij from camera k.
+must inherit the scale given by cross-camera extrinsics, to                This information is used to (a) position features extracted
+preserve multi-view geometry. This is particularly chal-                   from conditioning views in 3D space; and (b) determine
+lenging when training across multiple datasets, that use dif-              novel viewpoints for image and depth synthesis. Condition-
+ferent calibration procedures, such as metric scale from ad-               ing cameras Cn are resized to match the resolution of image
+ditional sensors (e.g., LiDAR, IMUs, or stereo pairs) or ar-               embeddings, and the target camera Ct is kept the same (note
+bitrary scale from self-supervision (e.g., COLMAP [80]).                   that tt is always at the origin, and Rt = I). Assuming No
+Several works have explored ways to address this challenge,                and Nr origin and ray frequencies, the resulting ray embed-
+such as scale jittering to increase robustness [34], scale con-            dings are of dimensionality DR = 3 (No + Nr + 1) .
+ditioning [10], or test-time multi-view alignment [12].
+    We propose a simple technique designed to automati-                    3.4. Multi-Task Learning
+cally extract scene scale from conditioning cameras and
+                                                                           Differently from other methods [12, 13, 22, 103, 118],
+ground-truth depth, by normalizing the input to our diffu-
+                                                                           MVGD does not maintain an intermediate 3D representa-
+sion process. This scene scale is injected back to generated
+                                                                           tion. These methods rely on such representations to produce
+predictions, resulting in multi-view consistent depth maps.
+                                                                           multi-view consistent predictions, by either conditioning a
+First, all conditioning extrinsics Tnc are expressed relative
+                                                    n                      NeRF on available images for novel rendering, or project-
+to the novel target extrinsics Tt , so that T̃c = Tnc T−1      t .         ing Gaussians generated from available images onto novel
+Note that this means that the novel normalized target camera
+                                                                           viewpoints. Instead, we propose to generate novel render-
+C˜t = {K, T̃}t is always positioned at the origin. This en-
+                                                                           ings directly from our implicit model, which therefore must
+forces translational and rotational invariance to scene-level
+                                                                           itself be multi-view consistent. We achieve that by jointly
+coordinate changes, a property that has been shown to im-
+                                                                           learning novel view and depth synthesis, i.e., by directly ren-
+prove multi-view depth estimation [34, 109].
+                                                                           dering depth maps from novel viewpoints alongside images.
+    We define the scene scale s as a scalar representing the
+                                                                               A simple approach would be to generate RGB-D predic-
+largest absolute camera translation in any spatial coordinate,
+                                                               T           tions as a single task. However, that would limit our training
+i.e., s = max{{|x̃|, |ỹ|, |z̃|}nc }N     whereitnc = [x, y, z] is
+                                    n=1 , h                                datasets to only those with dense ground-truth depth. An al-
+the translation component of Tnc = R0 1t , and Rnc ∈ R3×3                  ternative would be to condition the latent tokens themselves,
+is its rotational component. We then divide all translation                by appending task-specific tokens. However, that would (a)
+                                   n                  T
+vectors by this value, such that t̃c = [x/s, y/s, z/s] . During            make it impossible to jointly generate predictions for both
+training, if the target depth map Dt is used as ground-truth,              tasks, and (b) promote the separation of appearance and ge-
+we also divide it by s to maintain the scene geometry consis-              ometric priors, by creating dedicated latent tokens portions
+tent across views, such that D̃t = Dt/s. If max{D̃t } > dmax               of the latent space. Thus, we propose to use learnable task
+(the maximum value estimated by our model), we recalcu-                    embeddings Etask ∈ RDtask to guide each individual gen-
+late the scene scale as s′ = s · Dmax/max{D̃t } so the normal-             eration towards a specific task. The model’s predictions are
+ized ground-truth is within range, and use this new value to               parameterized as follows, depending on the task:
+recalculate {tnc }Nn=1 . During inference, once D̂t is gener-              RGB Parameterization. Our pixel-level diffusion does
+ated, we multiply it by s to ensure consistency with condi-                not require latent auto-encoders, and therefore ground-truth
+tioning cameras. In other words, generated depth maps will                 images are simply normalized to [−1, 1] with PRGB =
+have the same scale as conditioning cameras.                               (I + 1) /2. Generated predictions are converted back to im-
+                                                                           ages using the inverse operation Î = 2 P̂RGB + 1.
+3.3. Conditioning Embeddings
+                                                                           Depth Parameterization. To preserve multi-view consis-
+Image Encoder. We use EfficientViT [7] to tokenize in-                     tency, our generated depth predictions must be scale-aware,
+put conditioning views, providing visual scene informa-                    and thus should cover a wide range of possible values.
+tion for novel generation. We start from a pre-trained                     We assume dmin = 0.1 and dmax = 200, which makes
+EfficientViT-SAM-L2 model taken from the official                          MVGD suitable for indoor and outdoor scenarios. Note that
+
+
+
+                                                                     767
+these values are not metric, since they are considered after                                                                                                                                                                                                                                                                                                                                       In fact, we show in the supplementary material that MVGD
+scene scale normalization. We use log-scale parameteriza-                                                                                                                                                                                                                                                                                                                                          can scale to thousands of views on a single GPU, leading to
+tion [37, 79] (Equation 2), and predictions are converted                                                                                                                                                                                                                                                                                                                                          further improvements without any additional information.
+back using the inverse operation (Equation 3).                                                                                                                                                                                                                                                                                                                                                     3.7. Fine-Tuning Larger Models
+      \vspace {-3mm} \small \textbf {P}_D =& 2 \left ( \log \left ( \frac {\textbf {D}}{s \cdot d_{min}} \right ) / \log \left ( \frac {d_{max}}{d_{min}} \right ) \right ) - 1 \label {eq:depth_enc} \\ \hat {\textbf {D}} =& \exp \left ( \big ( 2\, \hat {\textbf {P}}_D + 1 \big ) \log \left ( \frac {d_{max}}{d_{min}} \right ) \right ) d_{min} \cdot s \label {eq:depth_dec}               The fixed dimensionality of our latent tokens Z enables effi-
+                                                                                                                                                                                                                                                                                                                                                                                                   cient training and inference in terms of the number of input
+                                                                                                                                                                                                                                                                                                                                                                                                   tokens X. However, this bottleneck representation may also
+                                                                                                                                                                                                                                                                                                                                                                                       (3)         hinder the quality of generated samples, especially when
+                                                                                                                                                                                                                                                                                                                                                                                                   considering large-scale multi-task learning. If this hypothe-
+3.5. Novel View and Depth Synthesis                                                                                                                                                                                                                                                                                                                                                                sis is correct, increasing the number of latents tokens should
+The steps described above produce two different sets of in-                                                                                                                                                                                                                                                                                                                                        lead to improvements, albeit at the cost of slower training
+puts: scene tokens, used to contextualize the diffusion pro-                                                                                                                                                                                                                                                                                                                                       times. To avoid training larger models from scratch, we ob-
+cess; and prediction tokens, used to guide the diffusion pro-                                                                                                                                                                                                                                                                                                                                      serve that introducing more latent tokens does not change
+cess towards generating the desired predictions.                                                                                                                                                                                                                                                                                                                                                   our architecture at all, i.e., the cross-attention with inputs
+Scene tokens are obtained by first concatenating image and                                                                                                                                                                                                                                                                                                                                         and the self-attention between latents remains the same.
+ray embeddings from each conditioning view, producing                                                                                                                                                                                                                                                                                                                                              Thus, after training with a specific number of latent tokens,
+Enc = EI,n      ⊕ ER,n                                                                                                                                                                                                                                                                                                                                                                             we can simply duplicate and concatenate them, resulting in
+           c       c , and then concatenating embeddings
+from all conditioning views, producing Ec = E1c ⊕ ... ⊕                                                                                                                                                                                                                                                                                                                                            a structurally similar representation with twice the capac-
+EN
+            N HW
+              16 ×(DI +DR ) . To improve training efficiency,
+                                                                                                                                                                                                                                                                                                                                                                                                   ity. This larger model can then be further optimized, and
+  c ∈ R
+we randomly sample Ms scene tokens as conditioning.                                                                                                                                                                                                                                                                                                                                                we empirically demonstrate (Sec. 4.5) that this incremental
+Prediction tokens are obtained by concatenating ray em-                                                                                                                                                                                                                                                                                                                                            fine-tuning strategy leads to substantial improvements with-
+beddings ER                                                                                                                                                                                                                                                                                                                                                                                        out the need to train new models from scratch.
+              t from the target camera with the desired task
+embeddings Etask and state embeddings Stask     t    . The state                                                                                                                                                                                                                                                                                                                                   4. Experiments
+embeddings contain the evolving state of the diffusion
+model’s predictions, and are defined as follows:                                                                                                                                                                                                                                                                                                                                                   4.1. Architecture Details
+• Training: State embeddings St are generated by param-                                                                                                                                                                                                                                                                                                                                            Our diffusion model is based on the RIN implementation
+   eterizing an input image It or depth map Dt , and adding                                                                                                                                                                                                                                                                                                                                        from [98], containing 6 blocks with depth 4, 16 latent
+   random noise determined by a noise scheduler n(t), given                                                                                                                                                                                                                                                                                                                                        and read-write heads, and Z ∈ R256×1024 . Ray embed-
+   a randomly sampled timestep t ∈ [1, T ]. Our diffusion                                                                                                                                                                                                                                                                                                                                          dings were calculated using No = Nr = 8 and maxi-
+   model is trained to learn the transition function fθ accord-                                                                                                                                                                                                                                                                                                                                    mum frequency 100. Task embeddings are of dimension-
+   ing to Equation 1. We use L2 and L1 losses to supervise                                                                                                                                                                                                                                                                                                                                         ality Dtask = 128, and DI = 256. At training time, we
+   image and depth generation, respectively. For depth es-                                                                                                                                                                                                                                                                                                                                         randomly select Ms = 1024 scene tokens from each condi-
+   timation, prediction tokens are generated only for pixels                                                                                                                                                                                                                                                                                                                                       tioning view, and Mt = 4096 prediction tokens. Prediction
+   with valid ground-truth. For both tasks, to improve effi-                                                                                                                                                                                                                                                                                                                                       tokens are dedicated either for only image or depth genera-
+   ciency, we randomly sample Mp prediction tokens.                                                                                                                                                                                                                                                                                                                                                tion, or split equally between both tasks. We select between
+• Inference: State embeddings STt ∼ N (0, I) are sampled                                                                                                                                                                                                                                                                                                                                           2 − 5 views for conditioning, and an additional view as tar-
+   as 3-dimensional vectors for image or scalars for depth                                                                                                                                                                                                                                                                                                                                         get. We use DDIM [86] with 1000 training and 10 evalua-
+   generation. They are iteratively denoised for T steps us-                                                                                                                                                                                                                                                                                                                                       tion timesteps, sigmoid noise schedule, and EMA [55] with
+   ing fθ with scheduler n(t). At t = 0 state embeddings                                                                                                                                                                                                                                                                                                                                           β = 0.999. Images are resized to a longest side of 256.
+   S0t will contain the parameterized prediction, that is con-                                                                                                                                                                                                                                                                                                                                         We trained MVGD from scratch, using AdamW [60]
+   verted back to Ît or D̂t . To mitigate stochasticity, we per-                                                                                                                                                                                                                                                                                                                                  with β1 = 0.9, β2 = 0.99, batch size b = 512, weight decay
+   form test-time ensembling [37, 51] over E = 5 samples.                                                                                                                                                                                                                                                                                                                                          w = 10−2 , learning rate lr = 10−4 , and a warm-up sched-
+                                                                                                                                                                                                                                                                                                                                                                                                   uler [24] with linear increase for 10k steps followed by co-
+3.6. Incremental Multi-View Generation                                                                                                                                                                                                                                                                                                                                                             sine decay, for a total of 300k steps (until convergence).
+Due to stochasticity in the diffusion process, generating                                                                                                                                                                                                                                                                                                                                          For each fine-tuning stage, we duplicate Z and train for 50k
+multiple predictions from unobserved areas may lead to in-                                                                                                                                                                                                                                                                                                                                         steps, using the same scheduler and half the learning rate.
+consistencies, even though each one is equally valid. To                                                                                                                                                                                                                                                                                                                                           In total, training takes around 6k A100 GPU-hours.
+address this ambiguity, we propose to maintain a history
+                                                                                                                                                                                                                                                                                                                                                                                                   4.2. Training Datasets
+of generated images IG = {Î, C}G   g=1 to use as additional
+conditioning for future generations. Although this approach                                                                                                                                                                                                                                                                                                                                        Rather than relying on a intermediate 3D representation to
+creates additional scene tokes, the number of RIN latent to-                                                                                                                                                                                                                                                                                                                                       generate novel predictions, MVGD samples directly from
+kens remain the same, which greatly increases efficiency.                                                                                                                                                                                                                                                                                                                                          an implicit latent space. To promote the learning of the
+
+
+
+                                                                                                                                                                                                                                                                                                                                                                                             768
+Figure 3. MVGD novel view and depth synthesis results randomly sampled from different evaluation benchmarks and in-the-wild
+datasets. Top images are conditioning views (colored cameras), and bottom images are the target view (black camera), showing from left-
+to-right: ground-truth image, predicted image, and predicted depth map. These predictions are used to produce a colored 3D pointcloud
+observed from the target view. For more examples and additional visualizations, please refer to the supplementary material.
+                        RealEstate10K [121]   ACID [57]                     art. We attribute this improvement to a combination of (a)
+                      PSNR↑ SSIM↑ LPIPS↓ PSNR↑ SSIM↑ LPIPS↓
+                                                                            our proposed large-scale training procedure, that leads to
+    PixelNeRF [118]   20.43   0.589   0.550   20.97   0.547   0.533
+    GPNR [88]         24.11   0.793   0.255   25.28   0.764   0.332         improvements even on in-domain benchmarks; and (b) the
+    AttnRend [18]     24.78   0.820   0.213   26.88   0.799   0.218
+                                                                            implicit learning of novel view and depth synthesis from
+    MuRF [107]        26.10   0.858   0.143   28.09   0.841   0.155
+    PixelSplat [12]   25.89   0.858   0.142   28.14   0.839   0.150
+                                                                            such diverse data, instead of relying on indirect renderings.
+    MVSplat [13]      26.39   0.869   0.128   28.25   0.843   0.144         We also note that these methods struggle with more than 2
+                                                                            views, since explicit geometric alignment between cameras
+    MVGD              28.41   0.891   0.107   29.98   0.875   0.131
+                                                                            is required. In contrast, MVGD generates images and depth
+   Table 2. Novel view synthesis results with 2 input views.                maps from novel viewpoints without any additional steps.
+                                                                                Therefore, we also evaluated the same MVGD model
+priors required to achieve this, we curated more than 60M
+                                                                            on benchmarks with larger number of input views. Ta-
+samples from publicly available multi-view datasets, focus-
+                                                                            ble 3 reports these results, and once again we outperform
+ing on diversity both in terms of appearance (e.g., indoor,
+                                                                            strong baselines that also leverage large-scale pre-training
+outdoors, driving, robotics, objects, synthetic) and geome-
+                                                                            in combination with diffusion models [22, 103]. Note that
+try (e.g., intrinsics, resolution, scale). Table 1 shows a list of
+                                                                            MVGD was trained using only 2-5 conditioning views, and
+the datasets used to train MVGD, and more information can
+                                                                            still it was able to generalize to larger numbers (additional
+be found in the supplementary material. For a fair compari-
+                                                                            experiments are available in the supplementary material).
+son with similar methods on in-domain benchmarks, wher-
+                                                                            For completeness, in Table 4 we report novel depth synthe-
+ever possible we use only samples from the official training
+                                                                            sis results compared to sparse COLMAP [80] ground-truth,
+splits. We also note that some datasets contain dynamic ob-
+                                                                            showing a similar trend of improvements with more condi-
+jects, which are currently not modeled by our framework.
+                                                                            tioning views. Qualitative results can be found in Figure 3,
+We decided to include these to further increase the diver-
+                                                                            including reconstructed pointclouds from novel viewpoints.
+sity and zero-shot capabilities of MVGD, and observed non-
+trivial improvements across all benchmarks (Table 5).
+                                                                            4.4. Multi-View Depth Estimation
+4.3. Novel View Synthesis
+                                                                            To further evaluate the implicit geometric priors learned by
+We evaluated MVGD for the task of novel view synthe-                        MVGD, we evaluated our model on two different multi-
+sis with an arbitrary number of conditioning views, from                    view depth estimation benchmarks. The Stereo benchmark
+2 to 9. The 2-view setting is dominated by 3DGS [12, 13],                   involves 2-view conditioning from overlapping image pairs,
+in which predictions from available views are scale-aligned                 and the Video benchmark involves 10-view conditioning
+and rendered from novel viewpoints; whereas settings with                   from image sequences. Note that in these benchmarks the
+more views are dominated by methods that first generate                     target image is also used as conditioning, and the goal is to
+additional conditioning images with diffusion, and then use                 generate its depth map given all available views (a setting
+a generalizable NeRF for novel view rendering [22, 103].                    not considered during training). Results are reported in Ta-
+   Table 2 reports 2-view quantitative results, showing that                bles 6 and 7, where MVGD once again outperforms the pre-
+MVGD significantly outperforms the previous state of the                    vious state of the art by a large margin, even though it does
+
+
+
+                                                                      769
+                                                                 PSNR↑                                   SSIM↑                          LPIPS↓
+                                                        3-view       6-view        9-view   3-view       6-view      9-view    3-view    6-view    9-view
+                                FreeNeRF [110]          20.54        25.63         27.32    0.731        0.817       0.843     0.394     0.344     0.332
+
+              RE10K [121]
+                                SimpleNeRF [85]         23.89        28.75         29.55    0.839        0.896       0.900     0.292     0.239     0.236
+                                ZeroNVS∗ [78]           19.11        22.54         23.73    0.675        0.744       0.766     0.422     0.374     0.358
+                                ReconFusion† [103]      25.84        29.99         31.82    0.910        0.951       0.961     0.144     0.103     0.092
+                                CAT3D† [22]             26.78        31.07         32.20    0.917        0.954       0.963     0.132     0.092     0.082
+
+                                MVGD                    28.70        31.71         32.89    0.925        0.960       0.969     0.128     0.090     0.085
+                                FreeNeRF [110]          19.63        23.72         25.12    0.613        0.773       0.820     0.347     0.232     0.193
+                                SimpleNeRF [85]         19.24        23.05         23.98    0.623        0.737       0.762     0.375     0.296     0.286
+              LLFF [62]
+
+
+
+
+                                ZeroNVS∗ [78]           15.91        18.39         18.79    0.359        0.449       0.470     0.512     0.438     0.416
+                                ReconFusion† [103]      21.34        24.25         25.21    0.724        0.815       0.848     0.203     0.152     0.134
+                                CAT3D† [22]             21.58        24.71         25.63    0.731        0.833       0.860     0.181     0.121     0.107
+
+                                MVGD                    22.39        24.76         25.93    0.776        0.882       0.853     0.157     0.131     0.103
+
+                                FreeNeRF [110]          20.46        23.48         25.56    0.826        0.870       0.902     0.173     0.131     0.102
+                                SimpleNeRF [85]         16.25        20.60         22.75    0.751        0.828       0.856     0.249     0.190     0.176
+              DTU [49]
+
+
+
+
+                                ZeroNVS∗ [78]           16.71        17.70         17.92    0.716        0.737       0.745     0.223     0.205     0.200
+                                ReconFusion† [103]      20.74        23.62         24.62    0.875        0.904       0.921     0.124     0.105     0.094
+                                CAT3D† [22]             22.02        24.28         25.92    0.844        0.899       0.928     0.121     0.095     0.073
+
+                                MVGD                    23.79        25.31         26.88    0.893        0.912       0.939     0.115     0.091     0.088
+                                FreeNeRF [110]          13.28        15.20         17.35    0.461        0.523       0.575     0.634     0.596     0.561
+                                SimpleNeRF [85]         15.40        18.12         20.52    0.553        0.622       0.672     0.612     0.541     0.493
+              CO3D [72]
+
+
+
+
+                                ZeroNVS∗ [78]           17.13        19.72         20.50    0.581        0.627       0.640     0.566     0.515     0.500
+                                ReconFusion† [103]      19.59        21.84         22.95    0.662        0.714       0.736     0.398     0.342     0.318
+                                CAT3D† [22]             20.57        22.79         23.58    0.666        0.726       0.752     0.351     0.292     0.273
+
+                                MVGD                    20.68        23.49         24.77    0.678        0.743       0.789     0.331     0.322     0.248
+                                FreeNeRF [110]          12.87        13.35         14.59    0.260        0.283       0.319     0.715     0.717     0.695
+              MIP-NeRF360 [2]
+
+
+
+
+                                SimpleNeRF [85]         13.27        13.67         15.15    0.283        0.312       0.354     0.741     0.721     0.676
+                                ZeroNVS∗ [78]           14.44        15.51         15.99    0.316        0.337       0.350     0.680     0.663     0.655
+                                ReconFusion† [103]      15.50        16.93         18.19    0.358        0.401       0.432     0.585     0.544     0.511
+                                CAT3D† [22]             16.62        17.72         18.67    0.377        0.425       0.460     0.515     0.451     0.439
+
+                                MVGD                    18.74        20.28         21.18    0.425        0.463       0.512     0.499     0.512     0.488
+                                                                                            ∗
+Table 3. Novel view synthesis results with 3-9 conditioning views. indicate methods fine-tuned and reported by [103]. † indicate the use
+of image diffusion models pre-trained with internal datasets. Colored numbers represent first , second , and third best ranked metrics.
+RealEstate10k and CO3D results are in-domain, and results on other benchmarks are zero-shot.
+       Dataset                      Split     Abs.Rel.↓     RMSE↓        δ1.25 ↑                                     RE10K(2) DTU(3) CO3D(3)      LLFF(3)   ScanNet(2)
+                                    3-view     0.105         8.378       0.865                       Variation        PSNR    PSNR PSNR Abs.Rel PSNR Abs.Rel Abs.Rel
+       LLFF                         6-view     0.098         8.260       0.879
+                                    9-view     0.093         8.006       0.891                    A 2048 (scratch)    22.09   20.22 16.25 0.120 19.11 0.148    0.088
+                                    3-view      0.143        2.445       0.842                    B − RGB              —–      —–    —– 0.132 —– 0.138         0.089
+       MIPNeRF360                   6-view      0.124        2.292       0.866                    C − Depth           21.46   19.31 16.39 —– 19.01 —–           —–
+                                    9-view      0.109        2.106       0.883                    D − SSN             20.15   17.98 14.67 0.175 16.87 0.224    0.329
+                                                                                                  E − Dynamic         23.24   19.51 17.04 0.141 19.28 0.143    0.087
+                                    3-view      0.101        4.654       0.874
+       CO3D                         6-view      0.086        4.436       0.898                       MVGD (short)     24.44   20.16 17.98 0.127 20.19 0.131    0.081
+                                    9-view      0.079        4.195       0.914
+                                                                                                  F + RGB (B)         25.15   21.11 18.04 0.120 20.21 0.120    0.075
+                                                                                                  G + Depth (C)       25.68   21.31 18.39 0.124 20.52 0.127    0.079
+Table 4. Novel depth synthesis results with 3-9 conditioning
+views, relative to COLMAP [80] ground-truth. No test-time align-                                     MVGD (full)      25.89   21.32 18.48 0.121 20.58 0.119    0.075
+
+ment was used, which means that predicted depth maps share the                                    Table 5. MVGD ablation analysis. Top results obtained with
+same scale as the provided camera extrinsics.                                                     200k steps and 256 latent tokens. Bottom results obtained by fine-
+                                                                                                  tuning top models for 100k steps.
+not rely on geometry-preserving 3D augmentations [34], ar-
+chitectural equivariance [109], or TSDF volumes [89].                                             ciency, computation at a lower-dimensional space hinders
+                                                                                                  prediction quality. This is especially important in novel
+4.5. Incremental Fine-Tuning
+                                                                                                  view synthesis, that benefits from high frequency details.
+In Table 8 we analyze the impact that our proposed incre-                                         However, experiments with direct self-attention [67] were
+mental fine-tuning strategy has on novel view and depth                                           not possible due to memory constraints: a 256 × 256 target
+synthesis. The first noticeable aspect is that, even though                                       image has 65536 prediction tokens, plus 4096 scene tokens
+adding more latent tokens barely changes the number of                                            per conditioning view. In contrast, our largest model has
+parameters, it leads to substantial improvements across all                                       only 2048 latent tokens, regardless of resolution or num-
+benchmarks. We attribute this to the use of latent tokens in                                      ber of inputs. Moreover, we observed a sub-linear increase
+the first place: even though it dramatically increases effi-                                      in inference time: a 256 model generates predictions in
+
+
+
+                                                                                            770
+                           ScanNet [14]                   SUN3D [106]                        RGB-D [87]                       Method              Abs. Rel↓ Sq. Rel↓ RMSE↓
+Method
+                     Abs.Rel.↓ RMSE↓ δ1.25 ↑ Abs.Rel.↓ RMSE↓ δ1.25 ↑ Abs.Rel.↓ RMSE↓ δ1.25 ↑                                  DeMoN [96]           0.231    0.520    0.761
+                                                                                                                              MiDas-v2 [71]        0.208    0.318    0.742
+DPSNet [44]           0.126      0.315       -        0.147      0.449     0.781     0.151      0.695     0.804               BA-Net [91]          0.091    0.058    0.223
+NAS [56]              0.107      0.281       -        0.127      0.378     0.829     0.131      0.619     0.857               CVD [61]             0.073    0.037    0.217
+IIB [115]             0.116      0.281     0.908      0.099      0.293     0.902     0.095      0.550     0.907
+DeFiNe [34]           0.093      0.246     0.911      0.095      0.287     0.914     0.095      0.539     0.909               DeFiNe [34]          0.059    0.022    0.184
+EPIO [109]            0.086      0.229     0.923      0.090      0.260     0.912     0.080      0.433     0.912               DeepV2D [92]         0.057    0.010    0.168
+GRIN [37]             0.088      0.224     0.925      0.097      0.274     0.908     0.092      0.512     0.919               NeuralRecon [89]     0.047    0.024    0.164
+
+MVGD                  0.065      0.202     0.946      0.088      0.247     0.926     0.074      0.405     0.938               MVGD                 0.041    0.007    0.143
+
+Table 6. Stereo depth experiments, with 2 conditioning views. Results on ScanNet                                        Table 7. Video depth experiments on ScanNet
+are in-domain, and results on SUN3D and RGB-D are zero-shot.                                                            (in-domain), with 10 conditioning views.
+
+                            m.     RE10K (2-view)                  CO3Dv2 (3-view)                          MIPNeRF360 (3-view)                      LLFF (3-view)
+               nts
+         ate            ara
+    #L                #P           PSNR↑      SSIM↑ PSNR↑ SSIM↑ Abs.Rel.↓ RMSE↓ PSNR↑ SSIM↑ Abs.Rel.↓ RMSE↓ PSNR↑ SSIM↑ Abs.Rel.↓ RMSE↓
+        256           417.9M       25.89      0.841      18.48     0.567     0.121      5.347       17.71    0.415    0.156       2.789   20.58     0.706   0.119     8.807
+        512           418.2M       26.33      0.859      19.56     0.590     0.109      5.048       18.15    0.429    0.149       2.581   21.14     0.738   0.111     8.686
+       1024           418.7M       27.73      0.870      20.08     0.622     0.104      4.766       18.49    0.444    0.147       2.499   21.85     0.754   0.109     8.547
+       2048           419.7M       28.41      0.891      20.68     0.678     0.101      4.654       18.74    0.465    0.143       2.445   22.39     0.776   0.105     8.378
+Table 8. Incremental fine-tuning experiments. The first model (256) was trained from scratch for 300k steps, and each subsequent
+model was obtained by duplicating the latents of the previous one and fine-tuning for 50k steps. Even though the total number of learnable
+parameters barely changes (+0.5%), results improve by a significant margin (up to +20%) across all benchmarks and tasks.
+
+roughly 0.3s, while a 2048 model (8×) takes 1.1s (4×).                                              ing a model (E) without dynamic datasets, which led to a
+   The second aspect is how efficiently smaller models                                              decrease of roughly 12% in the amount of training data.
+can be improved with our proposed incremental fine-tuning                                           Even though MVGD does not model dynamics, it still bene-
+strategy. Once the first model has been trained for 300k                                            fits from additional training data even on in-domain bench-
+steps, each subsequent one is fine-tuned for only 50k steps.                                        marks. In the supplementary material we provide examples
+Similar to inference, we noticed that each training step of a                                       that show signs of implicit dynamics modeling.
+2048 model is roughly 4× slower compared to a 256 model,                                                To further evaluate the multi-task capabilities of MVGD,
+which means that training our largest model from scratch                                            we experimented with the introduction of new tasks to a
+would take 3× longer compared to incremental fine-tuning.                                           trained model, by fine-tuning (F) our depth-only model to
+Moreover, we trained a 2048 model from scratch for 300k                                             include novel view synthesis, and (G) vice-versa. The only
+steps, and achieved worse performance than a 256 model (A                                           added parameters were task embeddings for the new task,
+on Table 5). This indicates that (a) training more complex                                          randomly initialized. This fine-tuning stage was performed
+models from scratch requires longer schedules, which fur-                                           for an 100k steps, reaching our proposed full schedule for
+ther increases training time; and (b) our proposed strategy                                         256 latents. Interestingly, the resulting model not only
+can leverage priors from smaller models and quickly adapt                                           reached original task performance comparable to a multi-
+them to fit within a more complex representation.                                                   task model trained from scratch, but also on the added task,
+                                                                                                    as indication that our learned multi-view priors can be re-
+4.6. Ablation Study                                                                                 purposed for other tasks with minimal fine-tuning.
+Here we ablate our main design choices, with results sum-
+marized in Table 5. For computational reasons, a shorter                                            5. Conclusion
+schedule of 200k steps was used, achieving performance
+within 10% of the full schedule.                                                                    We introduce MVGD, a diffusion-based architecture for
+   First, we analyzed single vs. multi-task learning, by                                            generalizable novel view and depth synthesis from an ar-
+training models capable of only novel (B) view or (C) depth                                         bitrary number of posed images. We propose to generate
+synthesis. As noted in [34], training a depth-only model                                            novel images and depth maps by directly sampling from
+led to slight degradation, in addition to limiting training                                         a multi-view consistent and scale-aware implicit distribu-
+datasets to only those with valid depth labels. However, an                                         tion, jointly trained for both tasks. To achieve this, we
+image-only model performed much worse, as evidence that                                             curated over 60M multi-view samples from publicly avail-
+geometric reasoning is key to accurate novel view synthesis.                                        able datasets, and propose key technical modifications to the
+   This hypothesis is reinforced when (D) training a multi-                                         standard diffusion pipeline that enables efficient training in
+task model without scene scale normalization (SSN), which                                           such diverse conditions. As a result, MVGD achieves state-
+led to significantly worse novel view and depth synthesis.                                          of-the-art results in multiple novel view synthesis bench-
+Interestingly, novel view synthesis is worse without SSN                                            marks, as well as stereo and video depth estimation. We
+than without multi-tasking, showing that inaccurate geome-                                          also design a novel incremental fine-tuning strategy to in-
+try is more detrimental than no geometry at all.                                                    crease model complexity without retraining from scratch,
+   We also validated the benefits of data diversity by train-                                       showing promising scaling behavior with larger models.
+
+
+
+                                                                                              771
+References                                                                 [15] Kangle Deng, Andrew Liu, Jun-Yan Zhu, , and Deva Ra-
+                                                                                manan. Depth-supervised nerf: Fewer views and faster
+ [1] Jonathan T. Barron, Ben Mildenhall, Matthew Tancik, Peter                  training for free. arXiv:2107.02791, 2021. 1, 2
+     Hedman, Ricardo Martin-Brualla, and Pratul P. Srinivasan.             [16] Terrance DeVries, Miguel Angel Bautista, Nitish Srivas-
+     Mip-nerf: A multiscale representation for anti-aliasing neu-               tava, Graham W Taylor, and Joshua M Susskind. Uncon-
+     ral radiance fields. ICCV, 2021. 2                                         strained scene generation with locally conditioned radiance
+ [2] Jonathan T. Barron, Ben Mildenhall, Dor Verbin, Pratul P.                  fields. In Proceedings of the IEEE/CVF International Con-
+     Srinivasan, and Peter Hedman. Mip-nerf 360: Unbounded                      ference on Computer Vision, pages 14304–14313, 2021. 2
+     anti-aliased neural radiance fields. CVPR, 2022. 7                    [17] Prafulla Dhariwal and Alexander Nichol. Diffusion models
+ [3] Shariq Farooq Bhat, Reiner Birkl, Diana Wofk, Peter                        beat gans on image synthesis. In NeurIPS, 2021. 3
+     Wonka, and Matthias Müller. Zoedepth: Zero-shot trans-               [18] Yilun Du, Cameron Smith, Ayush Tewari, and Vincent Sitz-
+     fer by combining relative and metric depth, 2023. 3                        mann. Learning to render novel views from wide-baseline
+ [4] Reiner Birkl, Diana Wofk, and Matthias Müller. Midas v3.1                 stereo pairs. In Proceedings of the IEEE/CVF Confer-
+     – a model zoo for robust monocular relative depth estima-                  ence on Computer Vision and Pattern Recognition (CVPR),
+     tion, 2023. 3                                                              pages 4970–4980, 2023. 6
+ [5] Yohann Cabon, Naila Murray, and Martin Humenberger.                   [19] Ainaz Eftekhar, Alexander Sax, Jitendra Malik, and Amir
+     Virtual kitti 2. arXiv:2001.10773, 2020. 2                                 Zamir. Omnidata: A scalable pipeline for making multi-
+ [6] Holger Caesar, Varun Bankiti, Alex H Lang, Sourabh Vora,                   task mid-level vision datasets from 3d scans. In Proceed-
+     Venice Erin Liong, Qiang Xu, Anush Krishnan, Yu Pan,                       ings of the IEEE/CVF International Conference on Com-
+     Giancarlo Baldan, and Oscar Beijbom. nuscenes: A mul-                      puter Vision, pages 10786–10796, 2021. 3
+     timodal dataset for autonomous driving. In CVPR, 2020.                [20] Jiading Fang, Igor Vasiljevic, Vitor Guizilini, Rares Am-
+     2                                                                          brus, Greg Shakhnarovich, Adrien Gaidon, and Matthew
+ [7] Han Cai, Chuang Gan, and Song Han.                      Effi-              Walter. Self-supervised camera self-calibration from video.
+     cientvit: Enhanced linear attention for high-resolution                    In IEEE International Conference on Robotics and Automa-
+     low-computation visual recognition.          arXiv preprint                tion (ICRA), 2022. 3
+     arXiv:2205.14756, 2022. 4                                             [21] Xiao Fu, Wei Yin, Mu Hu, Kaixuan Wang, Yuexin Ma, Ping
+ [8] Eric Chan, Marco Monteiro, Petr Kellnhofer, Jiajun Wu,                     Tan, Shaojie Shen, Dahua Lin, and Xiaoxiao Long. Ge-
+     and Gordon Wetzstein. pi-gan: Periodic implicit genera-                    owizard: Unleashing the diffusion priors for 3d geometry
+     tive adversarial networks for 3d-aware image synthesis. In                 estimation from a single image. arxiv, 2024. 3
+     arXiv, 2020. 2                                                        [22] Ruiqi Gao*, Aleksander Holynski*, Philipp Henzler,
+                                                                                Arthur Brussee, Ricardo Martin-Brualla, Pratul P. Srini-
+ [9] Eric R. Chan, Connor Z. Lin, Matthew A. Chan, Koki
+                                                                                vasan, Jonathan T. Barron, and Ben Poole*. Cat3d: Cre-
+     Nagano, Boxiao Pan, Shalini De Mello, Orazio Gallo,
+                                                                                ate anything in 3d with multi-view diffusion models. arXiv,
+     Leonidas Guibas, Jonathan Tremblay, Sameh Khamis, Tero
+                                                                                2024. 1, 3, 4, 6, 7
+     Karras, and Gordon Wetzstein. Efficient geometry-aware
+                                                                           [23] Clément Godard, Oisin Mac Aodha, Michael Firman, and
+     3D generative adversarial networks. In arXiv, 2021. 2
+                                                                                Gabriel J. Brostow. Digging into self-supervised monocular
+[10] Eric R. Chan, Koki Nagano, Matthew A. Chan, Alexan-                        depth prediction. In ICCV, 2019. 3
+     der W. Bergman, Jeong Joon Park, Axel Levy, Miika Ait-
+                                                                           [24] Priya Goyal, Piotr Dollár, Ross Girshick, Pieter Noord-
+     tala, Shalini De Mello, Tero Karras, and Gordon Wetzstein.
+                                                                                huis, Lukasz Wesolowski, Aapo Kyrola, Andrew Tulloch,
+     GeNVS: Generative novel view synthesis with 3D-aware
+                                                                                Yangqing Jia, and Kaiming He. Accurate, large minibatch
+     diffusion models. In arXiv, 2023. 2, 4
+                                                                                sgd: Training imagenet in 1 hour, 2018. 5
+[11] Ziyi Chang, George Alex Koulieris, and Hubert P. H. Shum.             [25] Jiatao Gu, Alex Trevithick, Kai-En Lin, Josh Susskind,
+     On the design fundamentals of diffusion models: A survey,                  Christian Theobalt, Lingjie Liu, and Ravi Ramamoorthi.
+     2023. 3                                                                    Nerfdiff: Single-image view synthesis with nerf-guided dis-
+[12] David Charatan, Sizhe Li, Andrea Tagliasacchi, and Vin-                    tillation from 3d-aware diffusion. In International Confer-
+     cent Sitzmann. pixelsplat: 3d gaussian splats from image                   ence on Machine Learning, 2023. 2
+     pairs for scalable generalizable 3d reconstruction. In arXiv,         [26] Guangcong, Zhaoxi Chen, Chen Change Loy, and Ziwei
+     2023. 1, 2, 4, 6                                                           Liu. Sparsenerf: Distilling depth ranking for few-shot novel
+[13] Yuedong Chen, Haofei Xu, Chuanxia Zheng, Bohan                             view synthesis. IEEE/CVF International Conference on
+     Zhuang, Marc Pollefeys, Andreas Geiger, Tat-Jen Cham,                      Computer Vision (ICCV), 2023. 2
+     and Jianfei Cai. Mvsplat: Efficient 3d gaussian splat-                [27] Ming Gui, Johannes S, Fischer, Ulrich Prestel, Pingchuan
+     ting from sparse multi-view images.          arXiv preprint                Ma, Olga Grebenkova Dmytro Kotovenko, Stefan Andreas
+     arXiv:2403.14627, 2024. 1, 2, 4, 6                                         Baumann, Vincent Tao Hu, and Björn Ommer. Depthfm:
+[14] Angela Dai, Angel X. Chang, Manolis Savva, Maciej Hal-                     Fast monocular depth estimation with flow matching, 2024.
+     ber, Thomas Funkhouser, and Matthias Nießner. Scannet:                     3
+     Richly-annotated 3d reconstructions of indoor scenes. In              [28] Vitor Guizilini, Rares Ambrus, Sudeep Pillai, Allan Raven-
+     Proc. Computer Vision and Pattern Recognition (CVPR),                      tos, and Adrien Gaidon. 3d packing for self-supervised
+     IEEE, 2017. 2, 8                                                           monocular depth estimation. In CVPR, 2020. 4
+
+
+
+
+                                                                     772
+[29] Vitor Guizilini, Rui Hou, Jie Li, Rares Ambrus, and Adrien              Shaojie Shen. Metric3d v2: A versatile monocular geomet-
+     Gaidon. Semantically-guided representation learning for                 ric foundation model for zero-shot metric depth and surface
+     self-supervised monocular depth. In ICLR, 2020. 3                       normal estimation. arXiv preprint arXiv:2404.15506, 2024.
+[30] Vitor Guizilini, Jie Li, Rares Ambrus, and Adrien Gaidon.               3
+     Geometric unsupervised domain adaptation for semantic              [43] Wenbo Hu, Xiangjun Gao, Xiaoyu Li, Sijie Zhao, Xi-
+     segmentation. In ICCV, 2021. 2                                          aodong Cun, Yong Zhang, Long Quan, and Ying Shan.
+[31] Vitor Guizilini, Igor Vasiljevic, Rares Ambrus, Greg                    Depthcrafter: Generating consistent long depth sequences
+     Shakhnarovich, and Adrien Gaidon. Full surround mon-                    for open-world videos. arXiv preprint arXiv:2409.02095,
+     odepth from multiple cameras. arXiv:2104.00152, 2021.                   2024. 3
+     4                                                                  [44] Sunghoon Im, Hae-Gon Jeon, Stephen Lin, and In So
+[32] Vitor Guizilini, Rares Ambrus, Dian Chen, Sergey Za-                    Kweon. Dpsnet: End-to-end deep plane sweep stereo.
+     kharov, and Adrien Gaidon. Multi-frame self-supervised                  arXiv:1905.00538, 2019. 8
+     depth with transformers. In Proceedings of the Interna-            [45] Muhammad Zubair Irshad, Sergey Zakharov, Katherine
+     tional Conference on Computer Vision and Pattern Recog-                 Liu, Vitor Guizilini, Thomas Kollar, Adrien Gaidon, Zsolt
+     nition (CVPR), 2022. 3                                                  Kira, and Rares Ambrus. Neo 360: Neural fields for sparse
+[33] Vitor Guizilini, Kuan-Hui Lee, Rares Ambrus, and Adrien                 view synthesis of outdoor scenes. In Interntaional Confer-
+     Gaidon. Learning optical flow, depth, and scene flow with-              ence on Computer Vision (ICCV), 2023. 2
+     out real-world labels. IEEE Robotics and Automation Let-           [46] Muhammad Zubair Irshad, Sergey Zakharov, Vitor
+     ters, 2022. 2                                                           Guizilini, Adrien Gaidon, Zsolt Kira, and Rares Ambrus.
+[34] Vitor Guizilini, Igor Vasiljevic, Jiading Fang, Rares Am-               Nerf-mae: Masked autoencoders for self-supervised 3d rep-
+     brus, Greg Shakhnarovich, Matthew R Walter, and Adrien                  resentation learning for neural radiance fields. In European
+     Gaidon. Depth field networks for generalizable multi-view               Conference on Computer Vision (ECCV), 2024. 2
+     scene representation. In Computer Vision–ECCV 2022:                [47] Allan Jabri, David J. Fleet, and Ting Chen. Scalable adap-
+     17th European Conference, Tel Aviv, Israel, October 23–27,              tive computation for iterative generation. In ICML, 2023.
+     2022, Proceedings, Part XXXII, pages 245–262. Springer,                 2, 3
+     2022. 1, 3, 4, 7, 8                                                [48] Ajay Jain, Matthew Tancik, and Pieter Abbeel. Putting nerf
+[35] Vitor Guizilini, Igor Vasiljevic, Dian Chen, Rares Ambrus,              on a diet: Semantically consistent few-shot view synthesis.
+     and Adrien Gaidon. Towards zero-shot scale-aware monoc-                 In Proceedings of the IEEE/CVF International Conference
+     ular depth estimation. In Proceedings of the IEEE/CVF In-               on Computer Vision (ICCV), pages 5885–5894, 2021. 2
+     ternational Conference on Computer Vision (ICCV), 2023.            [49] Rasmus Jensen, Anders Dahl, George Vogiatzis, Engil Tola,
+     2, 3, 4                                                                 and Henrik Aanæs. Large scale multi-view stereopsis eval-
+[36] Vitor Guizilini, Igor Vasiljevic, Jiading Fang, Rares Am-               uation. In 2014 IEEE Conference on Computer Vision and
+     brus, Sergey Zakharov, Vincent Sitzmann, and Adrien                     Pattern Recognition, pages 406–413. IEEE, 2014. 7
+     Gaidon. Delira: Self-supervised depth, light, and radiance         [50] Animesh Karnewar, Andrea Vedaldi, David Novotny, and
+     fields. In International Conference on Computer Vision                  Niloy Mitra. Holodiffusion: Training a 3D diffusion model
+     (ICCV), 2023. 1                                                         using 2D images. In Proceedings of the IEEE/CVF con-
+[37] Vitor Guizilini, Pavel Tokmakov, Achal Dave, and Rares                  ference on computer vision and pattern recognition, 2023.
+     Ambrus. Grin: Zero-shot metric depth with pixel-level dif-              2
+     fusion, 2024. 2, 4, 5, 8                                           [51] Bingxin Ke, Anton Obukhov, Shengyu Huang, Nando Met-
+[38] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising dif-               zger, Rodrigo Caye Daudt, and Konrad Schindler. Re-
+     fusion probabilistic models. Advances in neural informa-                purposing diffusion-based image generators for monocular
+     tion processing systems, 33:6840–6851, 2020. 2, 3                       depth estimation, 2023. 3, 5
+[39] Jonathan Ho, Chitwan Saharia, William Chan, David J                [52] Tong Ke, Tien Do, Khiem Vuong, Kourosh Sartipi, and
+     Fleet, Mohammad Norouzi, and Tim Salimans. Cascaded                     Stergios I Roumeliotis. Deep multi-view depth estimation
+     diffusion models for high fidelity image generation. The                with predicted uncertainty. arXiv:2011.09594, 2020. 3
+     Journal of Machine Learning Research, 23(1):2249–2281,             [53] Bernhard Kerbl, Georgios Kopanas, Thomas Leimkühler,
+     2022. 3                                                                 and George Drettakis. 3d gaussian splatting for real-time
+[40] John Houston, Guido Zuidhof, Luca Bergamini, Yawei                      radiance field rendering. ACM Transactions on Graphics,
+     Ye, Long Chen, Ashesh Jain, Sammy Omari, Vladimir                       42(4), 2023. 1, 2
+     Iglovikov, and Peter Ondruska. One thousand and one                [54] Alexander Khazatsky, Karl Pertsch, Suraj Nair, Ash-
+     hours: Self-driving motion prediction dataset. In CoRL,                 win Balakrishna, Sudeep Dasari, Siddharth Karamcheti,
+     pages 409–418, 2020. 2                                                  Soroush Nasiriany, Mohan Kumar Srirama, Lawrence Yun-
+[41] Hanzhe Hu, Zhizhuo Zhou, Varun Jampani, and Shubham                     liang Chen, Kirsty Ellis, Peter David Fagan, Joey
+     Tulsiani. Mvd-fusion: Single-view 3d via depth-consistent               Hejna, Masha Itkina, Marion Lepert, Yecheng Jason Ma,
+     multi-view generation. In CVPR, 2024. 1, 3                              Patrick Tree Miller, Jimmy Wu, Suneel Belkhale, Shivin
+[42] Mu Hu, Wei Yin, Chi Zhang, Zhipeng Cai, Xiaoxiao Long,                  Dass, Huy Ha, Arhan Jain, Abraham Lee, Youngwoon
+     Hao Chen, Kaixuan Wang, Gang Yu, Chunhua Shen, and                      Lee, Marius Memmel, Sungjae Park, Ilija Radosavovic,
+
+
+
+
+                                                                  773
+     Kaiyuan Wang, Albert Zhan, Kevin Black, Cheng Chi,                       a multiresolution hash encoding. ACM Transactions on
+     Kyle Beltran Hatch, Shan Lin, Jingpei Lu, Jean Mer-                      Graphics (ToG), 41(4):1–15, 2022. 2
+     cat, Abdul Rehman, Pannag R Sanketi, Archit Sharma,                 [65] Michael Niemeyer and Andreas Geiger. Giraffe: Repre-
+     Cody Simpson, Quan Vuong, Homer Rich Walke, Blake                        senting scenes as compositional generative neural feature
+     Wulfe, Ted Xiao, Jonathan Heewon Yang, Arefeh Yavary,                    fields. In Proc. IEEE Conf. on Computer Vision and Pat-
+     Tony Z. Zhao, Christopher Agia, Rohan Baijal, Mateo Gua-                 tern Recognition (CVPR), 2021. 2
+     man Castro, Daphne Chen, Qiuyu Chen, Trinity Chung,                 [66] Michael Niemeyer, Jonathan T. Barron, Ben Mildenhall,
+     Jaimyn Drake, Ethan Paul Foster, Jensen Gao, David Anto-                 Mehdi S. M. Sajjadi, Andreas Geiger, and Noha Radwan.
+     nio Herrera, Minho Heo, Kyle Hsu, Jiaheng Hu, Donovon                    Regnerf: Regularizing neural radiance fields for view syn-
+     Jackson, Charlotte Le, Yunshuang Li, Kevin Lin, Roy                      thesis from sparse inputs. In Proc. IEEE Conf. on Computer
+     Lin, Zehan Ma, Abhiram Maddukuri, Suvir Mirchandani,                     Vision and Pattern Recognition (CVPR), 2022. 2
+     Daniel Morton, Tony Nguyen, Abigail O’Neill, Rosario                [67] William Peebles and Saining Xie. Scalable diffusion mod-
+     Scalise, Derick Seale, Victor Son, Stephen Tian, Emi Tran,               els with transformers. arXiv preprint arXiv:2212.09748,
+     Andrew E. Wang, Yilin Wu, Annie Xie, Jingyun Yang,                       2022. 3, 7
+     Patrick Yin, Yunchu Zhang, Osbert Bastani, Glen Berseth,
+                                                                         [68] Luigi Piccinelli, Yung-Hsu Yang, Christos Sakaridis, Mat-
+     Jeannette Bohg, Ken Goldberg, Abhinav Gupta, Abhishek
+                                                                              tia Segu, Siyuan Li, Luc Van Gool, and Fisher Yu.
+     Gupta, Dinesh Jayaraman, Joseph J Lim, Jitendra Ma-
+                                                                              UniDepth: Universal monocular metric depth estimation.
+     lik, Roberto Martı́n-Martı́n, Subramanian Ramamoorthy,
+                                                                              In Proceedings of the IEEE/CVF Conference on Computer
+     Dorsa Sadigh, Shuran Song, Jiajun Wu, Michael C. Yip,
+                                                                              Vision and Pattern Recognition (CVPR), 2024. 4
+     Yuke Zhu, Thomas Kollar, Sergey Levine, and Chelsea
+     Finn. Droid: A large-scale in-the-wild robot manipulation           [69] Santhosh Kumar Ramakrishnan, Aaron Gokaslan, Erik Wi-
+     dataset. Robotics: Science and Systems, 2024. 2                          jmans, Oleksandr Maksymets, Alexander Clegg, John M
+[55] Diederik P Kingma and Jimmy Ba. Adam: A method for                       Turner, Eric Undersander, Wojciech Galuba, Andrew West-
+     stochastic optimization. arXiv:1412.6980, 2014. 5                        bury, Angel X Chang, Manolis Savva, Yili Zhao, and
+                                                                              Dhruv Batra. Habitat-matterport 3d dataset (HM3d): 1000
+[56] Uday Kusupati, Shuo Cheng, Rui Chen, and Hao Su. Nor-
+                                                                              large-scale 3d environments for embodied AI. In Thirty-
+     mal assisted stereo depth estimation. In Proceedings of
+                                                                              fifth Conference on Neural Information Processing Systems
+     the IEEE/CVF Conference on Computer Vision and Pattern
+                                                                              Datasets and Benchmarks Track, 2021. 2
+     Recognition, pages 2189–2199, 2020. 8
+[57] Andrew Liu, Richard Tucker, Varun Jampani, Ameesh                   [70] Aditya Ramesh, Mikhail Pavlov, Gabriel Goh, Scott
+     Makadia, Noah Snavely, and Angjoo Kanazawa. Infinite                     Gray, Chelsea Voss, Alec Radford, Mark Chen, and Ilya
+     nature: Perpetual view generation of natural scenes from                 Sutskever. Zero-shot text-to-image generation. In Interna-
+     a single image. In Proceedings of the IEEE/CVF Interna-                  tional conference on machine learning, pages 8821–8831.
+     tional Conference on Computer Vision (ICCV), 2021. 6                     Pmlr, 2021. 2
+[58] Ruoshi Liu, Rundi Wu, Basile Van Hoorick, Pavel Tok-                [71] René Ranftl, Katrin Lasinger, David Hafner, Konrad
+     makov, Sergey Zakharov, and Carl Vondrick. Zero-1-to-3:                  Schindler, and Vladlen Koltun. Towards robust monocu-
+     Zero-shot one image to 3d object. In ICCV, 2023. 1, 2, 3                 lar depth estimation: Mixing datasets for zero-shot cross-
+[59] Yuan Liu, Cheng Lin, Zijiao Zeng, Xiaoxiao Long, Lingjie                 dataset transfer. IEEE Transactions on Pattern Analysis and
+     Liu, Taku Komura, and Wenping Wang. Syncdreamer:                         Machine Intelligence, 2022. 3, 8
+     Generating multiview-consistent images from a single-view           [72] Jeremy Reizenstein, Roman Shapovalov, Philipp Henzler,
+     image. arXiv preprint arXiv:2309.03453, 2023. 1, 2                       Luca Sbordone, Patrick Labatut, and David Novotny. Com-
+[60] Ilya Loshchilov and Frank Hutter. Decoupled weight decay                 mon objects in 3d: Large-scale learning and evaluation of
+     regularization, 2019. 5                                                  real-life 3d category reconstruction. In International Con-
+[61] Xuan Luo, Jia-Bin Huang, Richard Szeliski, Kevin Matzen,                 ference on Computer Vision, 2021. 2, 7
+     and Johannes Kopf. Consistent video depth estimation.               [73] Mike Roberts, Jason Ramapuram, Anurag Ranjan, At-
+     ACM Transactions on Graphics (TOG), 39(4):71–1, 2020.                    ulit Kumar, Miguel Angel Bautista, Nathan Paczan, Russ
+     3, 8                                                                     Webb, and Joshua M. Susskind. Hypersim: A photorealis-
+[62] Ben Mildenhall, Pratul P. Srinivasan, Rodrigo Ortiz-Cayon,               tic synthetic dataset for holistic indoor scene understanding.
+     Nima Khademi Kalantari, Ravi Ramamoorthi, Ren Ng, and                    In International Conference on Computer Vision (ICCV)
+     Abhishek Kar. Local light field fusion: Practical view syn-              2021, 2021. 2
+     thesis with prescriptive sampling guidelines. ACM Trans-            [74] Barbara Roessle, Jonathan T. Barron, Ben Mildenhall,
+     actions on Graphics (TOG), 2019. 7                                       Pratul P. Srinivasan, and Matthias Nießner. Dense depth
+[63] Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik,                     priors for neural radiance fields from sparse input views.
+     Jonathan T Barron, Ravi Ramamoorthi, and Ren Ng. NeRF:                   In Proceedings of the IEEE/CVF Conference on Computer
+     Representing scenes as neural radiance fields for view syn-              Vision and Pattern Recognition (CVPR), 2022. 1, 2
+     thesis. In Proceedings of the European Conference on Com-           [75] Robin Rombach, Andreas Blattmann, Dominik Lorenz,
+     puter Vision (ECCV), pages 405–421, 2020. 1, 2, 4                        Patrick Esser, and Björn Ommer. High-resolution image
+[64] Thomas Müller, Alex Evans, Christoph Schied, and                        synthesis with latent diffusion models. In CVPR, 2022. 2,
+     Alexander Keller. Instant neural graphics primitives with                3
+
+
+
+
+                                                                   774
+[76] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-                      Zhou, Yuning Chai, Benjamin Caine, et al. Scalability in
+     net: Convolutional networks for biomedical image segmen-                    perception for autonomous driving: Waymo open dataset.
+     tation. In MICCAI. Springer, 2015. 3                                        In Proceedings of the IEEE/CVF conference on computer
+[77] Mehdi S. M. Sajjadi, Henning Meyer, Etienne Pot, Urs                        vision and pattern recognition, pages 2446–2454, 2020. 2
+     Bergmann, Klaus Greff, Noha Radwan, Suhani Vora, Mario                 [91] Chengzhou Tang and Ping Tan. BA-Net: Dense bundle ad-
+     Lucic, Daniel Duckworth, Alexey Dosovitskiy, Jakob                          justment network. arXiv preprint arXiv:1806.04807, 2018.
+     Uszkoreit, Thomas Funkhouser, and Andrea Tagliasacchi.                      8
+     Scene Representation Transformer: Geometry-Free Novel                  [92] Zachary Teed and Jia Deng. Deepv2d: Video to depth with
+     View Synthesis Through Set-Latent Scene Representations.                    differentiable structure from motion. In ICLR, 2020. 8
+     CVPR, 2022. 1, 2                                                       [93] Ayush Tewari, Tianwei Yin, George Cazenavette, Se-
+[78] Kyle Sargent, Zizhang Li, Tanmay Shah, Charles Her-                         mon Rezchikov, Joshua B. Tenenbaum, Frédo Durand,
+     rmann, Hong-Xing Yu, Yunzhi Zhang, Eric Ryan Chan,                          William T. Freeman, and Vincent Sitzmann. Diffusion with
+     Dmitry Lagun, Li Fei-Fei, Deqing Sun, and Jiajun Wu. Ze-                    forward models: Solving stochastic inverse problems with-
+     roNVS: Zero-shot 360-degree view synthesis from a single                    out direct supervision. In arXiv, 2023. 2
+     real image. CVPR, 2024, 2023. 2, 7                                     [94] Jonathan Tremblay, Moustafa Meshry, Alex Evans, Jan
+[79] Saurabh Saxena, Junhwa Hur, Charles Herrmann, Deqing                        Kautz, Alexander Keller, Sameh Khamis, Charles Loop,
+     Sun, and David J. Fleet. Zero-shot metric depth with a field-               Nathan Morrical, Koki Nagano, Towaki Takikawa, and Stan
+     of-view conditioned diffusion model, 2023. 5                                Birchfield. Rtmv: A ray-traced multi-view synthetic dataset
+[80] Johannes L Schonberger and Jan-Michael Frahm.                               for novel view synthesis. IEEE/CVF European Conference
+     Structure-from-motion revisited. In CVPR, 2016. 4,                          on Computer Vision Workshop (Learn3DG ECCVW), 2022,
+     6, 7                                                                        2022. 2
+[81] Katja Schwarz, Axel Sauer, Michael Niemeyer, Yiyi Liao,                [95] Alex Trevithick and Bo Yang. Grf: Learning a general radi-
+     and Andreas Geiger. Voxgraf: Fast 3d-aware image syn-                       ance field for 3d representation and rendering. In Proceed-
+     thesis with sparse voxel grids. In Advances in Neural In-                   ings of the IEEE/CVF International Conference on Com-
+     formation Processing Systems (NeurIPS) (NeurIPS), 2022.                     puter Vision, pages 15182–15192, 2021. 2
+     2                                                                      [96] Benjamin Ummenhofer, Huizhong Zhou, Jonas Uhrig,
+[82] Jiahao Shao, Yuanbo Yang, Hongyu Zhou, Youmin Zhang,                        Nikolaus Mayer, Eddy Ilg, Alexey Dosovitskiy, and
+     Yujun Shen, Matteo Poggi, and Yiyi Liao. Learning tem-                      Thomas Brox. Demon: Depth and motion network for
+     porally consistent video depth from video diffusion priors,                 learning monocular stereo. In Proceedings of the IEEE con-
+     2024. 3                                                                     ference on computer vision and pattern recognition, pages
+[83] Vincent Sitzmann, Semon Rezchikov, William T. Freeman,                      5038–5047, 2017. 8
+     Joshua B. Tenenbaum, and Fredo Durand. Light field net-                [97] Aaron van den Oord, Oriol Vinyals, and koray
+     works: Neural scene representations with single-evaluation                  kavukcuoglu. Neural discrete representation learning.
+     rendering. In Proc. NeurIPS, 2021. 1                                        In Advances in Neural Information Processing Systems.
+[84] Jascha Sohl-Dickstein, Eric Weiss, Niru Maheswaranathan,                    Curran Associates, Inc., 2017. 3
+     and Surya Ganguli. Deep unsupervised learning using                    [98] Phil Wang. Recurrent interface network (pytorch), 2022. 5
+     nonequilibrium thermodynamics. In ICML, 2015. 3                        [99] Wenshan Wang, Delong Zhu, Xiangwei Wang, Yaoyu Hu,
+[85] Nagabhushan Somraj, Adithyan Karanayil, and Rajiv                           Yuheng Qiu, Chen Wang, Yafei Hu, Ashish Kapoor, and
+     Soundararajan. SimpleNeRF: Regularizing sparse input                        Sebastian Scherer. Tartanair: A dataset to push the limits of
+     neural radiance fields with simpler solutions. In SIG-                      visual slam. In IROS, 2020. 2
+     GRAPH Asia, 2023. 2, 7                                                [100] Daniel Watson, William Chan, Ricardo Martin-Brualla,
+[86] Jiaming Song, Chenlin Meng, and Stefano Ermon. Denois-                      Jonathan Ho, Andrea Tagliasacchi, and Mohammad
+     ing diffusion implicit models. arXiv:2010.02502, 2020. 5                    Norouzi. Novel view synthesis with diffusion models,
+[87] J. Sturm, N. Engelhard, F. Endres, W. Burgard, and D. Cre-                  2022. 2
+     mers. A benchmark for the evaluation of rgb-d slam sys-               [101] Yi Wei, Shaohui Liu, Yongming Rao, Wang Zhao, Jiwen
+     tems. In Proc. of the International Conference on Intelli-                  Lu, and Jie Zhou. Nerfingmvs: Guided optimization of neu-
+     gent Robot Systems (IROS), 2012. 8                                          ral radiance fields for indoor multi-view stereo. In ICCV,
+[88] Mohammed Suhail, Carlos Esteves, Leonid Sigal, and                          2021. 1
+     Ameesh Makadia. Generalizable patch-based neural ren-                 [102] Benjamin Wilson, William Qi, Tanmay Agarwal, John
+     dering. In European Conference on Computer Vision, pages                    Lambert, Jagjeet Singh, Siddhesh Khandelwal, Bowen
+     156–174. Springer, 2022. 6                                                  Pan, Ratnesh Kumar, Andrew Hartnett, Jhony Kaesemodel
+[89] Jiaming Sun, Yiming Xie, Linghao Chen, Xiaowei Zhou,                        Pontes, Deva Ramanan, Peter Carr, and James Hays. Ar-
+     and Hujun Bao. NeuralRecon: Real-time coherent 3D re-                       goverse 2: Next generation datasets for self-driving percep-
+     construction from monocular video. In Proceedings of the                    tion and forecasting. In Proceedings of the Neural Informa-
+     IEEE Conference on Computer Vision and Pattern Recog-                       tion Processing Systems Track on Datasets and Benchmarks
+     nition (CVPR), pages 15598–15607, 2021. 7, 8                                (NeurIPS Datasets and Benchmarks 2021), 2021. 2
+[90] Pei Sun, Henrik Kretzschmar, Xerxes Dotiwalla, Aure-                  [103] Rundi Wu, Ben Mildenhall, Philipp Henzler, Keunhong
+     lien Chouard, Vijaysai Patnaik, Paul Tsui, James Guo, Yin                   Park, Ruiqi Gao, Daniel Watson, Pratul P. Srinivasan, Dor
+
+
+
+
+                                                                     775
+      Verbin, Jonathan T. Barron, Ben Poole, and Aleksander                [117] Paul Yoo, Jiaxian Guo, Yutaka Matsuo, and Shixiang Shane
+      Holynski. Reconfusion: 3d reconstruction with diffusion                    Gu. Dreamsparse: Escaping from plato’s cave with 2d
+      priors. arXiv, 2023. 1, 2, 4, 6, 7                                         frozen diffusion model given sparse views. arXiv preprint
+[104] Jamie Wynn and Daniyar Turmukhambetov. DiffusioNeRF:                       arXiv:2306.03414, 2023. 2
+      Regularizing Neural Radiance Fields with Denoising Diffu-            [118] Alex Yu, Vickie Ye, Matthew Tancik, and Angjoo
+      sion Models. In CVPR, 2023. 2                                              Kanazawa. pixelnerf: Neural radiance fields from one or
+[105] Hongchi Xia, Yang Fu, Sifei Liu, and Xiaolong Wang.                        few images. In CVPR, 2021. 1, 2, 3, 4, 6
+      Rgbd objects in the wild: Scaling real-world 3d object               [119] Xianggang Yu, Mutian Xu, Yidan Zhang, Haolin Liu,
+      learning from rgb-d videos, 2024. 2                                        Chongjie Ye, Yushuang Wu, Zizheng Yan, Tianyou Liang,
+[106] Jianxiong Xiao, Andrew Owens, and Antonio Torralba.                        Guanying Chen, Shuguang Cui, and Xiaoguang Han.
+      Sun3d: A database of big spaces reconstructed using sfm                    Mvimgnet: A large-scale dataset of multi-view images. In
+      and object labels. In 2013 IEEE International Conference                   CVPR, 2023. 2
+      on Computer Vision, pages 1625–1632, 2013. 8                         [120] Amir R Zamir, Alexander Sax, , William B Shen, Leonidas
+[107] Haofei Xu, Anpei Chen, Yuedong Chen, Christos Sakaridis,                   Guibas, Jitendra Malik, and Silvio Savarese. Taskonomy:
+      Yulun Zhang, Marc Pollefeys, Andreas Geiger, and Fisher                    Disentangling task transfer learning. In 2018 IEEE Confer-
+      Yu. Murf: Multi-baseline radiance fields. In Proceedings of                ence on Computer Vision and Pattern Recognition (CVPR).
+      the IEEE/CVF Conference on Computer Vision and Pattern                     IEEE, 2018. 2
+      Recognition, pages 20041–20050, 2024. 6                              [121] Tinghui Zhou, Richard Tucker, John Flynn, Graham Fyffe,
+[108] Yinghao Xu, Hao Tan, Fujun Luan, Sai Bi, Peng Wang,                        and Noah Snavely. Stereo magnification: Learning view
+      Jiahao Li, Zifan Shi, Kalyan Sunkavalli, Gordon Wetzstein,                 synthesis using multiplane images. In SIGGRAPH, 2018.
+      Zexiang Xu, and Kai Zhang. Dmv3d: Denoising multi-                         2, 6, 7
+      view diffusion using 3d large reconstruction model, 2023.
+      1
+[109] Yinshuang Xu, Dian Chen, Katherine Liu, Sergey Za-
+      kharov, Rares Andrei Ambrus, Kostas Daniilidis, and Vi-
+      tor Campagnolo Guizilini. $SE(3)$ equivariant ray em-
+      beddings for implicit multi-view depth estimation. In The
+      Thirty-eighth Annual Conference on Neural Information
+      Processing Systems, 2024. 4, 7, 8
+[110] Jiawei Yang, Marco Pavone, and Yue Wang. Freenerf: Im-
+      proving few-shot neural rendering with free frequency reg-
+      ularization. In Proc. IEEE Conf. on Computer Vision and
+      Pattern Recognition (CVPR), 2023. 7
+[111] Lihe Yang, Bingyi Kang, Zilong Huang, Xiaogang Xu, Ji-
+      ashi Feng, and Hengshuang Zhao. Depth anything: Un-
+      leashing the power of large-scale unlabeled data. In CVPR,
+      2024. 3
+[112] Lihe Yang, Bingyi Kang, Zilong Huang, Zhen Zhao, Xiao-
+      gang Xu, Jiashi Feng, and Hengshuang Zhao. Depth any-
+      thing v2. arXiv:2406.09414, 2024. 3
+[113] Yao Yao, Zixin Luo, Shiwei Li, Tian Fang, and Long
+      Quan. MVSNet: Depth inference for unstructured multi-
+      view stereo. In Proceedings of the European Conference
+      on Computer Vision (ECCV), pages 767–783, 2018. 3
+[114] Yao Yao, Zixin Luo, Shiwei Li, Jingyang Zhang, Yufan
+      Ren, Lei Zhou, Tian Fang, and Long Quan. Blendedmvs:
+      A large-scale dataset for generalized multi-view stereo net-
+      works. In Proceedings of the IEEE/CVF Conference on
+      Computer Vision and Pattern Recognition, pages 1790–
+      1799, 2020. 2
+[115] Wang Yifan, Carl Doersch, Relja Arandjelović, João Car-
+      reira, and Andrew Zisserman. Input-level inductive biases
+      for 3D reconstruction. In Proceedings of the IEEE Interna-
+      tional Conference on Computer Vision (CVPR), 2022. 8
+[116] Wei Yin, Chi Zhang, Hao Chen, Zhipeng Cai, Gang Yu,
+      Kaixuan Wang, Xiaozhi Chen, and Chunhua Shen. Met-
+      ric3d: Towards zero-shot metric 3d prediction from a single
+      image. In ICCV, 2023. 3, 4
+
+
+
+
+                                                                     776
+

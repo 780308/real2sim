@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vid2Sim 阅读笔记</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1c2633;
+      --muted: #5f6b7a;
+      --line: #d9e0e8;
+      --soft: #f5f7fa;
+      --accent: #1f6feb;
+      --accent-2: #2f7d58;
+      --warn: #9a4f00;
+      --bad: #a93636;
+      --good: #176c43;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      color: var(--ink);
+      background: #ffffff;
+      line-height: 1.62;
+    }
+    main {
+      width: min(1180px, calc(100vw - 40px));
+      margin: 0 auto;
+      padding: 40px 0 64px;
+    }
+    header {
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 22px;
+      margin-bottom: 28px;
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: 34px;
+      line-height: 1.18;
+      letter-spacing: 0;
+    }
+    h2 {
+      margin: 34px 0 12px;
+      font-size: 23px;
+      line-height: 1.3;
+      letter-spacing: 0;
+    }
+    h3 {
+      margin: 24px 0 8px;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+    p { margin: 8px 0; }
+    a { color: var(--accent); }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      font-size: 0.95em;
+      background: #eef3f8;
+      padding: 0.08em 0.3em;
+      border-radius: 4px;
+    }
+    ul, ol { padding-left: 1.3rem; }
+    li { margin: 5px 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 24px;
+      font-size: 14px;
+      vertical-align: top;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 9px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #edf2f7;
+      font-weight: 650;
+    }
+    .meta {
+      color: var(--muted);
+      display: grid;
+      gap: 4px;
+      font-size: 14px;
+    }
+    .callout {
+      border-left: 4px solid var(--accent);
+      background: var(--soft);
+      padding: 12px 14px;
+      margin: 16px 0;
+    }
+    .takeaway {
+      border-left-color: var(--accent-2);
+      background: #eef8f2;
+    }
+    .warn {
+      border-left-color: var(--warn);
+      background: #fff7ed;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .panel {
+      border: 1px solid var(--line);
+      padding: 14px;
+      background: #fff;
+      border-radius: 6px;
+    }
+    .panel h3 { margin-top: 0; }
+    .figure {
+      margin: 18px 0 22px;
+      border: 1px solid var(--line);
+      padding: 10px;
+      background: #fff;
+    }
+    .figure img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    .caption {
+      color: var(--muted);
+      font-size: 13px;
+      margin-top: 8px;
+    }
+    .pill {
+      display: inline-block;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 2px 9px;
+      margin: 2px 4px 2px 0;
+      font-size: 13px;
+      color: #334155;
+      background: #f8fafc;
+      white-space: nowrap;
+    }
+    .score-high { color: var(--good); font-weight: 650; }
+    .score-mid { color: var(--warn); font-weight: 650; }
+    .score-low { color: var(--bad); font-weight: 650; }
+    .nowrap { white-space: nowrap; }
+    @media (max-width: 820px) {
+      main { width: min(100% - 24px, 1180px); padding-top: 24px; }
+      h1 { font-size: 27px; }
+      .grid { grid-template-columns: 1fr; }
+      table { font-size: 13px; }
+      th, td { padding: 8px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Vid2Sim: 从 monocular video 到可交互 urban simulator</h1>
+    <div class="meta">
+      <div>论文：<strong>Vid2Sim: Realistic and Interactive Simulation from Video for Urban Navigation</strong></div>
+      <div>作者：Ziyang Xie, Zhizheng Liu, Zhenghao Peng, Wayne Wu, Bolei Zhou</div>
+      <div>版本：arXiv:2501.06693v2, 2025-01-14；本地 PDF：<code>ref/Vid2Sim_ Realistic and Interactive Simulation from Video for Urban Navigation.pdf</code></div>
+      <div>阅读目标：面向 collaborative real2sim simulation platform，重点还原基础 Vid2Sim pipeline，而不是把它强行解释为 world model。</div>
+    </div>
+  </header>
+
+  <section>
+    <h2>这篇论文在 real2sim 里的位置</h2>
+    <div class="callout takeaway">
+      <p><strong>一句话：</strong>Vid2Sim 把一段手持单目街景视频转换成一个可用于 closed-loop RL training 的 digital twin simulator。它的底层逻辑是“<code>Gaussian Splatting</code> 负责真实视觉，<code>mesh/Unity physics</code> 负责碰撞和交互”，再用静态/动态障碍和天气、光照、季节编辑扩充训练分布。</p>
+    </div>
+    <p>它不是以“预测未观测世界状态”为核心的 <code>world model</code>。论文里的 unseen/partial 问题主要通过两类工程手段缓解：第一，用 monocular depth/normal priors 让 <code>GS</code> 更像几何表面；第二，把训练相机轨迹之外的渲染 artifact 用 <code>screen-space covariance culling</code> 剪掉。真正的 3D completion、object generation、material/physics inference 并不是本文主菜。</p>
+    <p>对我们的平台更重要的是：它给出了一个可落地的 real2sim 最小闭环：视频采集/下载、重建、mesh baking、simulator integration、agent training、sim2real evaluation。这是“基础 Vid2Sim 方法”的价值。</p>
+  </section>
+
+  <section>
+    <h2>从一段视频到训练环境的完整管线</h2>
+    <div class="figure">
+      <img src="assets/vid2sim_figure2_pipeline.png" alt="Vid2Sim framework figure from the paper">
+      <div class="caption">论文 Figure 2 原始页面截图：左侧是 geometry-consistent reconstruction，中间是 hybrid simulator 与 scene composition，右侧是 navigation training 和 zero-shot deployment。</div>
+    </div>
+
+    <h3>输入、输出和中间表示</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>阶段</th>
+          <th>输入</th>
+          <th>中间表示</th>
+          <th>输出</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Video preprocessing</td>
+          <td>手持或 web-sourced monocular street video；论文数据集每段约 15s、30fps、450 frames。</td>
+          <td>privacy mask；dynamic object mask；camera poses；SfM point cloud。</td>
+          <td>可用于 <code>GS</code> 初始化和训练的静态背景帧序列。</td>
+        </tr>
+        <tr>
+          <td>Geometry-consistent reconstruction</td>
+          <td>RGB frames、SfM poses/point cloud、monocular depth estimator 输出。</td>
+          <td><code>3D Gaussian Splats</code>；rendered RGB/depth/normal；pseudo depth/normal GT。</td>
+          <td>视觉质量更高、几何更平滑的 <code>GS scene</code>。</td>
+        </tr>
+        <tr>
+          <td>Mesh extraction</td>
+          <td>从 <code>GS</code> 多视角渲染出的 depth maps。</td>
+          <td><code>TSDF</code> field；ground mask；non-ground scene mesh。</td>
+          <td>用于 collision detection 的 invisible mesh collider。</td>
+        </tr>
+        <tr>
+          <td>Hybrid simulation</td>
+          <td><code>GS scene</code>、mesh、robot model、static assets、dynamic agents。</td>
+          <td>Unity scene；GS shader；z-buffer composition；A* pedestrian paths。</td>
+          <td>能输出 RGB/depth observation、能发生物理碰撞的 interactive simulator。</td>
+        </tr>
+        <tr>
+          <td>Policy learning and deployment</td>
+          <td>simulator observations、goal distance/heading、reward signal。</td>
+          <td><code>SAC</code> policy；stacked RGB history；continuous control actions。</td>
+          <td>zero-shot 部署到真实四轮 delivery robot 的 navigation policy。</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>控制流版本</h3>
+    <ol>
+      <li>从 web/实拍视频取 15s clip，做人脸和隐私信息遮挡。</li>
+      <li>用 <code>DEVA</code> 生成 moving object mask，避免动态行人/车辆污染静态场景重建。</li>
+      <li>用 <code>GLOMAP</code> 做 <code>Structure-from-Motion</code>，得到 camera poses 和初始化 point cloud；论文认为 in-the-wild 视频下 <code>COLMAP</code> 更容易失败。</li>
+      <li>训练 <code>Gaussian Splatting</code>，在常规 RGB photometric loss 外加入 depth/normal/geometry/scale regularization。</li>
+      <li>从训练好的 <code>GS</code> 渲染多帧 depth，融合成 <code>TSDF</code>，再抽取 mesh；ground plane 单独处理，非地面 mesh 用于碰撞。</li>
+      <li>在 Unity 中同时导入 <code>GS</code> 和 mesh：<code>GS</code> 用 custom shader 渲染，mesh 设为 invisible collider。</li>
+      <li>把 static obstacles、dynamic pedestrians、weather/lighting/season variants 组合进场景，形成多样化训练分布。</li>
+      <li>用 Gym wrapper 接入 RL 框架，训练视觉导航 agent；最后直接在真实机器人上 zero-shot test。</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>重建部分：让 GS 不只是好看，还能导出可碰撞几何</h2>
+    <p>标准 <code>3DGS</code> 的强项是 novel view rendering，不是几何正确性。Vid2Sim 的第一个核心贡献，就是把 monocular geometry cues 塞进 <code>GS</code> 训练，让渲染出来的 depth/normal 更适合后续 mesh extraction。</p>
+
+    <h3>Geometry supervision 的来源</h3>
+    <ul>
+      <li><code>Depth Anything V2</code> 之类的 monocular depth estimator 提供 depth prior，但这类 depth 通常是 relative depth，不是绝对 metric depth。</li>
+      <li>pseudo normal 不是人工标注，而是从 predicted depth 反投影成 point cloud 后用 PCA 估计局部法线。</li>
+      <li><code>GS</code> 自己也能 render depth 和 normal：depth 来自 splat 到相机的距离，normal 来自 covariance shortest axis 的方向。</li>
+    </ul>
+
+    <h3>Loss/objective 清单</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Objective</th>
+          <th>作用</th>
+          <th>为什么这样设计</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>L_rgb</code></td>
+          <td>常规 2D photometric rendering loss。</td>
+          <td>保证 novel view RGB 质量，是 <code>GS</code> 的基础目标。</td>
+        </tr>
+        <tr>
+          <td><code>L_depth</code></td>
+          <td>patch-based <code>NCC</code> between rendered depth and predicted depth。</td>
+          <td>避免直接匹配相对 depth 的绝对数值；关注局部结构相似性，对 scale shift、noise、occlusion 更稳。</td>
+        </tr>
+        <tr>
+          <td><code>L_normal</code></td>
+          <td>rendered normal 与 pseudo normal 的 cosine distance。</td>
+          <td>让表面方向更一致，补足 depth 只约束距离、不直接约束表面朝向的问题。</td>
+        </tr>
+        <tr>
+          <td><code>L_geo</code></td>
+          <td>相邻 pixel 的 rendered normals 在低 depth-gradient 区域保持一致。</td>
+          <td>平坦区域应当法线平滑；用 depth gradient 做权重，避免跨边界强行平滑。</td>
+        </tr>
+        <tr>
+          <td><code>L_scale</code></td>
+          <td>最小化 Gaussian covariance 的 shortest axis scale。</td>
+          <td>借鉴 <code>2DGS</code>，鼓励 splats 更像 surface disks，利于几何表面表达。</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>最终训练目标是这些项的和：<code>L_total = L_rgb + L_depth + L_normal + L_geo + L_scale</code>。Supplementary 给出实现细节：训练 30000 iterations，采用 3DGS hyper-parameters 和 <code>AbsGS</code> densification strategy；depth/normal/geometry-consistency losses 从第 500 iteration 开始加入。</p>
+
+    <h3>Screen-space covariance culling</h3>
+    <p>RL agent 在模拟器里会走到训练视频相机从未到过的位置，尤其低机位、近地面视角会出现 floaters。Vid2Sim 的处理是：把每个 Gaussian 投影到 2D screen 后，如果 2D covariance 过大，就把它 cull 掉。论文的判据是 <code>||Sigma'||_inf &gt; alpha * A_img</code>。</p>
+    <p>这不是重训，而是 post-training rendering fix。它的工程价值很大：real2sim 平台只要允许 agent 自由走，就一定会遇到 train-view distribution 外的 observation artifact。Supplementary 的相对评估显示，使用 culling 后 rendered observations 与训练视角分布的 <code>FID</code> 从 214.47 降到 191.54，改善约 10.7%。</p>
+  </section>
+
+  <section>
+    <h2>仿真部分：视觉和物理分开，但在同一坐标系里闭合</h2>
+    <div class="grid">
+      <div class="panel">
+        <h3>视觉层：<code>GS</code></h3>
+        <p>负责给 agent 提供 photorealistic RGB observation，也可以渲染 depth sensor。Unity 中通过 custom shader 实时渲染 <code>Gaussian Splats</code>。</p>
+      </div>
+      <div class="panel">
+        <h3>物理层：mesh collider</h3>
+        <p>从 <code>GS</code> depth 融合得到 <code>TSDF</code>，再提取 mesh。mesh material 设为 invisible，只做 collision 和 interaction primitive。</p>
+      </div>
+    </div>
+
+    <h3>Mesh extraction 和 ground handling</h3>
+    <p>论文从每个训练视角渲染 depth map，用 <code>KinectFusion</code> 风格的 <code>TSDF</code> 融合，voxel size 设为 0.1。为了避免不平整 ground mesh 影响机器人动力学，作者会移除 ground plane：先用 <code>SAM-HQ</code> 得到 ground segmentation，再用 rendered normal 的均值方向做 normal prior，保留与地面平均法线夹角小于 15 度的像素作为更干净的 ground mask。</p>
+    <p>在 Unity 里，ground surface 被配置成水平可行走区域；其他 scene mesh 和障碍物被 tag 成 collidable objects。这个选择很实用：视觉上仍看到真实街景地面，物理上则避免坑洼重建导致机器人抖动或误碰撞。</p>
+
+    <h3>Interactive scene composition</h3>
+    <ul>
+      <li><strong>Static obstacles：</strong>traffic cones、trash bins、traffic lights、poles 等 3D assets 随机放进场景。</li>
+      <li><strong>Dynamic agents：</strong>pedestrians 用 <code>A*</code> 在 movable area 里从随机点移动到随机点。</li>
+      <li><strong>Occlusion handling：</strong>通过 <code>GS rasterization</code> 和 mesh rendering 的 <code>z-buffering</code> 组合 RGB/depth，保证前景 asset 和背景 <code>GS</code> 的遮挡关系正确。</li>
+      <li><strong>Safety-critical scenarios：</strong>可以构造 falling trash cans、road construction、workers 等 corner cases。</li>
+    </ul>
+
+    <h3>Diverse scene augmentation</h3>
+    <p>Vid2Sim 用 scene-level editing 扩增 lighting、season、semantics，并在 Unity 里用 particle systems 模拟 rain、fog、snow。这个部分更像训练分布扩充，不是几何/物理重建本身。对平台而言，它适合作为 scenario authoring layer：在同一个 reconstructed digital twin 上生成多种 appearance 和 traffic/obstacle variants。</p>
+  </section>
+
+  <section>
+    <h2>RL 和 sim2real：论文如何证明模拟器真的有用</h2>
+    <h3>Agent observation/action</h3>
+    <ul>
+      <li>机器人：四轮 delivery robot，前置 RGB camera。</li>
+      <li>Observation：当前 RGB 加过去 5 个 timestep 的 image stack，再拼接 goal distance 和 heading angle。真实部署中相机 1280x720，resize 到 128x72。</li>
+      <li>Action：两个连续控制量，范围 <code>[-1, 1]</code>；论文主文描述为轮速/速度调制，supplementary 描述为 normalized linear/angular velocities。真实部署时通过 system identification 把归一化速度重标定到真实机器人单位。</li>
+      <li>训练接口：Unity environment compiled 后通过 wrapper 兼容 <code>OpenAI Gym</code> 和 <code>Stable-Baselines3</code>；simulator 50Hz，RL 5Hz。</li>
+    </ul>
+
+    <h3>Reward shaping</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>Reward term</th>
+          <th>论文设置</th>
+          <th>平台移植提醒</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>R_term</code></td>
+          <td>到达目标 +10，失败 -10。</td>
+          <td>直接可用；失败条件要和平台安全规则绑定。</td>
+        </tr>
+        <tr>
+          <td><code>R_dist</code></td>
+          <td>按 goal distance 变化给 dense reward，权重 <code>c1 = 1</code>。</td>
+          <td>论文公式写作 <code>d_t - d_{t-1}</code>，但文字说鼓励靠近目标；实现时要核对符号。</td>
+        </tr>
+        <tr>
+          <td><code>R_steer</code></td>
+          <td><code>-||s_t - s_{t-1}|| * v_t</code>，权重 <code>c2 = 0.05</code>。</td>
+          <td>用于减少不稳定转向；适合真实机器人。</td>
+        </tr>
+        <tr>
+          <td><code>R_crash</code></td>
+          <td>碰撞给 dense negative reward，权重 <code>c3 = 1.0</code>。</td>
+          <td>需要稳定的 collision event；这依赖 mesh collider 质量。</td>
+        </tr>
+        <tr>
+          <td><code>R_time</code></td>
+          <td>鼓励更短 episode；论文文字给出 <code>R_time = -Delta t</code> 和 <code>c4 = -0.1</code>。</td>
+          <td>这里也有潜在符号歧义；平台复现前应检查作者代码或自行设定。</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>Evaluation metrics</h3>
+    <p><span class="pill">Rendering: PSNR</span><span class="pill">Rendering: SSIM</span><span class="pill">Rendering: LPIPS</span><span class="pill">Artifact: FID</span><span class="pill">Navigation: SR</span><span class="pill">Navigation: SPL</span><span class="pill">Safety: Cost / hit number</span><span class="pill">SocialNav: SNS</span></p>
+    <p>这套指标组合很适合我们的平台：rendering metrics 只说明“看起来像不像”，navigation metrics 才说明“训练出来的策略能不能用”。Vid2Sim 的评估逻辑不是单纯拼视觉质量，而是把 simulator 当作 agent training infrastructure 来验证。</p>
+  </section>
+
+  <section>
+    <h2>结果读法：哪些数字值得记</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>问题</th>
+          <th>关键结果</th>
+          <th>对平台的含义</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>重建质量是否比 baseline 好？</td>
+          <td>Vid2Sim 达到 <span class="score-high">PSNR 32.41 / SSIM 0.927 / LPIPS 0.127</span>，优于 3DGS、2DGS、Video2Game。</td>
+          <td>几何监督没有牺牲视觉质量，反而略有提升；说明 depth/normal priors 可作为平台默认 reconstruction regularizer。</td>
+        </tr>
+        <tr>
+          <td>Hybrid simulator 是否比 mesh-only 好？</td>
+          <td>PointNav 中 mesh RGB baseline SR 48.8%，Vid2Sim static/dynamic obstacles 达到 80.8%/81.6%；SocialNav 中 mesh baseline 43.2%，Vid2Sim dynamic 74.4%。</td>
+          <td>只用 textured mesh 做视觉会有明显 sim2real gap；<code>GS visual + mesh physics</code> 是更合理的底座。</td>
+        </tr>
+        <tr>
+          <td>真实世界 zero-shot 是否成立？</td>
+          <td>真实实验里 baseline 30 envs 三个任务都是 0%；Vid2Sim 30 envs 达到 Go Straight 85%、Static Obstacle 65%、Dynamic Obstacle 55%。</td>
+          <td>数据规模直接影响泛化；30 个环境仍然偏小，但趋势说明“更多 reconstructed scenes”可能比过度调参更重要。</td>
+        </tr>
+        <tr>
+          <td>动态/静态障碍是否重要？</td>
+          <td>No Obj、Static、Dynamic 逐步提升，且 Static 训练在 SocialNav 上出现一定 emergent avoidance。</td>
+          <td>平台应把 object/agent insertion 当作核心数据增广，而不是后期装饰。</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>论文的隐含假设和 failure modes</h2>
+    <div class="grid">
+      <div class="panel">
+        <h3>依赖条件</h3>
+        <ul>
+          <li>视频要有足够纹理、视角变化和静态背景，才能做可靠 <code>SfM</code>。</li>
+          <li>绝对 scale 主要依赖 <code>SfM</code>、机器人尺寸和场景标定；monocular depth 本身不提供 metric scale。</li>
+          <li>场景适合被简化为水平 walkable ground 加非地面 colliders。</li>
+          <li>移动物体能被 tracker/mask 分离，否则会在 <code>GS</code> 和 mesh 里留下 ghost。</li>
+          <li>agent 的任务是地面 urban navigation，不是任意交互操作。</li>
+        </ul>
+      </div>
+      <div class="panel">
+        <h3>容易失效的地方</h3>
+        <ul>
+          <li><code>GLOMAP/SfM</code> 失败会让后续全部漂移。</li>
+          <li><code>GS</code> 在 train-view 之外产生 floaters，culling 只能缓解，不能保证补全真实几何。</li>
+          <li>mesh collider 与 <code>GS</code> 视觉可能不对齐，导致“看着没撞但物理撞了”或相反。</li>
+          <li>ground segmentation/normal prior 错误会改变可行走区域。</li>
+          <li>插入的静态和动态 assets 不一定遵守真实世界语义分布。</li>
+          <li>物体 material、mass、friction 等 physical parameters 没有从视频估计。</li>
+          <li>论文承认环境构建耗时，主要瓶颈在 <code>GLOMAP</code> 初始化和 <code>GS</code> conversion；当前只有 30 个环境。</li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout warn">
+      <p><strong>特别注意：</strong>Vid2Sim 的“未见区域处理”不是 generative completion。它通过 geometry regularization、view artifact culling 和场景增广提高可用性，但如果视频根本没有覆盖某条支路、建筑背面或遮挡后空间，论文并没有真正恢复它们的几何和语义。</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>对 collaborative real2sim 平台的迁移判断</h2>
+    <p>如果把 Vid2Sim 当作平台底座，我建议按“三层架构”吸收：<strong>reconstruction layer</strong> 产出 <code>GS + mesh + metadata</code>，<strong>simulation layer</strong> 负责 Unity/Isaac/自研引擎里的 physics、assets 和 sensors，<strong>evaluation layer</strong> 用 agent task metrics 检查 real2sim 是否真的有用。</p>
+
+    <h3>Transfer matrix</h3>
+    <table>
+      <thead>
+        <tr>
+          <th>模块</th>
+          <th>Vid2Sim 做法</th>
+          <th>可迁移价值</th>
+          <th>移植到我们平台的建议</th>
+          <th>风险/缺口</th>
+          <th>优先级</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Scene representation</td>
+          <td><code>Gaussian Splats</code> 做 photorealistic rendering，mesh 做 invisible collider。</td>
+          <td><span class="score-high">高</span>：直接解决“视觉真实”和“物理交互”难以同时满足的问题。</td>
+          <td>把 <code>GS</code>、collision mesh、camera calibration、scale metadata 打包成统一 scene package。</td>
+          <td>视觉-物理错位需要 QA 工具；mesh 粗糙会影响碰撞。</td>
+          <td>P0</td>
+        </tr>
+        <tr>
+          <td>Geometry-consistent reconstruction</td>
+          <td><code>L_depth</code> + <code>L_normal</code> + <code>L_geo</code> + <code>L_scale</code> regularize GS。</td>
+          <td><span class="score-high">高</span>：比普通 3DGS 更适合导出 mesh 和训练 agent。</td>
+          <td>作为平台 reconstruction preset；保留 loss ablation 开关，便于不同场景调参。</td>
+          <td>monocular depth prior 错误会被写进几何；需要 confidence/mask 机制。</td>
+          <td>P0</td>
+        </tr>
+        <tr>
+          <td>Object completion</td>
+          <td>主要是插入 static assets 和 dynamic pedestrians，不是真正从遮挡视频里补全物体。</td>
+          <td><span class="score-mid">中</span>：可用于 scenario densification，但不能解决 unseen geometry。</td>
+          <td>短期接 asset library 和 placement rules；长期接 3D generative completion 或 retrieval-based asset matching。</td>
+          <td>语义位置不合理会污染 policy；需要 scene graph constraints。</td>
+          <td>P1</td>
+        </tr>
+        <tr>
+          <td>Asset generation</td>
+          <td>论文使用常见城市物体 assets；未提出自动 asset generation。</td>
+          <td><span class="score-mid">中</span>：作为 baseline 足够，但不覆盖开放世界长尾物体。</td>
+          <td>先做 curated asset catalog；再接 text/image-to-3D 或 scan/retrieval pipeline。</td>
+          <td>资产风格、尺度、材质、碰撞盒需要统一标准。</td>
+          <td>P2</td>
+        </tr>
+        <tr>
+          <td>Physical parameter estimation</td>
+          <td>主要做 robot dynamics system identification；环境物体物理参数基本没有估计。</td>
+          <td><span class="score-low">低到中</span>：可借鉴系统辨识思路，但论文没有完整答案。</td>
+          <td>平台需要独立模块估计或配置 friction、mass、restitution、agent dynamics。</td>
+          <td>没有真实参数时，碰撞行为可能只是“能撞”，不是“撞得对”。</td>
+          <td>P1</td>
+        </tr>
+        <tr>
+          <td>Simulator integration</td>
+          <td>Unity custom GS shader + invisible mesh collider + Gym wrapper。</td>
+          <td><span class="score-high">高</span>：工程闭环清楚。</td>
+          <td>抽象成 engine adapters：Unity/Isaac/Omniverse/自研 renderer 都实现同一 scene interface。</td>
+          <td>不同引擎的 depth、z-buffer、physics step 和 sensor latency 要对齐。</td>
+          <td>P0</td>
+        </tr>
+        <tr>
+          <td>Dynamic scene authoring</td>
+          <td>静态障碍随机采样；pedestrian 用 <code>A*</code> 在可行走区域移动。</td>
+          <td><span class="score-high">高</span>：直接提升 navigation policy robustness。</td>
+          <td>把 object placement、traffic flow、pedestrian intent 做成可配置 scenario graph。</td>
+          <td>随机放置可能制造不现实场景；需要地图语义和可行走区域约束。</td>
+          <td>P1</td>
+        </tr>
+        <tr>
+          <td>Appearance/weather augmentation</td>
+          <td>scene editing 改 lighting/season/semantics；Unity particle systems 模拟 rain/fog/snow。</td>
+          <td><span class="score-mid">中</span>：能扩大视觉域，但对几何和 physics 帮助有限。</td>
+          <td>作为 training augmentation layer；评估是否真的提升 held-out/real-world SR。</td>
+          <td>编辑可能破坏 multi-view consistency；天气粒子需要与 sensor model 对齐。</td>
+          <td>P2</td>
+        </tr>
+        <tr>
+          <td>View artifact handling</td>
+          <td><code>screen-space covariance culling</code> 删除 2D 投影过大的 splats。</td>
+          <td><span class="score-high">高</span>：closed-loop agent 必然产生 train-view 外视角。</td>
+          <td>加入 runtime renderer filter，并记录 culling rate 作为 scene health metric。</td>
+          <td>阈值过强会删除真实大面积结构；阈值过弱不能去 floater。</td>
+          <td>P0</td>
+        </tr>
+        <tr>
+          <td>Evaluation metrics</td>
+          <td>重建用 PSNR/SSIM/LPIPS/FID，导航用 SR/SPL/Cost/SNS，真实部署用 task success。</td>
+          <td><span class="score-high">高</span>：覆盖视觉质量、交互安全和 sim2real。</td>
+          <td>平台 dashboard 同时显示 rendering metrics 和 task metrics，不用单一视觉分数判断 real2sim 质量。</td>
+          <td>没有真实部署时，需要设计 proxy tasks 和 held-out digital twins。</td>
+          <td>P0</td>
+        </tr>
+        <tr>
+          <td>Unseen/partial scene completion</td>
+          <td>论文基本不解决；只通过 scene augmentation 和 artifact culling 提升训练可用性。</td>
+          <td><span class="score-low">低</span>：不能直接支撑开放世界补全。</td>
+          <td>在 Vid2Sim 底座之外增加 semantic scene completion、layout prior、retrieval/generative 3D modules。</td>
+          <td>补全内容必须同时满足 visual plausibility、collision correctness 和 task usefulness。</td>
+          <td>P1</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>我会怎样把它落到我们平台</h2>
+    <ol>
+      <li><strong>先复现 hybrid scene package：</strong>每个场景输出 <code>scene.gs</code>、<code>collider_mesh.obj</code>、<code>camera_poses.json</code>、<code>scale.json</code>、<code>walkable_mask</code> 和 QA report。</li>
+      <li><strong>把 geometry regularization 做成默认训练配置：</strong>depth/normal/geo/scale losses 可开关，记录每个 loss 的曲线和 mesh quality。</li>
+      <li><strong>给 closed-loop renderer 加 health metrics：</strong>包括 floater culling rate、agent-view FID proxy、near-ground artifact count、visual-physics alignment error。</li>
+      <li><strong>场景编辑不要只做外观：</strong>同时维护 object placement constraints、collision proxy、semantic labels 和 dynamic agent routes。</li>
+      <li><strong>补全模块独立设计：</strong>Vid2Sim 负责把“已观测视频”变成 simulator；unseen/partial completion 应作为上层模块，把补全结果写回 scene graph、asset graph 和 collider graph。</li>
+    </ol>
+  </section>
+
+  <section>
+    <h2>读完这篇应记住的核心逻辑</h2>
+    <div class="callout takeaway">
+      <p>Vid2Sim 的本质不是“生成一个世界”，而是“把真实视频转换成一个 agent 可以闭环训练的近真实数字孪生”。它的关键设计是把 representation 拆开：<code>GS</code> 承担感知真实感，mesh 承担物理交互；再用 depth/normal priors 把二者尽量对齐。</p>
+      <p>对我们的 collaborative real2sim 平台来说，最该移植的是 <code>hybrid representation</code>、geometry-consistent GS training、screen-space artifact handling、simulator adapter 和 task-based evaluation。最不该误读的是：它还没有解决开放世界补全，也没有自动估计完整物理参数。</p>
+    </div>
+  </section>
+</main>
+</body>
+</html>

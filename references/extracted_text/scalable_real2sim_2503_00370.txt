@@ -1,0 +1,762 @@
+Scalable Real2Sim: Physics-Aware Asset Generation
+Via Robotic Pick-and-Place Setups
+
+arXiv:2503.00370v2 [cs.RO] 1 Apr 2025
+
+Nicholas Pfaff1 , Evelyn Fu1 , Jeremy Binagia2 , Phillip Isola1 , and Russ Tedrake1
+
+Fig. 1: An overview of our system. Objects are placed in the first bin, where the robot picks them up and reconstructs their
+geometries by moving them in front of a static camera while re-grasping to reduce occlusions (Section III-B & III-C). Next,
+the robot identifies the object’s physical parameters by following a trajectory designed to be informative for the inertial
+parameters (Section III-D). Finally, it places the object into the second bin and repeats the process with the next object. The
+extracted geometric and physical parameters are combined to generate a complete, simulatable object description.
+Abstract— Simulating object dynamics from real-world perception shows great promise for digital twins and robotic
+manipulation but often demands labor-intensive measurements
+and expertise. We present a fully automated Real2Sim pipeline
+that generates simulation-ready assets for real-world objects
+through robotic interaction. Using only a robot’s joint torque
+sensors and an external camera, the pipeline identifies visual
+geometry, collision geometry, and physical properties such
+as inertial parameters. Our approach introduces a general
+method for extracting high-quality, object-centric meshes from
+photometric reconstruction techniques (e.g., NeRF, Gaussian
+Splatting) by employing alpha-transparent training while explicitly distinguishing foreground occlusions from background
+subtraction. We validate the full pipeline through extensive
+experiments, demonstrating its effectiveness across diverse
+objects. By eliminating the need for manual intervention or
+environment modifications, our pipeline can be integrated
+directly into existing pick-and-place setups, enabling scalable
+and efficient dataset creation. Project page (with code and data):
+https://scalable-real2sim.github.io/.
+
+I. I NTRODUCTION
+Physics simulation has been a driving force behind recent
+advances in robotics, enabling learning in simulation before
+deploying in the real world [1]. This paradigm, termed
+1 Nicholas Pfaff, Evelyn Fu, Phillip Isola, and Russ Tedrake are
+with the Massachusetts Institute of Technology, Cambridge, MA, USA,
+
+{nepfaff, evelynfu, phillipi, russt}@mit.edu
+2 Jeremy Binagia is with Amazon Robotics,
+
+jbinagia@amazon.com
+
+Sim2Real, shows strong potential for machine learning approaches like reinforcement learning, which require large
+interaction datasets that are easier to collect in simulation
+than in reality. This approach will become increasingly
+valuable as robotics shifts toward foundation models, which
+require even larger training datasets [2]. However, Sim2Real
+typically requires manually replicating real-world scenes by
+curating object geometries and tuning dynamic parameters
+like mass and inertia. This process is time-consuming, requires expertise, and is challenging to scale.
+We propose an automated pipeline to generate dynamically
+accurate simulation assets for real-world objects. Inspired by
+prior work in Real2Sim [3]–[6], our approach reconstructs
+an object’s geometry and identifies its physical properties
+to create a complete simulation asset. Unlike prior methods,
+which primarily focus on either dynamic parameter identification [3] or geometric reconstruction [4], [6], our pipeline
+combines both, producing assets with visual and collision
+geometry as well as physical properties like mass and inertia.
+One could view this as a kind of physics scanner; analogous
+to how 2D scanners digitize documents and 3D scanners
+reconstruct geometric shapes, our method scans objects to
+create physically realistic digital twins. Furthermore, our
+method autonomously interacts with real-world objects to
+generate these assets and is designed to work with existing
+pick-and-place setups without extra hardware or human
+
+intervention. Future versions could allow robots to passively
+generate object assets as a byproduct of tasks like warehouse
+automation, where small adjustments to planned trajectories
+could provide data for the same model across multiple picks.
+Our pipeline integrates seamlessly into a standard pickand-place setup; we give an example with two bins and a
+robotic arm. The robot picks an object from the first bin,
+interacts with it to gather data for asset creation, and places
+it in the second bin. This process runs autonomously until
+the first bin is empty. The robot begins by moving the
+object in front of a static RGBD camera, re-grasping as
+needed to expose all sides and ensure the entire surface is
+captured. Background and gripper pixels are masked using
+video segmentation, while object tracking estimates object
+poses in the camera frame. These poses, along with the
+image data, serve as inputs to a 3D reconstruction method.
+We introduce a general recipe for obtaining object-centric
+triangle meshes from arbitrary photometric reconstruction
+techniques such as NeRF [7] and Gaussian Splatting [8].
+Our training procedure supports reconstruction from input
+views where the object moves and may be partially occluded,
+such as by a gripper. The collision geometry is then derived
+via convex decomposition, simplifying and convexifying the
+shape for simulation purposes. Lastly, the robot follows
+an excitation trajectory designed to maximize information
+gain, collecting joint position and torque data to identify
+the object’s physical properties via convex optimization. To
+handle arbitrary constraints in trajectory design, we introduce a custom augmented Lagrangian solver that solves its
+subproblems using black-box optimization. Unlike gradientbased solvers, which often struggle with local minima when
+additional constraints are introduced due to the numerical
+challenges of the information objective, our approach better
+handles complex constraints such as collision avoidance.
+We evaluate our pipeline and its components, demonstrating millimeter-level reconstruction accuracy and the ability
+to estimate mass and center of mass with only a few percent
+error. We use our pipeline to generate an initial small dataset,
+showcasing its capability to create complete simulation assets
+autonomously. Our results highlight its potential as a scalable
+solution for future large-scale dataset collection.
+In summary, our key contributions are:
+• A fully automated pipeline that generates complete
+simulation assets (visual geometry, collision geometry,
+and physical properties) using pick-and-place setups
+without hardware modifications or human intervention.
+• A general recipe for obtaining object-centric triangle
+meshes from photometric reconstruction methods such
+as NeRF for moving, partially occluded objects by
+employing alpha-transparent training and distinguishing
+foreground occlusions from background subtraction.
+• Practical implementations of optimal experiment design
+and physical parameter identification, allowing arbitrary
+robot specifications and leveraging a custom augmented
+Lagrangian solver for finding excitation trajectories under arbitrary constraints.
+• Extensive real-world experiments validating the effec-
+
+•
+
+tiveness of the pipeline and its individual components.
+A benchmark dataset of 20 assets generated by our
+pipeline, including raw sensor observations used in their
+creation. This dataset enables researchers to improve aspects of our pipeline, such as object tracking, geometry
+reconstruction, and inertia estimation, without requiring
+access to a robotic system.
+II. R ELATED W ORK
+
+Real2Sim in Robotics. Real2Sim [3]–[6] involves generating digital replicas of real-world scenes to reduce the
+Sim2Real gap. Wang et al. [4] construct object meshes
+from depth images, providing a foundation for digital reconstruction, though their approach primarily focuses on
+static objects. Downs et al. [5] achieve high-accuracy geometry scans using custom hardware, offering precise shape
+representations but requiring manual object handling and
+omitting physical properties. Torne et al. [6] present a
+user interface for creating digital twins, streamlining the
+modeling process while relying on human input for asset
+creation. Our approach extends previous work by capturing
+physical properties in addition to geometric and visual ones,
+producing complete simulation-ready assets without manual
+intervention.
+Generative AI for Asset Generation. An alternative to
+Real2Sim for asset creation is the use of generative AI [9]–
+[11]. Gen2Sim [9] employs diffusion models to synthesize
+3D meshes from a single image and queries large language models for object dimensions and plausible physical
+properties. While generative AI methods are easier to scale
+for large-scale asset creation, the Real2Sim approach is
+preferable when assets are intended to accurately reflect realworld objects rather than being AI-imagined approximations.
+The observations from [12] suggest that accurate physical
+parameters are important for simulation-trained policies to
+transfer to the real world for nonprehensile manipulation.
+3D Reconstruction. 3D reconstruction methods focus on
+reconstructing geometry from real-world observations such
+as RGB and depth images. Modern methods produce implicit
+representations [7], [8], which excel at high-quality rendering
+but do not always yield structured geometry [13]. We propose
+a general recipe to obtain object-centric triangle meshes from
+arbitrary photometric reconstruction methods by employing
+alpha-transparent training [14] while explicitly distinguishing
+foreground occlusions from background subtraction.
+Inertial Parameter Estimation & Experiment Design.
+The identification of dynamic parameters for robotic systems
+and payloads is well-studied; see [15] for a recent review.
+There are two main approaches to payload identification:
+(1) identifying the robot’s parameters using joint-torque sensors, then re-identifying them with the payload to compute
+payload parameters as the difference [16], and (2) using a
+force-torque sensor at the end-effector to directly identify
+payload parameters [17]. We focus on the first approach as
+it avoids the need for a wrist-mounted sensor and provides
+robot parameters for precise control. However, the second
+could also be used in setups without joint-torque sensors.
+
+(d)
+
+(g)
+
+(e)
+
+(h)
+
+(b)
+
+Fig. 2: Our object scanning method. We use re-grasps to
+display the object along two perpendicular axes, providing
+the camera with a complete view of the object.
+
+(a)
+
+(c)
+A key challenge in inertial parameter estimation is ensuring physical feasibility in situations where we have limited
+data or some parameters are unidentifiable [18], [19]. [18]
+formulates linear matrix inequality (LMI) constraints for
+physical consistency, and [19] adds additional regularization
+techniques. We implement these methods in Drake [20],
+enabling identification for any robot specified by URDF,
+SDFormat, or MJCF description files.
+Another challenge is collecting informative data. Optimal excitation trajectory design [21]–[23] tackles this by
+generating trajectories that maximize parameter information
+gain. Prior works often hard-code robot descriptions, lack
+support for arbitrary constraints, and suffer from local minima. Using Drake [20], we design excitation trajectories for
+arbitrary robots and constraints, leveraging a custom blackbox augmented Lagrangian solver to mitigate some of the
+numerical issues that can hinder gradient-based optimization
+of information-maximizing objectives.
+III. AUTONOMOUS A SSET G ENERATION V IA ROBOT
+I NTERACTION
+A. Problem Statement
+Our pipeline autonomously generates simulation assets for
+rigid objects using a standard pick-and-place setup consisting
+of a robotic manipulator, two bins, and an external RGBD
+camera. For each object, the pipeline produces a visual
+geometry V (a textured visual mesh), collision geometry C (a
+union of convex meshes), and physical properties P (mass,
+center of mass, rotational inertia). The robot picks an object
+from the first bin, reconstructs its visual geometry (Section
+III-B), derives a collision geometry (Section III-C), identifies
+physical properties (Section III-D), and places the object in
+the second bin. This process repeats for all objects. Figure
+1 illustrates the asset generation workflow.
+B. Geometric Reconstruction for Visual Geometry
+We reconstruct the visual geometry V by collecting multiview object observations {I}N (Section III-B.1) and using
+state-of-the-art (SOTA) reconstruction methods to create a
+textured triangle mesh (Section III-B.2).
+1) Data Collection and Processing: The robot rotates the
+object along two perpendicular axes using primitive motions
+and re-grasps as needed, ensuring all object surfaces are
+visible across multiple frames despite occasional gripper
+occlusions. This provides a full view of the object’s surface
+
+(f)
+
+(i)
+
+Fig. 3: Our object-centric visual reconstruction recipe.
+From the collected RGB images (a), we obtain the object
+masks (b) and gripper masks (c). Using only the object
+masks to ignore background pixels during training (d) results
+in density bleeding into unoccupied regions (g). Applying
+alpha-transparent training (e) mitigates density bleeding but
+incorrectly drives occluded object regions toward transparency (h). Ignoring pixels inside of the gripper mask during
+training, along with employing alpha transparent training (f),
+successfully reconstructs an unoccluded object view with no
+density bleeding (i).
+
+(Figure 2). We compute grasp pairs by ranking feasible
+grasps based on antipodal quality [24] and a pair score,
+which measures how perpendicular and spatially separated
+two grasps are to avoid mutual occlusions. The robot collects
+redundant RGB images I NL during scanning, which are
+downsampled to I N for computational efficiency. Downsampling is performed by selecting every K th frame, followed
+by iteratively selecting additional frames from the remaining
+set. Specifically, we iteratively choose the frame with the
+largest cosine distance (in DINO [25] feature space) from
+the already selected frames until we reach N total images,
+ensuring maximal diversity in the final selection. Object and
+gripper masks {MO }N and {MG }N are extracted using
+SAM2 [26] video segmentation.
+2) Geometric Reconstruction: We obtain the object’s visual mesh and texture map using SOTA implicit reconstruction methods. These methods are typically designed
+to reconstruct an entire static scene rather than dynamic,
+object-centric scenarios [6]. We propose a general recipe
+to adapt them for object-centric reconstructions from our
+dynamic scenes, demonstrating it with three reconstruction
+approaches. This recipe applies broadly to any method relying on photometric losses.
+Standard approaches like NeRF [7] assume a static scene
+
+with known camera poses. In contrast, our setup features
+a moving object and a stationary camera whose fixed pose
+does not need to be known. To adapt, we redefine the object
+frame as the world frame, masking out the background so
+that the non-masked region remains static relative to the new
+world frame, as in [27]. Camera poses {X C }N are obtained
+via object tracking, as the transformation from the camera
+to the new world frame corresponds to the object’s pose in
+the camera frame.
+Using object masks {MO }N , we train the reconstruction method on pixels belonging to the object. However,
+excluding background pixels can lead to density bleeding
+(see Figure 3), where the model assigns nonzero density
+to empty space due to a lack of supervision. To address
+this, we employ alpha-transparent training [14], which enforces zero density in the background without additional
+hyperparameters. This method replaces background pixels
+in the training data with iteration-dependent random colors
+and blends those same colors into the predicted image
+based on the model’s density predictions. Since the model
+cannot predict these random colors, it minimizes the loss
+by assigning zero density outside the object, allowing the
+colors to shine through. As part of this work, we integrated
+alpha-transparent training into Nerfstudio, enabling support
+for object-centric reconstruction.
+Alpha-transparent training resolves background issues but
+cannot handle occlusions, such as those caused by the
+gripper, as it would incorrectly make occluded regions transparent. To address this, we use gripper masks {MG }N to
+exclude occluded pixels from the reconstruction objective.
+Gripper masks take precedence over object masks.
+For featureless objects like single-color surfaces, depth
+supervision, which constrains reconstruction with depth data,
+improves accuracy by resolving ambiguities in photometric
+losses. This additional geometric constraint is particularly effective for objects such as bowls, where photometric methods
+often struggle.
+C. Collision Geometries
+The visual geometry V is simplified into a convex collision geometry C for physics simulation. Following prior
+works [4], [6], we use approximate convex decomposition
+algorithms [28], [29], which split V into nearly convex
+components and simplify each using convex hulls. This
+process yields a computationally efficient and simulatable
+geometry C.
+We note that simulating a collection of convex pieces can
+be suboptimal, especially when meshes overlap or contain
+gaps. In Drake’s hydroelastic contact model [30], gaps can
+distort the pressure field, causing dynamic artifacts. In the
+point contact models used in most robotics simulators, overlaps may generate interior contact points. Another option
+is to use primitive geometries to represent the collision
+geometry. For instance, sphere-based approximations might
+enable rapid simulations on GPU-accelerated simulators. The
+optimal representation depends on the simulator and the
+tradeoff between simulation speed and accuracy. While we
+
+found convex decomposition effective in most cases, particularly with point contact models, a more general approach
+remains an avenue for future work.
+D. Physical Parameter Identification
+We identify object parameters by first using the robot’s
+joint-torque sensors to determine the robot arm’s parameters.
+Then, we re-identify these parameters with the object grasped
+and compute the object’s parameters as the difference.
+1) Parameters to Identify: We estimate the object’s inertial parameters: mass mB , center of mass pcom
+B , and
+rotational inertia I B ∈ S3 (the set of 3 × 3 symmetric
+matrices). These parameters are physically feasible if and
+only if the pseudo-inertia J B of body B is positive definite
+[18]:
+
+
+ΣB hB
+J B :=
+≻ 0,
+(1)
+hTB mB
+1
+where hB = mB · pcom
+B , ΣB = 2 tr(IB )I3×3 − IB , and I3×3
+is the identity matrix. We leave the estimation of the object’s
+contact parameters as important future work.
+For the initial robot identification, we identify the inertial
+parameters for each link, i.e., mn , pcom
+n , and I n where n ∈
+{1, ..., N } is the link index. We also identify the joint friction
+coefficients µv ∈ RN ≥ 0, µc ∈ RN ≥ 0 and the reflected
+rotor inertia Ir ∈ RN ≥ 0.
+2) Robot Identification: The robot dynamics follow the
+manipulator equations [31]:
+
+M(q)q̈ + C(q, q̇)q̇ − τg (q) + τ f (q̇) + τ r (q̈) = τ , (2)
+where the terms (in order) represent the mass matrix, the
+bias term containing the Coriolis and gyroscopic effects, the
+torques due to gravity, the torques due to joint friction, and
+the torques due to reflected rotor inertia. These equations are
+affine in the parameters α ∈ R13N that comprise the inertial,
+friction, and reflected inertia parameters for each link. By
+measuring joint torques τ and kinematic states, we solve
+for α using linear least-squares, forming an overdetermined
+system:
+T = Wα + w0 .
+(3)
+This becomes a semi-definite program (SDP) when imposing
+physical feasibility constraints [18]:
+min ||Wα+w0 −T||22
+α
+
+s.t. Jn ≻ 0, µv , µc , I r ≥ 0, (4)
+
+where µv and µc are viscous and Coulomb friction coefficients, and I r represents reflected rotor inertia. SDPs are
+convex programs that can be solved to global optimality. In
+practice, we solve a slightly modified version of this program
+that excludes unidentifiable parameters [18], [19] from the
+objective and uses the regularization from [19].
+3) Optimal Excitation Trajectory Design: To identify parameters α effectively, we need high-quality data that sufficiently excites all parameters. Optimal excitation trajectory
+design aims to maximize the information content in the
+regressor matrix W(q) by choosing joint trajectories that
+provide the most informative data.
+
+For ordinary least-squares (OLS), the parameter estimate
+α̂ minimizes the residual error minα ||W(q)α − T̃||22 ,
+with the variance of the estimate given by Var(α̂) ≈
+(W(q)T W(q))−1 . Although our problem involves constrained least-squares, we use the variance properties of
+OLS as a proxy, aiming to minimize Var(α̂) by maximizing
+the information content of W(q). To balance information
+across all parameters and reduce worst-case uncertainty, we
+minimize a p
+weighted combination of the condition number
+λmax /λmin , which ensures even information
+fc (λ) =
+distribution, and the E-optimality criterion fe (λ) = −λmin ,
+which minimizes the largest uncertainty [22]. Here, λ are the
+eigenvalues of W(q)T W(q). This results in the following
+optimization problem that searches over data matrices W(q)
+while respecting the robot constraints:
+min
+q(t),t∈[t0 ,tf ]
+
+s.t.
+
+fc (λ) + γfe (λ),
+collision avoidance,
+
+(5)
+
+joint position/ velocity/ acceleration limits,
+zero start and end velocities/ accelerations.
+To make the infinite-dimensional problem tractable, we parameterize the trajectories using a finite Fourier series, as is
+standard practice for excitation trajectory design [21], [23].
+Existing approaches, such as [22], rely on gradient-based
+solvers, which often struggle with local minima when additional constraints are introduced. We suspect that the
+cost function’s dependence on eigenvalues contributes to
+numerical issues, making the optimization inherently challenging. Instead, we use the augmented Lagrangian method,
+which reformulates constrained optimization as a series of
+unconstrained subproblems with penalty terms enforcing
+constraints. The underlying numerical challenges of the
+objective make these subproblems difficult to solve, and
+hard constraints like collision avoidance further exacerbate
+the issue. To address this, we develop a custom augmented
+Lagrangian solver inspired by [32] but solve the subproblems
+using black-box optimization. This approach improves solution quality at the expense of longer runtimes, an acceptable
+trade-off for an offline process solved once per environment.
+Our Drake implementation supports arbitrary robots using
+standard robot description formats such as URDFs and
+allows for arbitrary constraints through its MathematicalProgram interface. This addresses a key practical limitation of
+the more narrow implementations in existing opens-source
+alternatives [21]–[23].
+4) Object Identification: After a one-time identification
+of the robot’s parameters, we re-identify the last link’s
+parameters with the object grasped. The object’s parameters
+are computed as the difference p between the two parameter
+sets, leveraging the lumped parameter linearity of composite
+bodies:
+m12 = m1 + m2 ,
+
+h12 = h1 + h2 ,
+
+I 12 = I 1 + I 2 . (6)
+
+The physically feasible set of lumped parameters is closed
+under addition but not under subtraction. In theory, subtracting one reasonable parameter set from another, such
+
+Fig. 4: Our pick-and-place setup. It features a Kuka LBR
+iiwa 7 arm with a Schunk WSG-50 gripper and Toyota
+Research Institute Finray fingers. Workspace observations
+rely on three static RealSense D415 cameras (orange circles),
+while bin picking uses a RealSense D435 (green circle), and
+object scanning is performed with another D415 (red circle).
+All cameras capture 640×480 resolution RGBD images.
+Objects are picked from the right bin and placed into the
+left bin. A platform is used in the scanning workspace to
+enhance the iiwa’s kinematic range during re-grasping.
+
+as subtracting a sub-body’s parameters from those of a
+composite body, should yield a valid parameter set. However,
+estimation errors can lead to physically invalid results, such
+as a small object’s mass falling within the error margin,
+resulting in a negative mass estimate. Hence, we add a
+pseudo-inertia constraint Jp ≻ 0 for the parameter difference
+p, which we found to be informative in practice. We identify
+the object using the same excitation trajectory as for robot
+identification, as designing a trajectory specific to the last
+link proved less effective, and using the same trajectory
+mitigates systematic errors when subtracting parameters. We
+assume a rigid grasp and leave slippage for future work.
+IV. I MPLEMENTATION D ETAILS
+In this section, we go over some of the key implementation
+details. The complete codebase is available at https://
+github.com/nepfaff/scalable-real2sim.
+1) Grasp and Motion Planning: We implement antipodal
+grasping based on [24] and use [33] for motion planning.
+2) Object Tracking: We use BundleSDF [27] with a
+static camera for object tracking, leveraging the filtered
+frames {I}N and object masks {MO }N to compute camera
+poses {X C }N . BundleSDF produces a visual geometry as a
+byproduct of tracking.
+3) Geometric Reconstruction: We applied our recipe from
+Section III-B.2 to three methods: Nerfacto from Nerfstudio
+[34], Gaussian Frosting [35], and Neuralangelo [13].
+4) Physical Parameter Identification: We collect 10 trajectories for robot identification, averaging positions, and
+torques to improve the signal-to-noise ratio. Object identification uses a single trajectory for practicality. Velocities and
+
+Fig. 5: Real-world objects (left) and their reconstructed counterparts (right). Each object on the left was individually
+reconstructed using our pipeline. These assets were then manually arranged in simulation to approximately match their
+real-world poses and rendered to produce the image on the right. The strong visual similarity is notable, especially given
+that the reconstructions are rendered triangle meshes rather than neural renders.
+
+accelerations are computed via double differentiation, and all
+quantities are low-pass filtered, with cutoff frequencies tuned
+via hyperparameter search to minimize Equation 4.
+To handle variations in gripper pose, we identify the
+robot with multiple gripper openings and match the closest
+one during object identification. Without this correction,
+gripper pose variations would introduce errors in the system
+identification process. We use iterative closest point (ICP)
+[36] to align the point cloud and the known grasp position
+with the reconstructed mesh, allowing us to express the
+inertial parameters in the object frame.
+V. R ESULTS
+A. Geometric Reconstruction
+We assess reconstruction accuracy by computing the
+Chamfer distance between our BundleSDF reconstructions of
+selected YCB [39] objects and their corresponding 3D scanner models from the original dataset. Our method achieves
+reconstruction errors of 0.93mm, 1.68mm, 5.58mm, and
+0.80mm for the mustard bottle, potted meat can, bleach
+cleanser, and gelatin box, respectively. These low errors
+indicate that our system produces both accurate and complete
+object reconstructions. However, if the physical product
+dimensions have changed since the dataset’s release, the
+measured reconstruction error may be artificially inflated.
+Qualitative results are provided in Figures 5 and 6. Notably,
+Figure 6 highlights our ability to reconstruct entire objects,
+including previously occluded regions such as the bottom,
+which would be inaccessible without object interaction. We
+found that BundleSDF produces meshes with poor topology, including scattered boundary faces and non-manifold
+vertices. These artifacts complicate rendering and may pose
+challenges for simulators that require watertight meshes. One
+way to mitigate rendering issues is to use a high-quality
+but slow renderer like Blender Cycles [37]. Alternatively,
+a higher-quality mesh can be generated using a SOTA
+
+Fig. 6: A selection of geometric reconstructions. The first
+two columns show multiple views of the same object (a
+power inflator in the first column and a Lego block in
+the second), demonstrating the completeness of our reconstructions. The last two columns highlight close-up views
+of other objects, illustrating the accuracy of both geometric
+and visual reconstruction, even for parts that were occluded
+during scanning. We provide interactive 3D visualizations on
+our project page.
+
+reconstruction method like Neuralangelo, following our geometric reconstruction recipe from Section III-B.2. Figure
+7 presents a qualitative comparison between BundleSDF
+and Neuralangelo, highlighting the rendering artifacts caused
+by poor topology. Additional examples, including Nerfacto
+and Gaussian Frosting reconstructions, are available on our
+project page.
+B. Physical Parameter Identification
+We replicate the test object and benchmark from [17].
+Their test object enables the creation of objects with varying
+inertial properties of known ground truth values. Unlike [17],
+
+Fig. 7: Comparison of BundleSDF [27] and Neuralangelo
+[13] reconstructions of a mustard bottle. Blue circles
+denote Blender [37] renders, while green diamonds represent
+Meshlab [38] renders. The BundleSDF mesh appears best
+in Blender but worst in Meshlab due to poor topology
+(e.g., scattered boundary faces), which requires a powerful
+renderer to compensate. In contrast, the Neuralangelo mesh
+maintains consistent quality across both renderers due to its
+well-structured topology. The effects of poor topology in the
+BundleSDF mesh appear as black lines, which originate from
+the mesh itself rather than the texture map. These artifacts
+are particularly noticeable at the top of the bottle’s body.
+
+Fig. 8: Our simulation experiments. The left column
+represents simulations, and the right column represents their
+real-world counterparts. The first row is pick-and-place, the
+second is knocking over, and the third is falling down a ramp.
+Different frames are overlaid transparently to show motion,
+and videos are available on the project page.
+
+we do not use a force-torque sensor and thus directly mount
+the test object to the robot’s last link.
+TABLE I: Comparison of identification errors between our
+method and results reported in [17]. ‘FT‘ indicates that
+the results were obtained with a force-torque sensor, while
+‘JT‘ refers to joint-torque sensors. The metrics are the ones
+proposed in [17]. Error bars represent one standard deviation.
+
+OLS (FT)
+PMD-25K (FT)
+Ours (JT)
+
+Mass (%)
+
+CoM (%)
+
+Inertia Tensor (%)
+
+3.18
+4.45
+1.34 ± 0.21
+
+24.9
+4.50
+2.15 ±1.20
+
+>500
+29.11
+42.35 ± 15.64
+
+Following the identification procedure from III-D, we
+identify the same eight test object configurations as [17],
+performing three identifications per configuration and averaging the metrics over all 24 trials. Table I shows our results
+compared to the best-performing method (‘PMD-25K‘) from
+[17] and their OLS baseline. Notably, our method does not
+require external sensors or prior knowledge of object shape
+and pose, unlike ‘PMD-25K‘. While our approach achieves
+superior accuracy in mass and center of mass estimation,
+it performs slightly worse for rotational inertia. However,
+it still significantly outperforms OLS across all metrics.
+Additionally, estimating inertial parameters from joint torque
+sensors is more challenging than using a force-torque sensor,
+as they only provide indirect force measurements.
+To validate our approach further, we conduct an endto-end experiment by 3D printing a mustard bottle with
+known inertia and processing it through the pipeline. The
+
+ground truth mass is 427.1g. Our estimation errors are 1.23%
+for mass, 6.33% for the center of mass, and 358.6% for
+rotational inertia, based on the metrics from [17]. While the
+rotational inertia error is notably high, these results remain
+encouraging, given the challenges introduced by our camera
+calibration errors and limits from joint torque sensing.
+C. Simulation Performance
+Our pipeline produces simulatable assets that can be
+directly imported into physics simulators such as Drake.
+However, individual simulation rollouts are highly sensitive
+to initial conditions, making direct one-to-one comparisons
+with real-world rollouts challenging. A robust evaluation
+would require comparing the distributions of rollout trajectories rather than individual instances. One approach to mitigate sensitivity to initial conditions is to compute equation
+error metrics [31, Chapter 18] by resetting the simulation
+state to match the real-world state at every timestep. However, this would require a precise state estimation system,
+which is beyond the scope of this work. Instead, we focus
+on qualitative evaluation, presenting interactive simulations
+and side-by-side comparisons of real-world and simulated
+rollouts on our project page. See Figure 8 for an overview.
+VI. C ONCLUSION
+This paper introduced an automated Real2Sim pipeline
+that generates simulation-ready assets for real-world objects
+through robotic interaction. By automating the creation of
+object geometries and physical parameters, our approach
+
+eliminates the need for manual asset generation, addressing
+key bottlenecks in Sim2Real. We demonstrated that our
+method accurately estimates object geometry and physical
+properties without manual intervention, enabling scalable
+dataset creation for simulation-driven robotics research.
+ACKNOWLEDGEMENT
+This work was supported by Amazon.com, PO No. 2D15693043, and the Office of Naval Research (ONR) No.
+N000142412603. We thank Lirui Wang, Andy Lambert,
+Thomas Cohn, Ge Yang, and Ishaan Chandratreya for their
+discussions.
+R EFERENCES
+[1] W. Zhao, J. P. Queralta, and T. Westerlund, “Sim-to-real transfer in
+deep reinforcement learning for robotics: a survey,” in 2020 IEEE
+Symposium Series on Computational Intelligence (SSCI), 2020, pp.
+737–744.
+[2] R. Firoozi, J. Tucker, S. Tian, A. Majumdar, J. Sun, W. Liu, Y. Zhu,
+S. Song, A. Kapoor, K. Hausman, B. Ichter, D. Driess, J. Wu, C. Lu,
+and M. Schwager, “Foundation models in robotics: Applications,
+challenges, and the future,” The International Journal of Robotics
+Research, 2024.
+[3] M. Memmel, A. Wagenmaker, C. Zhu, P. Yin, D. Fox, and A. Gupta,
+“Asid: Active exploration for system identification in robotic manipulation,” arXiv preprint arXiv:2404.12308, 2024.
+[4] L. Wang, R. Guo, Q. Vuong, Y. Qin, H. Su, and H. Christensen,
+“A real2sim2real method for robust object grasping with neural
+surface reconstruction,” in 2023 IEEE 19th International Conference
+on Automation Science and Engineering (CASE), 2023, pp. 1–8.
+[5] L. Downs, A. Francis, N. Koenig, B. Kinman, R. Hickman, K. Reymann, T. B. McHugh, and V. Vanhoucke, “Google scanned objects:
+A high-quality dataset of 3d scanned household items,” in 2022
+International Conference on Robotics and Automation (ICRA). IEEE
+Press, 2022, p. 2553–2560.
+[6] M. Torne, A. Simeonov, Z. Li, A. Chan, T. Chen, A. Gupta, and
+P. Agrawal, “Reconciling reality through simulation: A real-to-sim-toreal approach for robust manipulation,” Arxiv, 2024.
+[7] B. Mildenhall, P. P. Srinivasan, M. Tancik, J. T. Barron, R. Ramamoorthi, and R. Ng, “Nerf: Representing scenes as neural radiance fields
+for view synthesis,” in ECCV, 2020.
+[8] B. Kerbl, G. Kopanas, T. Leimkühler, and G. Drettakis, “3d gaussian
+splatting for real-time radiance field rendering,” ACM Transactions on
+Graphics, vol. 42, no. 4, July 2023.
+[9] P. Katara, Z. Xian, and K. Fragkiadaki, “Gen2sim: Scaling up robot
+learning in simulation with generative models,” 2023.
+[10] R. Liu, R. Wu, B. V. Hoorick, P. Tokmakov, S. Zakharov, and
+C. Vondrick, “Zero-1-to-3: Zero-shot one image to 3d object,” 2023.
+[11] Luma AI, “Luma AI Genie: Text-to-3D Generation,” 2024.
+[12] A. Wei, A. Agarwal, B. Chen, R. Bosworth, N. Pfaff, and R. Tedrake,
+“Empirical analysis of sim-and-real cotraining of diffusion policies for
+planar pushing from pixels,” 2025.
+[13] Z. Li, T. Müller, A. Evans, R. H. Taylor, M. Unberath, M.-Y. Liu, and
+C.-H. Lin, “Neuralangelo: High-fidelity neural surface reconstruction,”
+in IEEE Conference on Computer Vision and Pattern Recognition
+(CVPR), 2023.
+[14] T. Müller, A. Evans, C. Schied, and A. Keller, “Instant neural graphics
+primitives with a multiresolution hash encoding,” ACM Trans. Graph.,
+vol. 41, no. 4, pp. 102:1–102:15, Jul. 2022.
+[15] T. Lee, J. Kwon, P. M. Wensing, and F. C. Park, “Robot model
+identification and learning: A modern perspective,” Annual Review
+of Control, Robotics, and Autonomous Systems, vol. 7, no. Volume 7,
+2024, pp. 311–334, 2024.
+[16] W. Khalil, M. Gautier, and P. Lemoine, “Identification of the payload
+inertial parameters of industrial manipulators,” in Proceedings 2007
+IEEE International Conference on Robotics and Automation, 2007,
+pp. 4943–4948.
+
+[17] P. Nadeau, M. Giamou, and J. Kelly, “Fast object inertial parameter
+identification for collaborative robots,” in 2022 International Conference on Robotics and Automation (ICRA), 2022, pp. 3560–3566.
+[18] P. M. Wensing, S. Kim, and J.-J. E. Slotine, “Linear matrix inequalities
+for physically consistent inertial parameter identification: A statistical
+perspective on the mass distribution,” IEEE Robotics and Automation
+Letters, vol. 3, no. 1, pp. 60–67, 2018.
+[19] T. Lee, P. M. Wensing, and F. C. Park, “Geometric robot dynamic
+identification: A convex programming approach,” IEEE Transactions
+on Robotics, vol. 36, no. 2, pp. 348–365, 2020.
+[20] R. Tedrake and the Drake Development Team, “Drake: Model-based
+design and verification for robotics,” 2019.
+[21] Q. Leboutet, J. Roux, A. Janot, J. Rogelio, and G. Cheng, “Inertial
+Parameter Identification in Robotics: A Survey,” Applied Sciences,
+vol. 11, no. 9, p. 4303, May 2021.
+[22] T. Lee, B. D. Lee, and F. C. Park, “Optimal excitation trajectories for
+mechanical systems identification,” Automatica, vol. 131, p. 109773,
+Sep. 2021.
+[23] H. Tian, M. Huber, C. E. Mower, Z. Han, C. Li, X. Duan, and
+C. Bergeles, “Excitation trajectory optimization for dynamic parameter
+identification using virtual constraints in hands-on robotic system,”
+2024 IEEE International Conference on Robotics and Automation
+(ICRA), pp. 11 605–11 611, 2024.
+[24] A. ten Pas, M. Gualtieri, K. Saenko, and R. Platt, “Grasp pose
+detection in point clouds,” Int. J. Rob. Res., vol. 36, no. 13–14, p.
+1455–1473, Dec. 2017.
+[25] M. Caron, H. Touvron, I. Misra, H. Jégou, J. Mairal, P. Bojanowski,
+and A. Joulin, “Emerging properties in self-supervised vision transformers,” in Proceedings of the International Conference on Computer
+Vision (ICCV), 2021.
+[26] N. Ravi, V. Gabeur, Y.-T. Hu, R. Hu, C. Ryali, T. Ma, H. Khedr,
+R. Rädle, C. Rolland, L. Gustafson, E. Mintun, J. Pan, K. V. Alwala,
+N. Carion, C.-Y. Wu, R. Girshick, P. Dollár, and C. Feichtenhofer,
+“Sam 2: Segment anything in images and videos,” Arxiv, 2024.
+[27] B. Wen, J. Tremblay, V. Blukis, S. Tyree, T. Müller, A. Evans, D. Fox,
+J. Kautz, and S. Birchfield, “BundleSDF: Neural 6-DoF tracking and
+3D reconstruction of unknown objects,” in CVPR, 2023.
+[28] E. L. Khaled Mamou and A. Peters, “Volumetric hierarchical approximate convex decomposition,” in Game Engine Gems 3. AK Peters,
+2016, p. 141–158.
+[29] X. Wei, M. Liu, Z. Ling, and H. Su, “Approximate convex decomposition for 3d meshes with collision-aware concavity and tree search,”
+ACM Trans. Graph., vol. 41, no. 4, Jul. 2022.
+[30] J. Masterjohn, D. Guoy, J. Shepherd, and A. Castro, “Velocity level
+approximation of pressure field contact patches,” 2022.
+[31] R. Tedrake, Underactuated Robotics, 2023.
+[32] A. R. Conn, N. I. M. Gould, and P. L. Toint, Lancelot: A Fortran
+Package for Large-Scale Nonlinear Optimization (Release A), 1st ed.,
+ser. Springer Series in Computational Mathematics. Springer-Verlag
+Berlin Heidelberg, 1992, vol. 17.
+[33] P. Werner, R. Cheng, T. Stewart, R. Tedrake, and D. Rus, “Superfast configuration-space convex set computation on GPUs for online
+motion planning,” Under review, 2025.
+[34] M. Tancik, E. Weber, E. Ng, R. Li, B. Yi, J. Kerr, T. Wang,
+A. Kristoffersen, J. Austin, K. Salahi, A. Ahuja, D. McAllister,
+and A. Kanazawa, “Nerfstudio: A modular framework for neural
+radiance field development,” in ACM SIGGRAPH 2023 Conference
+Proceedings, ser. SIGGRAPH ’23, 2023.
+[35] A. Guédon and V. Lepetit, “Gaussian frosting: Editable complex
+radiance fields with real-time rendering,” ECCV, 2024.
+[36] P. Besl and N. D. McKay, “A method for registration of 3-d shapes,”
+IEEE Transactions on Pattern Analysis and Machine Intelligence,
+vol. 14, no. 2, pp. 239–256, 1992.
+[37] B. O. Community, Blender - a 3D modelling and rendering package,
+Blender Foundation, Stichting Blender Foundation, Amsterdam, 2018.
+[38] P. Cignoni, M. Callieri, M. Corsini, M. Dellepiane, F. Ganovelli, and
+G. Ranzuglia, “MeshLab: an Open-Source Mesh Processing Tool,” in
+Eurographics Italian Chapter Conference, 2008.
+[39] B. Calli, A. Singh, A. Walsman, S. Srinivasa, P. Abbeel, and A. M.
+Dollar, “The ycb object and model set: Towards common benchmarks
+for manipulation research,” in 2015 International Conference on
+Advanced Robotics (ICAR), 2015, pp. 510–517.
+
+

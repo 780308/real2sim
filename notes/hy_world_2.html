@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>HY-World 2.0: Multi-Modal World Model for 3D World Generation and Reconstruction</title>
+<style>
+body { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; line-height:1.65; margin:0; color:#202124; background:#f7f7f5; }
+main { max-width: 980px; margin: 0 auto; padding: 32px 24px 56px; background:#fff; }
+h1 { font-size: 30px; margin:0 0 8px; }
+h2 { margin-top: 30px; border-top:1px solid #ddd; padding-top:18px; }
+.meta { color:#5f6368; }
+.badge { display:inline-block; padding:2px 8px; border:1px solid #ccc; border-radius:6px; margin-right:6px; background:#fafafa; }
+table { border-collapse: collapse; width:100%; margin: 14px 0; }
+td, th { border:1px solid #ddd; padding:8px; vertical-align:top; }
+th { background:#f1f3f4; }
+code { background:#f1f3f4; padding:2px 4px; border-radius:4px; }
+</style>
+</head>
+<body><main>
+<h1>HY-World 2.0: Multi-Modal World Model for 3D World Generation and Reconstruction</h1>
+<p class="meta"><span class="badge">P1</span><span class="badge">standard</span><span class="badge">score 3.69/5</span><span class="badge">open 3D world model</span></p>
+<h2>资料状态</h2>
+<table>
+<tr><th>类型</th><td>tech report+repo+weights</td></tr>
+<tr><th>本地 PDF</th><td>ref/hy_world_2_0_tech_report.pdf</td></tr>
+<tr><th>本地 repo</th><td>repos/HY-World-2.0</td></tr>
+<tr><th>commit</th><td>7f668e6</td></tr>
+<tr><th>license 文件</th><td>License.txt</td></tr>
+</table>
+<h2>Sources</h2><ul><li>https://3d.hunyuan.tencent.com/sceneTo3D</li><li>https://github.com/Tencent-Hunyuan/HY-World-2.0</li></ul>
+<h2>对 directional view coverage gap 的定位</h2><p>P1 强候选：作为 semantic/geometry prior，不作为第一主线。</p>
+<h2>Inputs / Outputs</h2>
+<ul><li><strong>Inputs:</strong> text, single-view image, multi-view images, video。</li><li><strong>Outputs:</strong> 3D world representations: meshes / 3DGS / point cloud / depth / normals / camera parameters。</li></ul>
+<h2>Method Pipeline</h2><ul><li>World Generation: HY-Pano 2.0 -&gt; WorldNav -&gt; WorldStereo 2.0 -&gt; WorldMirror 2.0 + 3DGS learning。</li><li>World Reconstruction: WorldMirror 2.0 feed-forward predicts depth, normals, camera, point cloud, 3DGS attributes。</li><li>README 明确可导入 Blender/Unity/Unreal/Isaac 类引擎。</li></ul>
+<h2>Objectives / Losses</h2><p>多模型组合 world generation/reconstruction；报告重在系统能力而非单一 loss。</p>
+<h2>Assumptions</h2><p>世界模型会生成 plausible 3D world，但未必 metric-align 到 Go2 真实走廊；需要真实几何约束和局部锁定。</p>
+<h2>Failure Modes</h2><p>可能改变拓扑/物体布局；如果无约束替换原场景，会损害 real2sim fidelity。</p>
+<h2>Isaac Sim / 平台迁移判断</h2><p>adapter needed but promising；mesh/3DGS 输出和 Isaac 兼容表述使其比纯 video world model 更有用。</p>
+<h2>Transfer Matrix 摘要</h2>
+<table>
+<tr><th>method family</th><td>open 3D world model</td></tr>
+<tr><th>camera-pose conditioning</th><td>中/弱</td></tr>
+<tr><th>large-angle support</th><td>需验证</td></tr>
+<tr><th>3D consistency</th><td>3.5/5</td></tr>
+<tr><th>Isaac Sim path</th><td>adapter needed but promising；mesh/3DGS 输出和 Isaac 兼容表述使其比纯 video world model 更有用。</td></tr>
+<tr><th>code/weights</th><td>4.2/5</td></tr>
+<tr><th>priority score</th><td>3.69/5</td></tr>
+</table>
+</main></body></html>

@@ -1,0 +1,64 @@
+<!doctype html><html><head><meta charset="utf-8"><title>OpenReal2Sim: Toolbox for Real-to-Sim Reconstruction and Robotic Simulation</title><style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.65;max-width:1120px;margin:32px auto;padding:0 24px;color:#17202a;background:#fbfbf8}
+h1{font-size:30px;margin-bottom:8px}h2{font-size:22px;margin-top:30px;border-bottom:1px solid #ddd;padding-bottom:4px}h3{font-size:18px;margin-top:22px}
+p,li{font-size:15px}.meta{color:#555}.card{border:1px solid #ddd;border-radius:8px;padding:14px 16px;background:#fff;margin:14px 0}
+.table-line{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;background:#fff;padding:2px 6px;margin:0;border-left:1px solid #ddd;border-right:1px solid #ddd}
+pre{background:#111827;color:#f9fafb;padding:14px;border-radius:8px;overflow:auto}
+</style></head><body><h1>OpenReal2Sim: Toolbox for Real-to-Sim Reconstruction and Robotic Simulation</h1>
+
+<h2>定位</h2>
+<p>最接近本地 Isaac asset glue code 的工具箱；适合作为我们最终 exporter/interface 的代码参考。</p>
+
+<p class="table-line">| 字段 | 内容 |</p>
+<p class="table-line">| --- | --- |</p>
+<p class="table-line">| priority / score | P0 / 4.06/5 |</p>
+<p class="table-line">| family | real2sim toolbox / GLB scene.json USD conversion |</p>
+<p class="table-line">| sources | https://github.com/IntelLabs/OpenReal2Sim |</p>
+<p class="table-line">| local_pdf | 无 |</p>
+<p class="table-line">| local_supplementary_pdfs | 无 |</p>
+<p class="table-line">| local_repo | repos/OpenReal2Sim |</p>
+<p class="table-line">| commit / license | 8f69a19 / LICENSE (cloned) |</p>
+
+<h2>Inputs / Outputs</h2>
+<ul>
+<li>Inputs: single image / monocular video / depth / camera preprocessing outputs.</li>
+<li>Outputs: background/object meshes, scene.json, GLB assets, IsaacLab USD conversion demos.</li>
+</ul>
+
+<h2>Full Method Pipeline</h2>
+<ul>
+<li>Preprocess input to metric depth/camera assets.</li>
+<li>Generate background/object mesh assets and scene config.</li>
+<li>Convert assets through GLB/scene.json path.</li>
+<li>Run IsaacLab demos and manipulation/planning examples.</li>
+</ul>
+
+<h2>Losses / Objectives</h2>
+<p>工程 pipeline 而非单篇论文；重建模块各自有对应 losses。</p>
+
+<h2>Assumptions</h2>
+<p>需要适配我们的 Go2/RGB-D/3DGS 输入；默认 object extraction 可能偏单图/局部。</p>
+
+<h2>Failure Modes</h2>
+<p>不解决高质量物体 3DGS visual layer；depth/inpainting 错误会污染 mesh。</p>
+
+<h2>对 Directional View Gap 的关系</h2>
+<p>把补齐模块放在 preprocess 和 reconstruction 之间。</p>
+
+<h2>Isaac Sim Transfer</h2>
+<p>direct: GLB/scene.json/USD conversion 是当前最实用的 Isaac path。</p>
+
+<h2>可迁移模块</h2>
+<ul>
+<li>scene/object representation: real2sim toolbox / GLB scene.json USD conversion</li>
+<li>view/object completion: 把补齐模块放在 preprocess 和 reconstruction 之间。</li>
+<li>geometry/collision: background/object meshes, scene.json, GLB assets, IsaacLab USD conversion demos.</li>
+<li>simulator integration: direct: GLB/scene.json/USD conversion 是当前最实用的 Isaac path。</li>
+<li>evaluation metrics: mesh watertightness, collision proxy validity, object-level novel-view consistency, task success / collision rate.</li>
+</ul>
+
+<h2>Recommended Role</h2>
+<p>P0 Isaac exporter scaffold；和 GSWorld asset contract 结合。</p>
+
+<h2>Next Experiment</h2>
+<p>用一个 ObjectGS/GaussianObject/SuGaR 输出物体，包装成 OpenReal2Sim-style scene.json + GLB/USD。</p></body></html>

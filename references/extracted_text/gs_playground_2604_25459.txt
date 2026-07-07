@@ -1,0 +1,1327 @@
+                                           GS-Playground: A High-Throughput Photorealistic
+                                            Simulator for Vision-Informed Robot Learning
+                                                             Yufei Jia1* , Heng Zhang2* , Ziheng Zhang3* , Junzhe Wu1* , Mingrui Yu1* ,
+                                                                   5
+                                                Zifan Wang , Dixuan Jiang6 , Zheng Li5 , Chenyu Cao7 , Zhuoyuan Yu3 , Xun Yang5 , Haizhou Ge1 ,
+                                            Yuchi Zhang4 , Jiayuan Zhang4 , Zhenbiao Huang7 , Tianle Liu3 , Shenyu Chen8 , Jiacheng Wang3 , Bin Xie3 ,
+                                             Xuran Yao4 , Xiwa Deng2 , Guangyu Wang1 , Jinzhi Zhang1 , Lei Hao9 , Zhixing Chen1 , Yuxiang Chen10 ,
+                                           Anqi Wang4 , Hongyun Tian3 , Yiyi Yan4 , Zhanxiang Cao11 , Yizhou Jiang1 , Hanyang Shao4 , Yue Li4 , Lu Shi1 ,
+                                          Bokui Chen1 , Wei Sui12 , Hanqing Cui2 , Yusen Qin12 , Ruqi Huang1 , Lei Han4 † , Tiancai Wang3 † , Guyue Zhou1 †
+                                                                          1
+                                                                       THU, 2 Motphys, 3 Dexmal, 4 DISCOVER Robotics, 5 HKUST(GZ), 6 BIT,
+arXiv:2604.25459v1 [cs.RO] 28 Apr 2026
+
+
+
+
+                                                                              7
+                                                                                NUS, 8 HITSZ, 9 XJTU, 10 NJU, 11 SJTU, 12 D-Robotics
+                                                     *                    †
+                                                       Equal contribution. Advising. Correspondence to: Yufei Jia <jyf23@mails.tsinghua.edu.cn>.
+
+
+                                              RGB Camera      Depth Camera                                                                                 Locomotion
+
+
+
+
+                                              Height Scan        Lidar                                                                                      Navigation
+
+
+
+
+                                              Force/Torque      Contact                                                                                    Manipulation
+
+
+
+
+                                                             Efficient and Realistic 3DGS Rendering                     Precise and Stable Physics Simulation
+
+
+
+
+                                         Fig. 1: GS-Playground Overview. It integrates photorealistic 3D Gaussian Splatting with high-performance parallel physics, achieving
+                                         over 104 FPS at 640 × 480 resolution on a single GPU. We provide comprehensive sensor suites (Contact, Vision, LiDAR) and support a
+                                         wide range of robotic embodiments and learning tasks, including locomotion, navigation, and manipulation.
+
+
+                                            Abstract—Embodied AI research is undergoing a shift toward         throughput of 104 FPS at 640 × 480 resolution, significantly
+                                         vision-centric perceptual paradigms. While massively parallel         lowering the barrier for large-scale visual RL. Additionally, we
+                                         simulators have catalyzed breakthroughs in proprioception-based       introduce an automated Real2Sim workflow that reconstructs
+                                         locomotion, their potential remains largely untapped for vision-      photorealistic, physically consistent, and memory-efficient envi-
+                                         informed tasks due to the prohibitive computational overhead of       ronments, streamlining the generation of complex simulation-
+                                         large-scale photorealistic rendering. Furthermore, the creation       ready scenes. Extensive experiments on locomotion, navigation,
+                                         of simulation-ready 3D assets heavily relies on labor-intensive       and manipulation demonstrate that GS-Playground effectively
+                                         manual modeling, while the significant sim-to-real physical gap       bridges the perceptual and physical gaps across diverse embodied
+                                         hinders the transfer of contact-rich manipulation policies. To        tasks. Project homepage: https://gsplayground.github.io.
+                                         address these bottlenecks, we propose GS-Playground, a multi-
+                                         modal simulation framework designed to accelerate end-to-end                                I. I NTRODUCTION
+                                         perceptual learning. We develop a novel high-performance paral-
+                                         lel physics engine, specifically designed to integrate with a batch     Vision serves as the most information-rich modality for
+                                         3D Gaussian Splatting (3DGS) rendering pipeline to ensure high-       robotic perception of the environment. Recently, significant
+                                         fidelity synchronization. Our system achieves a breakthrough          progress has been made in learning policies for quasi-static
+                     TABLE I: Comparison of physical and perceptual capabilities across parallel robotics simulators.
+                                                                                        Batch       3DGS       Dynamic    3DGS                 Physics
+                          Physics      Batch     VRAM       Integrated     Batch                                                    Startup
+        Simulators                                                                     Render        Env.       3DGS      Render                Cross
+                          Engine      Physics    Usage       Batch IK     Renderer                                                   Speed
+                                                                                       Fidelity     Num.        Scene      FPS                Platform
+    MuJoCo/MJX [46]      Brax/MJX    CPU/GPU       ⋆⋆           ×          Madrona        +           -           -         -          +          L
+      IsaacLab [39]       PhysX5       GPU       ⋆⋆⋆⋆⋆          ✓         omni.RTX        ++          -           -         -         ++          L
+      ManiSkill [45]      PhysX5       GPU        ⋆⋆⋆           ✓        Vulkan SBR       +           -           -         -        +++        W/L
+       Genesis [61]        Taichi      GPU         ⋆⋆           ✓          Madrona        +           -           -         -         ++       W/L/M
+    DISCOVERSE [19]       MuJoCo        -           -           ×             -          +++        1∼4           ✓       ∼ 650       ++          L
+      GSWorld [20]        PhysX5        -           -           ×             -          +++          1           ✓         -         ++          L
+     GaussGym [11]        PhysX4       GPU         ⋆            ×          GSplat        +++      Up To 4096      ×         -         ++          L
+    GS-Playground        Self-Dev.   CPU/GPU        -           ✓         BatchSplat     +++      Up To 4096      ✓       ∼ 10k      ++++      W/L/M
+
+Note: 1. Batch Physics: Indicates supported hardware for batched simulation. 2. VRAM Usage: The number of ‘⋆’ indicates higher VRAM consumption.
+In headless mode, only physics simulation overhead is considered. 3. Batch Render Fidelity: The number of ‘+’ represents higher visual fidelity. 4. 3DGS
+Render FPS: Tested on 640×480 resolution with an NVIDIA RTX 4090 GPU and an Intel i9-14900K CPU. 5. Startup Speed: More ‘+’ means faster
+startup times. 6. Physics Cross Platform: W: Windows, L: Linux, M: macOS.
+
+manipulation and navigation directly from real-world visual                         force/contact sensors) across diverse robot embodiments
+data [25, 62, 4, 56, 28, 51, 17]. However, tasks involving com-                     (such as quadrupeds, humanoids, and manipulators). This
+plex dynamics and contacts—such as locomotion and contact-                          platform facilitates a flexible development workflow from
+rich manipulation—require large-scale parallel simulation for                       local prototyping to massively parallel training.
+effective reinforcement learning (RL). While current massively                  2) Memory-Efficient Batch 3DGS Rendering: To mitigate
+parallel simulators have revolutionized proprioception-based                        the memory bottlenecks in large-scale photorealistic sim-
+learning [34, 39, 55, 45, 61], they often struggle to rec-                          ulation, we introduce a specialized point-pruning strategy
+oncile visual fidelity with rendering efficiency, limiting the                      optimized for rigid-body environments. This approach
+application of large-scale, vision-informed policy learning. We                     enables a memory-efficient rendering architecture capable
+attribute this gap to two primary limitations:                                      of a breakthrough throughput of 104 FPS at 640 × 480
+   • Prohibitive Rendering Overhead: Existing simulation                            resolution on a single GPU, significantly expanding the
+      pipelines face severe scalability bottlenecks when inte-                      scale of vision-based reinforcement learning.
+      grating high-resolution rendering. The exorbitant compu-                  3) Automated “Sim-Ready” Real2Sim Workflow: We
+      tational cost of photorealistic rendering creates intense                     present a targeted pipeline that streamlines the conversion
+      resource contention with policy learning, frequently re-                      of individual real-world scenes into functional digital
+      sulting in Out-of-Memory (OOM) failures. Consequently,                        twins, ensuring both visual realism and physical consis-
+      these hardware constraints force a compromise between                         tency. Our workflow significantly reduces the laborious
+      visual fidelity and simulation throughput, restricting the                    manual effort usually required to create complex ”sim-
+      scale and efficacy of vision-based training.                                  ready” assets, enabling the rapid population of diverse
+   • Laborious Asset Synthesis: Constructing simulation as-                         simulation environments.
+      sets that achieve both visual and physical high-fidelity                   We validate GS-Playground through a rigorous ex-
+      remains a persistent challenge. While 3D reconstruction                 perimental regime. First, we demonstrate that our physics
+      has advanced significantly, seamlessly converting these                 engine matches state-of-the-art simulators in accuracy and
+      representations into “sim-ready” assets—those compat-                   efficiency, with enhanced stability in specific contact-rich
+      ible with both high-frequency physics and memory-                       scenarios. Next, we confirm our rendering pipeline’s ability
+      efficient rendering—remains difficult and laborious. This               to provide high-fidelity feedback at unprecedented speeds.
+      highlights the critical need for a pipeline capable of                  Finally, we benchmark the framework on a diverse suite of
+      rapidly transforming individual real-world scenes into                  tasks—including quadrupedal locomotion, humanoid control,
+      high-fidelity and consistent digital twins.                             and robotic manipulation—across both state-based and vision-
+   To bridge the gap, we introduce GS-Playground, a                           driven reinforcement learning. We summarize the key features
+universal simulation framework harmonizing high-throughput                    of GS-Playground alongside other state-of-the-art simula-
+physics simulation and high-fidelity visual rendering (Figure                 tors in Table I. We will release the framework and synthesized
+1). Our platform maintains the precision and stability required               Bridge-GS dataset to empower the research community.
+for physics simulation while providing the rendering efficiency
+                                                                                                       II. R ELATED W ORK
+necessary for large-scale, vision-informed policy training and
+sim-to-real transfer. Our core contributions are as follows:                  A. Massive Parallelism in Simulation
+  1) General-Purpose Embodied Simulation Platform: We                            Massive parallel physical simulation has emerged as the
+      develop a ground-up, cross-platform (Windows, Linux,                    indispensable infrastructure for efficient robot learning, par-
+      and macOS) parallel physics engine that supports both                   ticularly for locomotion and contact-rich manipulation [18,
+      GPU and CPU backends. This architecture provides                        27, 43, 35, 10, 64, 36, 49, 16, 50, 60, 6]. Milestone plat-
+      high-fidelity physical dynamics and comprehensive sen-                  forms such as Isaac Gym [34], Isaac Lab [39], and Genesis
+      sor integration (including RGB cameras, LiDAR, and                      [61] have revolutionized the throughput of sample collection
+by instantiating tens of thousands of parallel environments          pipelines [21, 1, 20, 59]. While GaussGym [11] pioneered the
+on GPUs. However, existing frameworks typically prioritize           application of 3DGS in RL, our work extends this capability to
+physical throughput over perceptual fidelity. Rendering archi-       contact-rich manipulation and larger-scale parallel throughput,
+tectures often diverge into two extremes: they either favor high     providing a more versatile foundation for diverse vision-
+sampling rates via streamlined rasterization (e.g., Madrona          informed robot learning tasks.
+[42], ManiSkill3 [45]) or prioritize cinematic photorealism via
+computationally expensive ray-tracing (e.g., Isaac Lab [39]).                            III. S YSTEM D ESIGN
+The simultaneous achievement of massive parallel throughput          A. System Overview
+with high-fidelity, photorealistic rendering remains a critical         Figure 2 illustrates the architecture of GS-Playground,
+bottleneck for scaling vision-centric robot learning.                which comprises three core tiers: (1) a high-performance
+                                                                     parallel physics engine supporting both GPU and CPU
+B. Vision-Centric Robot Learning
+                                                                     backends; (2) a memory-efficient batch 3DGS renderer
+   Vision serves as the most information-rich modality for           optimized via point-pruning; and (3) an automated Real2Sim
+robotic perception. Recently, significant progress has been          pipeline for rapid scene synthesis. These modules are seam-
+made in learning policies for quasi-static manipulation and          lessly integrated with a multi-modal sensor suite to provide the
+navigation directly from real-world visual data, exemplified         high-throughput, photorealistic feedback necessary for vision-
+by Vision-Language-Action (VLA) models [25, 62, 4] and               centric robot learning.
+Vision-Language-Navigation (VLN) models [9, 5, 57, 58].                 Data Flow. The simulation loop begins with the physics en-
+However, tasks involving complex dynamics and intermittent           gine, which advances the world state using a velocity-impulse
+contacts rely heavily on simulation-based reinforcement learn-       formulation. The updated rigid-body poses are synchronized
+ing (RL) to acquire skills in an unsupervised manner.                with the Batch 3DGS Renderer through Rigid-Link Gaussian
+   Early attempts to incorporate visual inputs into RL were          Kinematics (RLGK), enabling zero-overhead updates of visual
+often constrained by conventional, small-scale simulations [2,       clusters. The renderer produces photorealistic RGB images
+37, 63], where low simulation throughput hindered the stable         and depth maps, while the sensor suite provides LiDAR
+acquisition of complex skills. While recent advancements in          point clouds and high-dimensional contact data (including
+massive parallel simulation have enabled sophisticated policy        multi-point forces and torques). These modalities form the
+optimization for locomotion and dexterous manipulation, these        observation vector for end-to-end policy learning.
+frameworks primarily rely on proprioceptive states or point             Asset Creation. Orthogonal to the loop, the Real2Sim
+clouds due to the prohibitive computational overhead and lim-        Pipeline streamlines the conversion of individual real-world
+ited fidelity of visual rendering [7, 30, 23, 53]. Furthermore, to   captures into simulation-ready assets. By performing auto-
+mitigate the sim-to-real gap, recent attempts on vision-based        mated segmentation, reconstruction, and sub-millimeter pose
+RL methods often necessitate extensive visual randomization          alignment, this pipeline populates the environment with phys-
+of textures, lighting, and backgrounds [17, 51]. This, however,      ically consistent rigid-body twins.
+imposes a substantial burden on GPU resources, significantly            Development Workflow. A key design principle is the
+raising the computational threshold for research in vision-          flexibility of the development-to-training workflow. Our core
+informed robot learning.                                             physics engine is cross-platform (Windows, Linux, macOS),
+                                                                     facilitating rapid local debugging and prototyping on various
+C. Gaussian Splatting and Real-to-Sim Reconstruction
+                                                                     workstations. For large-scale training, the system leverages an
+   Building simulators highly consistent with the real world         optimized CUDA-based rendering pipeline on Linux, achiev-
+relies on high-quality visual rendering and precise phys-            ing a breakthrough throughput of 104 FPS by utilizing spe-
+ical modeling. Recently, Gaussian Splatting (3DGS) [24]              cialized point-pruning to balance visual fidelity and memory
+has rapidly developed as an emerging scene reconstruction            consumption.
+method, enabling photorealistic real-time rendering from arbi-
+trary viewpoints. Its unique representation strikes a balance        B. Physics Solver Formulation
+between visual fidelity and memory efficiency, making it                In robotic manipulation, the choice of constraint formula-
+particularly suitable for resource-constrained simulation en-        tion directly impacts simulation fidelity. Optimization-centric
+vironments. Recent research has significantly improved the           solvers that rely on regularized soft contacts tend to produce
+capability to reconstruct renderable models from real scenes         visually smooth but physically ’spongy’ interactions, where
+in terms of reconstruction paradigms [48, 38, 22], model             heavy payloads may exhibit gradual drift due to residual
+efficiency [15, 12, 14], and generative Gaussian models [8, 31].     forces. GS-Playground utilizes a velocity-impulse formula-
+   However, these methods generally struggle to directly meet        tion in generalized coordinates and implements strict comple-
+the requirements of robotic simulators for sim-ready scenes.         mentarity with explicit velocity clamping at the friction limits.
+Existing works indicate that 3DGS-based rendering holds              This approach sacrifices the smoothness of the gradients in
+significant potential in robotics, enhancing sim-to-real transfer    exchange for geometric precision, allowing for the simulation
+for vision-based policies [29, 13, 40], augmenting training          of rigid bodies that can maintain perfect static equilibrium
+datasets [3, 33, 54, 52], and supporting real-to-sim evaluation      and allows for high constraint stiffness and large simulation
+                                                                                                GS-Playground
+                      "Real Image to Sim Physics" Asset Pipeline                                                             Physics and Rendering Simulation Core                         Applications
+                       Segmentation & Inpainting                                   Assets Generation                                 Physics Backend            Lidar Simulation   Large-Scale RL Parallel Training
+                 Prompts             Iterative Mask                    Inpainted          AnySplat                     GPU / CPU Parallelism     Sensor Suite
+                                       Expansion                      Background
+       Input Image                                                                                                       (both supported)
+                                                                                    Intrinsic    3DGS
+
+                                            Lama                                    Extrinsic
+
+                                                                                                                         GPU           CPU
+                                                                                     Depth
+
+                                                                                                                                                                                          Sim2Real
+                                                                      Segmented    Sam-3D-Objects                                              Batch Renderer
+                                                                                                                                                                                   Manipulation        Navigation
+                                                   Grounding-DINO
+     Grounding-DINO
+
+
+
+
+                                                                       Objects      3DGS & Mesh
+                                    Mask0                                                                                 Efficient Pruning         RLGK
+
+
+
+
+                                                                                                        Speedy-Splat
+                                                                                                                                                                Batch Rendering
+                        SAM 1 / 2
+
+
+                                    …
+
+
+
+
+                                    Maski
+
+
+
+
+Fig. 2: GS-Playground System Architecture. Left: an automated Image-to-Physics pipeline that constructs simulation-ready assets from
+RGB inputs via object segmentation, background inpainting, and 3DGS/mesh reconstruction. Middle: a physics and rendering simulation
+core with CPU/GPU physics backends, integrated sensor and LiDAR simulation, and batch-optimized 3DGS rendering with pruning and
+rigid-link kinematics. Right: downstream applications including manipulation, navigation, and large-scale parallel reinforcement learning.
+
+time steps. This makes the engine particularly suitable for                                                                                 The solver resolves contact and friction as a Mixed Comple-
+engineering applications where stability and exact constraint                                                                            mentarity Problem (MCP). The impulse vector λn comprises
+satisfaction are paramount.                                                                                                              normal components λ⊥ and frictional components λ∥ . The
+   The discretized dynamics equation for generalized coordi-                                                                             solution must satisfy the bounds defined by the Coulomb
+nates q ∈ Rn and velocities v ∈ Rn over a time step h is                                                                                 friction model:
+formulated as:                                                                                                                                          
+                                                                                                                                                                         +
+                                                                                                                                                        wi ≥ 0, if λi = li
+                                                                                                                                                        
+                      M(v+ − v) = JTe λ+    T +
+                                       e + Jn λn + h(τ ext − c)                                                                (1)                        wi = 0,     if li < λ+i < ui              (7)
+                                                                                                                                                          wi ≤ 0, if λ+
+                                                                                                                                                        
+                                                                                                                                                                            =  u
+                                                                                                                                                        
+where M is the mass matrix, Je and Jn are the Jacobians for                                                                                                              i      i
+
+equality and inequality constraints, respectively, and λ denotes
+                                                                                                                                         where wi = [(A+Cn )λ+     n +(b−ζ n )]i . For normal contact, the
+the constraint impulses. The term c accounts for Coriolis and
+                                                                                                                                         bounds are [0, ∞); for friction, the bounds are [−µλ+          +
+                                                                                                                                                                                                 ⊥ , µλ⊥ ].
+centrifugal forces. We incorporate soft constraints by defining
+                                                                                                                                         This formulation is solved efficiently using a Projected Gauss-
+an implicit impulse relation λ+ = f (u+ ; x, h) and linearizing
+                                                                                                                                         Seidel (PGS) solver, ensuring stable friction behavior while
+it via a first-order Taylor expansion at the current velocity u:
+                                                                                                                                         accommodating both rigid and compliant contact interactions.
+                              ∂f +                                                                                                          This framework demonstrates high extensibility. It supports
+                                  (u − u)   λ+ ≈ f (u) +
+                                                     (2)
+                              ∂u                                                                                                         various physical constraints, including MJCF-defined contact
+By defining the positive definite compliance matrix C =                                                                                  models (e.g., parameters solref, solimp), tendons, and
+   ∂f −1                                                                                                                                 actuators. Integrating a new constraint type simply requires
+(− ∂u ) and the bias term ζ = u + Cf (u), we obtain the
+standardized compliance form:                                                                                                            defining its impulse-state relationship λ(x, u) and the cor-
+                                                                                                                                         responding Jacobian J. Additionally, to achieve real-time
+                                                                    u+ = −Cλ+ + ζ                                              (3)       performance in large-scale scenarios with massive contacts,
+By substituting this velocity relation into the constraint space                                                                         we implemented two key engineering optimizations:
+and eliminating the equality constraints λe via the Schur                                                                                   1) Parallelization via Constraint Islands: Leveraging
+complement method, we obtain a reduced linear system for                                                                                 the spatial locality of physical interactions, we dynamically
+the inequality constraints λn :                                                                                                          construct a constraint dependency graph at each time step.
+                                                                                                                                         By analyzing the connectivity of the graph, the rigid body
+                                                                           +
+                                                                    u+
+                                                                     n = Aλn + b                                               (4)       system is partitioned into disjoint sets of interacting bodies,
+                                                                                                                                         termed “Constraint Islands.” Since the Linear Complemen-
+The system matrix A and the right-hand side vector b are
+                                                                                                                                         tarity Problems (LCPs) for these islands are mathematically
+explicitly given by:
+                                                                                                                                         independent, they are dispatched to multi-core CPU threads
+  A = Jn M−1 JTn − Jn M−1 JTe (Wee + Ce )−1 Je M−1 JTn                                                                                   for parallel solving, ensuring linear performance scaling with
+                                                      (5)                                                                                scene complexity.
+   b = Jn ṽ + Jn M−1 JTe (Wee + Ce )−1 (ζ e − Je ṽ)                                                                          (6)          2) Warm-Starting with Temporal Coherence: We exploit
+                                                                                                                                         the temporal coherence of physical processes by implementing
+where Wee = Je M−1 JTe is the effective inverse mass matrix                                                                              a Contact Manifold Tracking system. This system persists con-
+of the equality constraints. The term (Wee +Ce ) is guaranteed                                                                           tact constraints across simulation frames. Instead of initializing
+to be invertible as it is the sum of a positive semi-definite                                                                            the Projected Gauss-Seidel (PGS) solver with zero vectors, we
+matrix and a positive definite matrix.                                                                                                   warm-start the solver using the converged impulses λt−1 from
+                                                                      TABLE II: Comparison of LiDAR simulation capabilities.
+the previous frame as the initial guess λinitial . This strategy
+significantly accelerates convergence, typically reducing the            LiDAR Sensor Feature        Ours   IsaacSim   Gazebo
+required PGS iterations from over 50 to fewer than 10 for                Rotating LiDAR Support       ✓        ✓         ✓
+stable stacking tasks.                                                   Solid-State LiDAR Support    ✓        ✓         ✓
+                                                                         Non-repetitive scan LiDAR    ✓        ×         ✓
+                                                                         Static Irregular Objects     ✓        ✓         ✓
+C. Batch Renderer Optimization                                           Dynamic Irregular Objects    ✓        ×         ×
+   Rendering thousands of high-fidelity 3DGS scenes simulta-             Self-Occlusion               ✓        ×         ×
+                                                                         3DGS Representation          ✓        ×         ×
+neously presents a significant memory challenge. To optimize             Massively Parallel           ✓        ✓         ×
+memory usage while maintaining visual fidelity, we propose
+several key advancements as follows:                               prioritized by a composite confidence score combining de-
+   Efficient Pruning Strategy. We adopt a state-of-the-art         tection and segmentation confidence. Occluded object regions
+efficient pruning strategy inspired by recent works [15, 12,       are recovered through an iterative mask expansion process
+14], reducing the number of Gaussians by over 90% while            coupled with sequential inpainting. Objects are removed one at
+maintaining a minimal Peak Signal-to-Noise Ratio (PSNR)            a time, and after each inpainting step, the scene is re-detected
+drop of less than 0.05, virtually imperceptible to visuomotor      to identify newly exposed regions that are spatially adjacent
+policies. This reduction significantly lowers VRAM usage,          and label-consistent with existing instances under a bounded
+while keeping the visual quality nearly unchanged. As a result,    area growth constraint. Background inpainting is performed
+the strategy boosts the overall rendering speed and ensures        sequentially using LaMa [44] to ensure stable reconstruction.
+model efficiency, making it well-suited for large-scale, high-        Assets Generation. For object-level assets, we apply SAM-
+fidelity simulations.                                              3D [8] to the original RGB image together with the object
+   Throughput Scaling. Our Batch-3DGS renderer is op-              mask (Mobj ) to reconstruct its 3DGS and mesh, and to esti-
+timized for batch processing, enabling the simultaneous            mate its pose and scale. For scene-level assets, the inpainted
+large-scale Gaussian rendering of multiple scenes. Built upon      background is processed by AnySplat [22] to generate the
+the efficient Gaussian rendering engine, we can render up          background 3DGS, depth map (Dbg ), as well as the camera
+to 2048 scenes at a resolution of 640 × 480 with a total           intrinsics and extrinsics. To align object- and scene-level
+throughput of up to 10,000 FPS. This scaling significantly         assets, we first transform the object such that its rendered
+improves throughput per unit compute, supporting large-batch       depth map (Dobj ) aligns with the background depth (Dbg ).
+training workflows.                                                The object is then scaled so that the area of its rendered
+   Rigid-Link Gaussian Kinematics (RLGK). To ensure                mask matches the original object mask (Mobj ), measured by
+temporal consistency and eliminate visual artifacts in dy-         pixel occupancy. To reduce memory footprint for downstream
+namic scenarios, we introduce Rigid-Link Gaussian Kinemat-         robotic tasks, we apply Speedy- splat [14] for 3DGS pruning.
+ics (RLGK), which binds clusters of 3D Gaussians to cor-
+                                                                   E. User Interface and Ecosystem Design
+responding rigid bodies in the physics engine. This coupling
+ensures that visual representations move synchronously with           GS-Playground provides a rich set of features including
+their physical counterparts, enabling “zero-overhead” updates      multi-modal sensing, seamless ecosystem compatibility, and
+and artifact-free dynamic rendering during fast motion or          cross-platform support to facilitate robot development.
+contact events.                                                       Multi-modal Sensor Suite Beyond standard RGB and
+                                                                   depth streams, we integrate a high-performance Batch-LiDAR
+D. “Image-to-Physics” Asset Pipeline                               module utilizing ray-casting to generate high-fidelity point
+                                                                   clouds and heightmap scanning (Table II). Additionally, our
+   Users can create a set of simulation-ready assets from a        platform provides detailed contact information equivalent to
+single RGB image via our fully automated pipeline. The             MuJoCo, including multi-point contact forces, torques, and
+pipeline reconstructs 3D representations (3DGS/mesh) and           decomposed normal/tangential components.
+estimates geometric and physical properties, enabling seamless        Ecosystem Compatibility and Cross-Platform Workflow.
+integration with collision modeling and manipulation learning.     Prioritizing ”zero-friction” migration, our API is compatible
+   Objects Segmentation and Background Inpainting. We              with the MuJoCo MJCF format, enabling rapid project migra-
+present an automated pipeline for object segmentation and          tion. The physics engine features a cross-platform architec-
+background inpainting from a single RGB image. Objects             ture (Windows/Linux/macOS), allowing local prototyping and
+are detected using Grounding DINO [32] and segmented               debugging before deploying large-scale parallel training on
+with SAM1/SAM2 [26, 41] under a prompt-wise independent            Linux GPU clusters using Batch-3DGS and CUDA-optimized
+detection scheme, enabling explicit tracking of instance–label     perception modules.
+associations. To mitigate unreliable semantic similarity in
+open-vocabulary detection, we de-duplicate instances using                                   IV. R ESULTS
+visual criteria only: mask IoU for general redundancy and             We evaluate GS-Playground through a comprehen-
+a dual-criterion rule based on mask inclusion and boundary         sive benchmark suite spanning visual and geometric fidelity,
+overlap to correct over-segmentation. Instance selection is        physics stability, manipulation proficiency, and locomotion
+                                                                                                                                                          Store Stability Comparison (Ours vs. MuJoCo)
+TABLE III: Qualitative comparison of contact dynamics. The                                                                                                                     Ours                    MuJoCo Implicit+Noslip
+Newton’s Cradle case evaluates momentum transfer, while the Boston                                                                                  0.4
+                                                                                                                                                                               MuJoCo Implicit         MuJoCo Euler
+
+Dynamics Spot case validates base stability with a 10 ms timestep.
+                                                                                                                                                    0.3
+
+
+
+
+                                                                                                                                  Stability error
+     Scenario        MuJoCo          IsaacSim          Ours
+                                                                                                                                                    0.2
+
+
+ Newton’s Cradle                                                                                                                                    0.1
+
+  (pre-impact)
+                                                                                                                                                     0
+                                                                                                                                                             0.001                           0.005           0.01         0.02
+                                                                                                                                                                                                Time step (s)
+ Newton’s Cradle                                                     Fig. 3: Physics stability under complex multi-body interactions.
+  (post-impact)                                                      (a) The dense store shelf scenario; (b) Stability error across time
+                                                                     steps, computed over all objects inpthe scene with identical initial
+                                                                     placements. The error is defined as ∆p2 + ∆θ2 , where ∆p is mean
+   Boston Spot                                                       positional drift (m) and ∆θ is mean orientation drift (rad).
+     (t=0s)
+                                                                                                                     Performance Comparison on Complexity Scaling
+                                                                                                      Ours (CPU)           MuJoCo (CPU)                                                 MjWarp (GPU)                Genesis (GPU)
+                                                                                                       (a) Complexity (Batch=1)                                                                      (b) Stability (N=10)
+   Boston Spot
+                                                                                            4
+     (t=2s)                                                                            10                                                                                           4
+                                                                                                                                                                               10
+
+
+
+
+                                                                     FPS (Log Scale)
+
+
+
+
+                                                                                                                                                             FPS (Log Scale)
+                                                                                            3
+                                                                                       10
+
+                                                                                            2                                                                                       3
+                                                                                       10                                                                                      10
+
+capability. Our results demonstrate the platform’s superiority                         10
+                                                                                            1
+
+
+
+in photorealistic rendering, massive parallel physics stepping,                                                                                                                10
+                                                                                                                                                                                    2
+
+                                                                                                1 5   10                                            50                                      1          128          512         1024
+and effective Sim2Real transfer for both vision-based and                                                  Scene Complexity (N)                                                                          Batch Size
+
+contact-rich tasks.                                                  Fig. 4: Performance Comparison on Complexity Scaling. Left:
+A. Physics Stability and Solver Robustness                           As the complexity (N , the number of humanoid robots) in a single
+                                                                     environment increases, the FPS advantage of our framework becomes
+   Multi-Scenario Benchmarking. We conduct a multi-                  increasingly pronounced. Right: At a complexity of N = 10, our
+scenario stability study across multiple simulators to stress-test   framework maintains FPS advantage with large batch sizes, where
+contact handling under challenging dynamics.                         Genesis fails to reach convergence.
+   1) Hard Contact & Momentum Conservation: Using a New-
+ton’s Cradle setup with identical initial perturbations across en-
+gines, we evaluate long-horizon momentum transfer and dissi-         numerical instability through Jacobian-related errors. When
+pation under hard contacts (Table III Top). GS-Playground            complexity reaches N = 50, MjWarp’s throughput collapses to
+preserves impact timing and swing amplitude with reduced             a mere 1.71 FPS. In contrast, GS-Playground (CPU) main-
+energy bleed across repeated impacts, while MuJoCo exhibits          tains a robust throughput of 1,015 FPS at N = 50. This perfor-
+stronger damping and phase drift.                                    mance represents a 32× speedup over MuJoCo and a ∼600×
+   2) Large Time-step Stability: We evaluate base stability on       improvement over MjWarp. Note that GS-Playground also
+a Boston Dynamics Spot model under physics-only stepping             offers competitive GPU performance, with further gains ex-
+with a 10 ms timestep, no control input, and identical initial       pected as we are refining our GPU-specific kernel fusion and
+pose (Table III Bottom). GS-Playground exhibits smaller              memory management strategies.
+base displacement and reduced drift over time, suggesting
+more stable contact resolution under large time steps.               B. Visual Fidelity and Efficiency
+   3) Complex Multi-Body Interactions: In a dense store shelf           Visual 3DGS Compression. We measure the trade-off
+scenario with stacked objects, we evaluate static stability under    between memory footprint and visual quality, as summarized
+complex multi-contact constraints. While GS-Playground               in Table IV. For full static scene reconstruction, we compare
+consistently converges to stable equilibria, MuJoCo exhibits         raw 3DGS reconstructions with our pruned version, retaining
+characteristic jitter and contact-induced drift—common arti-         only about 30% of the Gaussians while preserving high
+facts in high-density contact graphs (Fig. 3).                       PSNR and SSIM, along with competitive LPIPS performance.
+   Stability and Scalability in Complex Scenes. We evaluate          Additionally, for manipulated dynamic objects and the robot
+the algorithmic robustness of GS-Playground against Mu-              body, the number of points can be further reduced by up to
+JoCo (CPU) and Genesis/MjWarp (GPU) in high-complexity               90%, enabling more aggressive memory compression without
+single-environment scenarios. To vary scene complexity, we           compromising the critical visual cues required for robotic
+scale the number (N ) of 27-DoF humanoid agents within a             perception.
+single environment. All experiments were conducted on an                Rendering Throughput Comparison. We evaluate the ren-
+AMD 9950x CPU and an NVIDIA RTX 5090 GPU. Results                    dering throughput of GS-Playground against Isaac Sim’s
+are shown in Fig. 4. As constraint density increases, GPU-           ray-tracing renderer across three standard resolutions and
+based solvers suffers from severe performance degradation.           multiple GPU architectures, including the NVIDIA RTX 4090,
+At N = 10, Genesis fails to reach convergence and exhibits           RTX 6000 Ada, and A100. As illustrated in Fig. 4, our
+                                                          Render Throughput Comparison (Ours vs IsaacSim)
+                 Ours / NVIDIA A100         Ours / RTX 6000 Ada Gen     Ours / RTX 4090            Isaac / NVIDIA A100                            Isaac / RTX 6000 Ada Gen                               Isaac / RTX 4090
+
+                                  256x256                                                  640x480                                                                                                       1280x720
+       1.6e+04                                                                                                                                          6.0e+03
+                                                                  1.0e+04
+
+       1.2e+04                                                                                                                                          4.5e+03
+                                                                  7.5e+03
+FPS
+
+
+
+
+       8.0e+03                                                                                                                                          3.0e+03
+                                                                  5.0e+03
+
+       4.0e+03                                                    2.5e+03                                                                               1.5e+03
+
+
+             0                                                         0                                                                                         0
+                     128        256          512       1024                     32        64                           128             256                                             32               64             128           256
+                                  Batch Size                                              Batch Size                                                                                                     Batch Size
+Fig. 5: Rendering throughput comparison between GS-Playground and Isaac Sim’s ray-tracing renderer across varying resolutions.
+While Isaac Sim relies on manual asset modeling and encounters Out-Of-Memory (OOM) exceptions at higher resolutions, GS-Playground
+leverages automated asset generation from real-world captures, achieving high-fidelity sim-ready assets with superior rendering throughput.
+Evaluations are conducted on three different GPU architectures: NVIDIA RTX 4090, RTX 6000 Ada Generation, and NVIDIA A100.
+
+TABLE IV: Image Quality Metrics. Our model retains only 30% of                                                                                   Go1 Terrain Walk Training Comparison
+the original Gaussians with negligible degradation in visual fidelity                                                         Ours-deci-1               Ours-deci-4                           Isaaclab-deci-1            Isaaclab-deci-4
+of static scene reconstruction.                                                                                               (a) Go1 Flat Terrain Walk                                                 (b) Go1 Stairs Terrain Walk
+                                                                                                            1.50
+                                                                                                                                   3.9 min                   11.4 min                       1.25             8.7 min
+        Method       # Gaussians ↓           PSNR ↑       SSIM ↑      LPIPS ↓                               1.25                       5.0 min                                                                                    22.6 min
+
+
+                                                                                           Episode Reward
+
+
+
+
+                                                                                                                                                                           Episode Reward
+                                                                                                                                                                                            1.00
+                                                                                                            1.00
+        3DGS               100%              27.1503       0.8296      0.2238                                                                                                               0.75                                       31.8 min
+                                                                                                            0.75
+        Ours                30%              26.8658       0.8022      0.2840                                                                                                               0.50
+                                                                                                            0.50
+                                                                                                            0.25
+                                                                                                                             2.1 min                                                        0.25                  11.0 min
+                           Realistic Simulation Rendering
+                                                                                                            0.00                                                                            0.00
+      Real                            Sim          Real                         Sim                                0     2         4         6      8       10        12                           0         10              20              30
+                                                                                                                                 Training Time (minutes)                                                     Training Time (minutes)
+
+                                                                                            Fig. 7: Wall-clock training efficiency for Unitree Go1 locomo-
+                                                                                            tion. (a) Flat terrain; (b) Rough terrain (stairs). “deci” denotes the
+                                                                                            decimation, which refers to the number of physical sub-steps per
+                                                                                            control step. Lower decimation typically increases throughput but
+                                                                                            may compromise physical fidelity.
+                        Efficient and Large-Scale Real2Sim
+
+                                                                                            visual consistency with real camera images, preserving critical
+                                                                                            geometric features and surface details. Moreover, the scenes
+                                                                                            depicted span a diverse set of object types, materials, and con-
+                                                                                            figurations, demonstrating that our simulation system main-
+                                                                                            tains a high level of visual consistency across varied setups,
+                                                                                            making it suitable for diverse training and evaluation scenarios.
+                                                                                            All experiments were conducted on Bridge-v2 dataset[47], on
+Fig. 6: Visualization of rendering. The simulated renderings are
+nearly indistinguishable from real photographs indicating photoreal-                        a device equipped with an NVIDIA RTX 3090 GPU. Without
+istic fidelity. Our framework supports a broad range of tasks and                           3DGS pruning, the pipeline processes a single image within
+evaluations, including diverse objects and scene configurations.                            5 minutes end-to-end. Excluding model checkpoint loading
+                                                                                            time, segmentation and inpainting take about 25 s per scene,
+framework consistently outperforms the baseline, maintaining                                AnySplat completes within 8 s, and SAM3D processes each
+significantly higher FPS across all tested batch sizes. This                                object mask within 10 s, demonstrating a fast and computa-
+performance advantage is particularly evident at higher reso-                               tionally efficient workflow. Compared to the Bridge-v2 dataset,
+lutions, such as 1280×720, where Isaac Sim’s ray-tracing ap-                                the generated Bridge-GS dataset enriches each asset via our
+proach frequently encounters Out-Of-Memory (OOM) excep-                                     pipeline with scene- and object-level 3DGS representations,
+tions at larger batch sizes. In contrast, our Gaussian Splatting-                           object-level meshes, object poses, and camera intrinsics and
+based pipeline demonstrates superior memory efficiency and                                  extrinsics.
+scalability, enabling high-throughput rendering of automated,
+sim-ready assets. These results validate that our framework                                 C. Physics-Intensive Locomotion Learning
+provides a more robust and efficient solution for large-scale                                  Simulation Comparison. We benchmark our framework
+parallel visual simulation.                                                                 against IsaacLab using the Isaac-Velocity-Flat-Unitree-Go1-v0
+   Qualitative Rendering Fidelity and Diversity. Fig. 6                                     and Isaac-Velocity-Rough-Unitree-Go1-v0 environments. All
+presents a qualitative comparison between real and simulated                                configurations are trained for an equivalent number of total
+renderings. The simulated renders exhibit a high degree of                                  steps. On flat terrain (Fig. 7a), while IsaacLab achieves higher
+                                                                       a compact navigation command (e.g., desired base motion
+                                                                       command). A low-level policy takes the command together
+ A                                                                     with proprioceptive states and produces joint-level control
+                                                                       signals for the Go2. Both levels are trained with PPO in
+                                                                       GS-Playground. After training in simulation, we directly
+                                                                       deploy the learned policy on a real Go2, which success-
+ B
+                                                                       fully performs goal-directed navigation toward the cone using
+                                                                       only onboard egocentric vision. These results validate that
+                                                                       GS-Playground provides the high-fidelity visual feedback
+ C                                                                     necessary for training vision-encoder policies capable of zero-
+                                                                       shot real-world deployment.
+
+
+ D      Rendered     Rendered     Rendered     Rendered     Rendered
+                                                                       E. Vision-Centric Manipulation Learning
+
+Fig. 8: Real-world deployment of policies trained in GS-                  To evaluate the platform’s efficacy in bridging the visual
+Playground. We demonstrate robust Sim2Real transfer across diverse     Sim2Real gap, we conducted a block-grasping task using
+embodiments and modalities: (a) Quadrupedal Locomotion: Veloc-         the Airbot Play robotic arm (Fig. 8c). The control policy
+ity tracking on Unitree Go2; (b) Humanoid Locomotion: 23-DoF           is trained to map raw RGB observations and proprioceptive
+balancing and walking on Unitree G1; (c) Visual Manipulation:          states directly to 6-DoF joint actions. Utilizing our Real2Sim
+End-to-end RGB-based grasping; (d) Visual Navigation: Real-time
+cone following on Unitree Go2 using raw RGB observations.              pipeline, we reconstructed a high-fidelity digital twin that
+                                                                       serves as a direct visual proxy for the real-world setup. To
+                                                                       ensure the policy’s robustness against real-world variability,
+speed at low fidelity (d = 1, where d denotes the decimation           we incorporated domain randomization of camera poses and
+factor, or the number of physical sub-steps per control step),         lighting conditions during the training phase. The resulting
+it fails to reach a competitive terminal reward. In contrast, our      policy demonstrates remarkable generalization, achieving a
+method with d = 1 achieves a terminal reward comparable to             90% success rate during zero-shot real-world deployment.
+IsaacLab at d = 4, while reaching convergence faster. This             Notably, the evaluation was performed in a real-world scene
+result demonstrates that our solver’s stability permits larger         that featured no specialized visual engineering or simplifica-
+integration time steps without compromising physical fidelity          tion, such as simplified backgrounds or controlled lighting.
+or policy convergence. This stability advantage is even more           The robot demonstrates agile and stable grasping maneuvers,
+apparent in complex environments like the stairs terrain (Fig.         proving that the perceptual richness of 3D-Gaussian-based
+7b). Here, our framework at d = 1 achieves higher rewards              simulation allows agents to learn directly from complex,
+and faster convergence than the baseline at the same setting.          unsimplified visual cues.
+Against the high-precision baseline (d = 4), our method
+remains faster in wall-clock time. These results show that our                                V. D ISCUSSION
+approach offers a clear dual advantage in stability and speed
+for complex, contact-rich tasks.                                          We plan to utilize GS-Playground to synthesize massive-
+   Sim2Real Deployment. We demonstrate the practical utility           scale visual-informed data for VLA and VLN models, facilitat-
+of GS-Playground by successfully deploying state-based                 ing robust sim-to-real transfer. Additionally, by incorporating
+locomotion policies onto a Unitree Go2 quadruped and a                 the real-to-sim workflows, we are constructing expansive,
+Unitree G1 humanoid (Fig. 8(a), (b)). The quadruped policy,            scalable environments for the rigorous verification and bench-
+utilizing simplified collision geometries and 1,024 parallel           marking of advanced robotic policies.
+environments, reached convergence in 10 minutes of wall-                  Despite its current performance, our framework has sev-
+clock time. The humanoid policy, employing full-collision              eral limitations that provide opportunities for future research.
+manifolds and 2,048 parallel environments, reached conver-             Unlike ray tracing or standard rasterization-based renderers,
+gence in approximately 6 hours. These results demonstrate our          3D Gaussian Splatting struggles with handling randomized
+framework’s efficiency in bridging the physics reality gap.            lighting and shadows. Our asset generation is currently depen-
+                                                                       dent on the lighting conditions of the source images. While
+D. Vision-Centric Navigation Learning                                  we achieve high fidelity, algorithmic relighting is needed to
+   We demonstrate a vision-based navigation task on the Uni-           fully decouple object appearance from environmental lighting,
+tree Go2, where the robot is required to search for and reach a        which would further enhance generalization. Furthermore, the
+target traffic cone (Fig. 8(d)). The policy observes egocentric        current Rigid-Link Gaussian Kinematics (RLGK) assumes
+RGB images rendered by GS-Playground during training.                  rigid bodies. Representing deformable objects (cloth, fluids)
+To couple high-level visual decision making with stable legged         or soft-body manipulation remains a challenge. We plan to
+control, we adopt a two-level hierarchical RL design. A high-          integrate particle-based dynamics (like PBD or MPIM) with
+level policy encodes egocentric RGB observations and outputs           Gaussian splatting to address non-rigid interactions.
+                     VI. C ONCLUSION                                  with adaptive assistive curriculum force in humanoid
+                                                                      robots. arXiv preprint arXiv:2506.23125, 2025.
+   We introduce GS-Playground, a high-performance sim-
+                                                                  [7] Tao Chen, Megha Tippur, Siyang Wu, Vikash Kumar, Ed-
+ulation platform that harmonizes a custom parallel physics
+                                                                      ward Adelson, and Pulkit Agrawal. Visual dexterity: In-
+engine with a memory-efficient batch 3D Gaussian Splatting
+                                                                      hand reorientation of novel and complex object shapes.
+(3DGS) renderer to bridge the gap between realism and
+                                                                      Science Robotics, 8(84):eadc9244, 2023.
+efficiency. By utilizing a specialized point-pruning strategy,
+                                                                  [8] Xingyu Chen, Fu-Jen Chu, Pierre Gleize, Kevin J Liang,
+our framework achieves a breakthrough throughput of 104
+                                                                      Alexander Sax, Hao Tang, Weiyao Wang, Michelle Guo,
+FPS while avoiding the heavy memory overhead of traditional
+                                                                      Thibaut Hardin, Xiang Li, et al. Sam 3d: 3dfy anything
+neural rendering. An automated ”Image-to-Physics” pipeline
+                                                                      in images. arXiv preprint arXiv:2511.16624, 2025.
+streamlines the creation of simulation-ready digital twins,
+                                                                  [9] An-Chieh Cheng, Yandong Ji, Zhaojing Yang, Xueyan
+ensuring visual and physical consistency for complex tasks.
+                                                                      Zou, Jan Kautz, Erdem Biyik, Hongxu Yin, Sifei Liu, and
+Evaluations across quadrupedal, humanoid, and manipulation
+                                                                      Xiaolong Wang. Navila: Legged robot vision-language-
+embodiments demonstrate that GS-Playground facilitates
+                                                                      action model for navigation. In RSS, 2025.
+robust Sim2Real transfer by bridging the reality gap in both
+                                                                 [10] Suyoung Choi, Gwanghyeon Ji, Jeongsoo Park,
+physical dynamics and visual perception. Ultimately, our full-
+                                                                      Hyeongjun Kim, Juhyeok Mun, Jeong Hyun Lee, and
+stack engine provides a scalable, open-source pathway toward
+                                                                      Jemin Hwangbo. Learning quadrupedal locomotion on
+generalizable embodied AI.
+                                                                      deformable terrain. Science Robotics, 8(74):eade2256,
+                VII. ACKNOWLEDGMENTS                                  2023.
+                                                                 [11] Alejandro Escontrela, Justin Kerr, Arthur Allshire, Jonas
+   The authors gratefully acknowledge support from D-                 Frey, Rocky Duan, Carmelo Sferrazza, and Pieter
+Robotics under Grant No. 20243000104. We thank the Mu-                Abbeel. Gaussgym: An open-source real-to-sim frame-
+JoCo and MuJoCo Playground teams for making their code-               work for learning locomotion from pixels. arXiv preprint
+bases available to the community; their software and documen-         arXiv:2510.15352, 2025.
+tation provided valuable references and infrastructure support   [12] Guangchi Fang and Bing Wang. Mini-splatting: Repre-
+for this work.                                                        senting scenes with a constrained number of gaussians.
+                                                                      In European Conference on Computer Vision, pages 165–
+                        R EFERENCES
+                                                                      181. Springer, 2024.
+ [1] Jad Abou-Chakra, Lingfeng Sun, Krishan Rana, Brandon        [13] Xiaoshen Han, Minghuan Liu, Yilun Chen, Junqiu Yu,
+     May, Karl Schmeckpeper, Maria Vittoria Minniti, and              Xiaoyang Lyu, Yang Tian, Bolun Wang, Weinan Zhang,
+     Laura Herlant. Real-is-sim: Bridging the sim-to-real gap         and Jiangmiao Pang. Re3 sim: Generating high-fidelity
+     with a dynamic digital twin for real-world robot policy          simulation data via 3d-photorealistic real-to-sim for
+     evaluation. arXiv preprint arXiv:2504.03597, 2025.               robotic manipulation. arXiv preprint arXiv:2502.08645,
+ [2] Ilge Akkaya, Marcin Andrychowicz, Maciek Chociej,                2025.
+     Mateusz Litwin, Bob McGrew, Arthur Petron, Alex             [14] Alex Hanson, Allen Tu, Geng Lin, Vasu Singla, Matthias
+     Paino, Matthias Plappert, Glenn Powell, Raphael Ribas,           Zwicker, and Tom Goldstein. Speedy-splat: Fast 3d
+     et al. Solving rubik’s cube with a robot hand. arXiv             gaussian splatting with sparse pixels and sparse primi-
+     preprint arXiv:1910.07113, 2019.                                 tives. In Proceedings of the Computer Vision and Pattern
+ [3] Leonardo Barcellona, Andrii Zadaianchuk, Davide Al-              Recognition Conference, pages 21537–21546, 2025.
+     legro, Samuele Papa, Stefano Ghidoni, and Efstratios        [15] Alex Hanson, Allen Tu, Vasu Singla, Mayuka Jayaward-
+     Gavves. Dream to manipulate: Compositional world                 hana, Matthias Zwicker, and Tom Goldstein. Pup 3d-gs:
+     models empowering robot imitation learning with imag-            Principled uncertainty pruning for 3d gaussian splatting.
+     ination. arXiv preprint arXiv:2412.14957, 2024.                  In Proceedings of the Computer Vision and Pattern
+ [4] Kevin Black, Noah Brown, Danny Driess, Adnan Es-                 Recognition Conference, pages 5949–5958, 2025.
+     mail, Michael Equi, Chelsea Finn, Niccolo Fusai, Lachy      [16] Tairan He, Jiawei Gao, Wenli Xiao, Yuanhang Zhang,
+     Groom, Karol Hausman, Brian Ichter, et al. π0: A                 Zi Wang, Jiashun Wang, Zhengyi Luo, Guanqi He, Nikhil
+     vision-language-action flow model for general robot con-         Sobanbab, Chaoyi Pan, et al. Asap: Aligning simula-
+     trol. corr, abs/2410.24164, 2024. doi: 10.48550. arXiv           tion and real-world physics for learning agile humanoid
+     preprint ARXIV.2410.24164.                                       whole-body skills. arXiv preprint arXiv:2502.01143,
+ [5] Wenzhe Cai, Jiaqi Peng, Yuqiang Yang, Yujian Zhang,              2025.
+     Meng Wei, Hanqing Wang, Yilun Chen, Tai Wang, and           [17] Tairan He, Zi Wang, Haoru Xue, Qingwei Ben, Zhengyi
+     Jiangmiao Pang. NavDP: Learning sim-to-real navigation           Luo, Wenli Xiao, Ye Yuan, Xingye Da, Fernando
+     diffusion policy with privileged information guidance.           Castañeda, Shankar Sastry, et al. Viral: Visual sim-to-real
+     arXiv preprint arXiv:2501.04610, 2025.                           at scale for humanoid loco-manipulation. arXiv preprint
+ [6] Zhanxiang Cao, Yang Zhang, Buqing Nie, Huangxuan                 arXiv:2511.15200, 2025.
+     Lin, Haoyang Li, and Yue Gao. Learning motion skills        [18] Jemin Hwangbo, Joonho Lee, Alexey Dosovitskiy, Dario
+     Bellicoso, Vassilios Tsounis, Vladlen Koltun, and Marco           Wei Liang, Yixin Zhu, and Siyuan Huang. CLONE:
+     Hutter. Learning agile and dynamic motor skills for               Closed-loop whole-body humanoid teleoperation for
+     legged robots. Science Robotics, 4(26):eaau5872, 2019.            long-horizon tasks. In 9th Annual Conference on Robot
+[19] Yufei Jia, Guangyu Wang, Yuhang Dong, Junzhe Wu,                  Learning (CoRL), 2025.
+     Yupei Zeng, Haonan Lin, Zifan Wang, Haizhou Ge,              [31] Chenguo Lin, Panwang Pan, Bangbang Yang, Zeming Li,
+     Weibin Gu, Kairui Ding, et al. Discoverse: Efficient robot        and Yadong Mu. Diffsplat: Repurposing image diffusion
+     simulation in complex high-fidelity environments. arXiv           models for scalable gaussian splat generation. arXiv
+     preprint arXiv:2507.21981, 2025.                                  preprint arXiv:2501.16764, 2025.
+[20] Guangqi Jiang, Haoran Chang, Ri-Zhao Qiu, Yutong             [32] Shilong Liu, Zhaoyang Zeng, Tianhe Ren, Feng Li, Hao
+     Liang, Mazeyu Ji, Jiyue Zhu, Zhao Dong, Xueyan Zou,               Zhang, Jie Yang, Chunyuan Li, Jianwei Yang, Hang
+     and Xiaolong Wang. Gsworld: Closed-loop photo-                    Su, Jun Zhu, et al. Grounding dino: Marrying dino
+     realistic simulation suite for robotic manipulation. arXiv        with grounded pre-training for open-set object detection.
+     preprint arXiv:2510.20813, 2025.                                  arXiv preprint arXiv:2303.05499, 2023.
+[21] Hanxiao Jiang, Hao-Yu Hsu, Kaifeng Zhang, Hsin-Ni            [33] Haozhe Lou, Yurong Liu, Yike Pan, Yiran Geng, Jianteng
+     Yu, Shenlong Wang, and Yunzhu Li. Phystwin: Physics-              Chen, Wenlong Ma, Chenglong Li, Lin Wang, Hengzhen
+     informed reconstruction and simulation of deformable              Feng, Lu Shi, et al. Robo-gs: A physics consistent
+     objects from videos. arXiv preprint arXiv:2503.17973,             spatial-temporal model for robotic arm with hybrid rep-
+     2025.                                                             resentation. In 2025 IEEE International Conference on
+[22] Lihan Jiang, Yucheng Mao, Linning Xu, Tao Lu, Kerui               Robotics and Automation (ICRA), pages 15379–15386.
+     Ren, Yichen Jin, Xudong Xu, Mulin Yu, Jiangmiao Pang,             IEEE, 2025.
+     Feng Zhao, et al. Anysplat: Feed-forward 3d gaussian         [34] Viktor Makoviychuk, Lukasz Wawrzyniak, Yunrong
+     splatting from unconstrained views. ACM Transactions              Guo, Michelle Lu, Kier Storey, Miles Macklin, David
+     on Graphics (TOG), 44(6):1–16, 2025.                              Hoeller, Nikita Rudin, Arthur Allshire, Ankur Handa,
+[23] Yongpeng Jiang, Mingrui Yu, Chen Chen, Yongyi Jia,                et al.      Isaac gym: High performance gpu-based
+     and Xiang Li. Robust in-hand reorientation with hi-               physics simulation for robot learning. arXiv preprint
+     erarchical rl-based motion primitives and model-based             arXiv:2108.10470, 2021.
+     regrasping. IEEE Robotics and Automation Practice, 1:        [35] Gabriel B Margolis and Pulkit Agrawal. Walk these
+     12–17, 2025.                                                      ways: Tuning robot control for generalization with mul-
+[24] Bernhard Kerbl, Georgios Kopanas, Thomas Leimkühler,             tiplicity of behavior. In Conference on Robot Learning,
+     and George Drettakis. 3d gaussian splatting for real-time         pages 22–31. PMLR, 2023.
+     radiance field rendering. ACM Trans. Graph., 42(4):139–      [36] Gabriel B Margolis, Ge Yang, Kartik Paigwar, Tao Chen,
+     1, 2023.                                                          and Pulkit Agrawal. Rapid locomotion via reinforcement
+[25] Moo Jin Kim, Karl Pertsch, Siddharth Karamcheti, Ted              learning. The International Journal of Robotics Research,
+     Xiao, Ashwin Balakrishna, Suraj Nair, Rafael Rafailov,            43(4):572–587, 2024.
+     Ethan Foster, Grace Lam, Pannag Sanketi, et al. Openvla:     [37] Jan Matas, Stephen James, and Andrew J. Davison.
+     An open-source vision-language-action model. arXiv                Sim-to-real reinforcement learning for deformable object
+     preprint arXiv:2406.09246, 2024.                                  manipulation. In Conference on Robot Learning (CoRL),
+[26] Alexander Kirillov, Eric Mintun, Nikhila Ravi, Hanzi              pages 734–743. PMLR, 2018.
+     Mao, Chloe Rolland, Laura Gustafson, Tete Xiao,              [38] Lars Mescheder, Wei Dong, Shiwei Li, Xuyang Bai,
+     Spencer Whitehead, Alexander C. Berg, Wan-Yen Lo,                 Marcel Santos, Peiyun Hu, Bruno Lecouat, Mingmin
+     Piotr Dollár, and Ross Girshick. Segment anything.               Zhen, AmaÃĢl Delaunoy, Tian Fang, et al. Sharp
+     arXiv:2304.02643, 2023.                                           monocular view synthesis in less than a second. arXiv
+[27] Ashish Kumar, Zipeng Fu, Deepak Pathak, and Jitendra              preprint arXiv:2512.10685, 2025.
+     Malik. Rma: Rapid motor adaptation for legged robots.        [39] Mayank Mittal, Pascal Roth, James Tigue, Antoine
+     arXiv preprint arXiv:2107.04034, 2021.                            Richard, Octi Zhang, Peter Du, Antonio Serrano-Muñoz,
+[28] Haozhan Li, Yuxin Zuo, Jiale Yu, Yuhao Zhang, Zhao-               Xinjie Yao, René Zurbrügg, Nikita Rudin, et al. Isaac
+     hui Yang, Kaiyan Zhang, Xuekai Zhu, Yuchen Zhang,                 lab: A gpu-accelerated simulation framework for multi-
+     Tianxing Chen, Ganqu Cui, et al. Simplevla-rl: Scaling            modal robot learning. arXiv preprint arXiv:2511.04831,
+     vla training via reinforcement learning. arXiv preprint           2025.
+     arXiv:2509.09674, 2025.                                      [40] M Nomaan Qureshi, Sparsh Garg, Francisco Yandun,
+[29] Xinhai Li, Jialin Li, Ziheng Zhang, Rui Zhang, Fan Jia,           David Held, George Kantor, and Abhisesh Silwal. Splat-
+     Tiancai Wang, Haoqiang Fan, Kuo-Kun Tseng, and Ruip-              sim: Zero-shot sim2real transfer of rgb manipulation poli-
+     ing Wang. Robogsim: A real2sim2real robotic gaussian              cies using gaussian splatting. In 2025 IEEE International
+     splatting simulator. arXiv preprint arXiv:2411.11839,             Conference on Robotics and Automation (ICRA), pages
+     2024.                                                             6502–6509. IEEE, 2025.
+[30] Yixuan Li, Yutang Lin, Jieming Cui, Tengyu Liu,              [41] Nikhila Ravi, Valentin Gabeur, Yuan-Ting Hu, Rong-
+     hang Hu, Chaitanya Ryali, Tengyu Ma, Haitham Khedr,               for legged locomotion in dynamic environments. arXiv
+     Roman Rädle, Chloe Rolland, Laura Gustafson, Eric                preprint arXiv:2505.19214, 2025.
+     Mintun, Junting Pan, Kalyan Vasudev Alwala, Nicolas          [51] Haoru Xue, Tairan He, Zi Wang, Qingwei Ben, Wenli
+     Carion, Chao-Yuan Wu, Ross Girshick, Piotr Dollár, and           Xiao, Zhengyi Luo, Xingye Da, Fernando Castañeda,
+     Christoph Feichtenhofer. Sam 2: Segment anything in               Guanya Shi, Shankar Sastry, et al. Opening the sim-
+     images and videos. arXiv preprint arXiv:2408.00714,               to-real door for humanoid pixel-to-action policy transfer.
+     2024. URL https://arxiv.org/abs/2408.00714.                       arXiv preprint arXiv:2512.01061, 2025.
+[42] Brennan Shacklett, Luc Guy Rosenzweig, Zhiqiang Xie,         [52] Sizhe Yang, Wenye Yu, Jia Zeng, Jun Lv, Kerui Ren,
+     Bidipta Sarkar, Andrew Szot, Erik Wijmans, Vladlen                Cewu Lu, Dahua Lin, and Jiangmiao Pang. Novel
+     Koltun, Dhruv Batra, and Kayvon Fatahalian. An ex-                demonstration generation with gaussian splatting en-
+     tensible, data-oriented architecture for high-performance,        ables robust one-shot manipulation. arXiv preprint
+     many-world simulation. ACM Transactions on Graphics               arXiv:2504.13175, 2025.
+     (TOG), 42(4):1–13, 2023.                                     [53] Zhao-Heng Yin, Changhao Wang, Luis Pineda, Fran-
+[43] Jonah Siekmann, Kevin Green, John Warila, Alan Fern,              cois Hogan, Krishna Bodduluri, Akash Sharma, Patrick
+     and Jonathan Hurst.        Blind bipedal stair traversal          Lancaster, Ishita Prasad, Mrinal Kalakrishnan, Jitendra
+     via sim-to-real reinforcement learning. arXiv preprint            Malik, et al. DexterityGen: Foundation controller for
+     arXiv:2105.08328, 2021.                                           unprecedented dexterity. In Proceedings of Robotics:
+[44] Roman Suvorov, Elizaveta Logacheva, Anton Mashikhin,              Science and Systems (RSS), 2025.
+     Anastasia Remizova, Arsenii Ashukha, Aleksei Silve-          [54] Justin Yu, Letian Fu, Huang Huang, Karim El-
+     strov, Naejin Kong, Harshith Goka, Kiwoong Park,                  Refai, Rares Andrei Ambrus, Richard Cheng, Muham-
+     and Victor Lempitsky. Resolution-robust large mask                mad Zubair Irshad, and Ken Goldberg. Real2render2real:
+     inpainting with fourier convolutions. arXiv preprint              Scaling robot data without dynamics simulation or robot
+     arXiv:2109.07161, 2021.                                           hardware. arXiv preprint arXiv:2505.09601, 2025.
+[45] Stone Tao, Fanbo Xiang, Arth Shukla, Yuzhe Qin,              [55] Kevin Zakka, Baruch Tabanpour, Qiayuan Liao, Mustafa
+     Xander Hinrichsen, Xiaodi Yuan, Chen Bao, Xinsong                 Haiderbhai, Samuel Holt, Jing Yuan Luo, Arthur All-
+     Lin, Yulin Liu, Tse kai Chan, Yuan Gao, Xuanlin Li,               shire, Erik Frey, Koushil Sreenath, Lueder A Kahrs, et al.
+     Tongzhou Mu, Nan Xiao, Arnav Gurha, Viswesh Na-                   Mujoco playground. arXiv preprint arXiv:2502.08844,
+     gaswamy Rajesh, Yong Woo Choi, Yen-Ru Chen, Zhiao                 2025.
+     Huang, Roberto Calandra, Rui Chen, Shan Luo, and Hao         [56] Shaopeng Zhai, Qi Zhang, Tianyi Zhang, Fuxian Huang,
+     Su. Maniskill3: Gpu parallelized robotics simulation              Haoran Zhang, Ming Zhou, Shengzhe Zhang, Litao Liu,
+     and rendering for generalizable embodied ai. Robotics:            Sixu Lin, and Jiangmiao Pang. A vision-language-
+     Science and Systems, 2025.                                        action-critic model for robotic real-world reinforcement
+[46] Emanuel Todorov, Tom Erez, and Yuval Tassa. Mujoco:               learning. arXiv preprint arXiv:2509.15937, 2025.
+     A physics engine for model-based control. In 2012            [57] Jiazhao Zhang, Kunyu Wang, Shaoan Wang, Minghan Li,
+     IEEE/RSJ international conference on intelligent robots           Haoran Liu, Songlin Wei, Zhongyuan Wang, Zhizheng
+     and systems, pages 5026–5033. IEEE, 2012.                         Zhang, and He Wang. Uni-navid: A video-based vision-
+[47] Homer Walke, Kevin Black, Abraham Lee, Moo Jin Kim,               language-action model for unifying embodied navigation
+     Max Du, Chongyi Zheng, Tony Zhao, Philippe Hansen-                tasks. arXiv preprint arXiv:2412.06224, 2024.
+     Estruch, Quan Vuong, Andre He, Vivek Myers, Kuan             [58] Jiazhao Zhang, Anqi Li, Yunpeng Qi, Minghan Li, Jia-
+     Fang, Chelsea Finn, and Sergey Levine. Bridgedata v2:             hang Liu, Shaoan Wang, Haoran Liu, Gengze Zhou, Yuze
+     A dataset for robot learning at scale. In Conference on           Wu, Xingxing Li, et al. Embodied navigation foundation
+     Robot Learning (CoRL), 2023.                                      model. arXiv preprint arXiv:2509.12129, 2025.
+[48] Jianyuan Wang, Minghao Chen, Nikita Karaev, Andrea           [59] Kaifeng Zhang, Shuo Sha, Hanxiao Jiang, Matthew
+     Vedaldi, Christian Rupprecht, and David Novotny. Vggt:            Loper, Hyunjong Song, Guangyan Cai, Zhuo Xu, Xi-
+     Visual geometry grounded transformer. In Proceedings              aochen Hu, Changxi Zheng, and Yunzhu Li. Real-
+     of the Computer Vision and Pattern Recognition Confer-            to-sim robot policy evaluation with gaussian splatting
+     ence, pages 5294–5306, 2025.                                      simulation of soft-body interactions. arXiv preprint
+[49] Zifan Wang, Yufei Jia, Lu Shi, Haoyu Wang, Haizhou                arXiv:2511.04665, 2025.
+     Zhao, Xueyang Li, Jinni Zhou, Jun Ma, and Guyue              [60] Yang Zhang, Zhanxiang Cao, Buqing Nie, Haoyang Li,
+     Zhou. Arm-constrained curriculum learning for loco-               Zhong Jiangwei, Qiao Sun, Xiaoyi Hu, Xiaokang Yang,
+     manipulation of a wheel-legged robot. In 2024 IEEE/RSJ            and Yue Gao. Keep on going: Learning robust humanoid
+     International Conference on Intelligent Robots and Sys-           motion skills via selective adversarial training. arXiv
+     tems (IROS), pages 10770–10776. IEEE, 2024.                       preprint arXiv:2507.08303, 2025.
+[50] Zifan Wang, Teli Ma, Yufei Jia, Xun Yang, Jiaming Zhou,      [61] Xian Zhou, Yiling Qiao, Zhenjia Xu, TH Wang, Z Chen,
+     Wenlong Ouyang, Qiang Zhang, and Junwei Liang.                    J Zheng, Z Xiong, Y Wang, M Zhang, P Ma, et al.
+     Omni-perception: Omnidirectional collision avoidance              Genesis: A generative and universal physics engine for
+     robotics and beyond. arXiv preprint arXiv:2401.01454,
+     2024.
+[62] Zhongyi Zhou, Yichen Zhu, Junjie Wen, Chaomin Shen,
+     and Yi Xu. Vision-language-action model with open-
+     world embodied reasoning from pretrained knowledge.
+     arXiv preprint arXiv:2505.21906, 2025.
+[63] Yuke Zhu, Josiah Wong, Ajay Mandlekar, Roberto
+     Martı́n-Martı́n, Abhishek Joshi, Soroush Nasiriany, and
+     Yifeng Zhu. robosuite: A modular simulation frame-
+     work and benchmark for robot learning. arXiv preprint
+     arXiv:2009.12293, 2020.
+[64] Ziwen Zhuang, Zipeng Fu, Jianren Wang, Christo-
+     pher Atkeson, Soeren Schwertfeger, Chelsea Finn, and
+     Hang Zhao. Robot parkour learning. arXiv preprint
+     arXiv:2309.05665, 2023.
+                                                            Appendix
+                                                             TABLE OF C ONTENTS
+
+Appendix A. Physics                                                                                                              13
+     A.1     Shaking Test . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    13
+
+Appendix B. 3DGS Asset and Rendering                                                                                             13
+     B.1     Assets Generation . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     13
+     B.2     RLGK . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .      14
+     B.3     Consistency of Policy Performance between Simulation and Real World . . . . . . . . . . . . . . . . .               15
+
+Appendix C. Locomotion                                                                                                           15
+     C.1     Environment Setup . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .       15
+     C.2     Training Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    16
+     C.3     Specialized Perception . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    17
+
+Appendix D. Manipulation                                                                                                         18
+     D.1     Environment Setup . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .       18
+     D.2     Training Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    18
+     D.3     Comparison with Other Simulators . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .        19
+
+Appendix E. Navigation                                                                                                           20
+     E.1     Task Definition . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     20
+     E.2     Scene Reconstruction and Rendering . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .        21
+     E.3     Training Details . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    21
+
+Appendix F. MJCF Compatibility                                                                                                   21
+     F.1     Global Configuration . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .      21
+     F.2     Asset Management . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .        22
+     F.3     Scene Description . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     22
+     F.4     Constraints and Equality . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .      22
+     F.5     Actuators and Sensors . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .     22
+     F.6     Visuals and Defaults . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .    22
+
+
+
+                                                            A PPENDIX A. P HYSICS
+A.1 Shaking Test
+   To evaluate the stability and robustness of frictional contacts under dynamic perturbations, we conducted a ”Shaking Test”
+using a Franka Panda arm. The robot grasps objects with different geometries—a cube, a ball, and a bottle—and executes
+aggressive random shaking motions. Each result aggregates 30 trials per object across three geometries. We compare the success
+rates of retaining the object across different physics engines at two simulation time steps: dt = 0.002s and dt = 0.01s.
+   As shown in Table V and Figure 9, GS-Playground demonstrates superior grasping robustness. The CPU backend
+achieves a 100% success rate (90/90) across all object types and time steps, attributed to our velocity-impulse formulation
+and strict complementarity constraints which effectively prevent numerical drift and slippage. In contrast, MuJoCo variants
+(Euler, Implicit, and Implicit+Noslip) struggle significantly with this task, often dropping the object due to insufficient friction
+retention under high accelerations. IsaacSim and Genesis show better performance but still experience failures (60/90 success).
+Our GPU backend also maintains high stability, validating the effectiveness of our parallel solver design.
+                                              A PPENDIX B. 3DGS A SSET AND R ENDERING
+B.1 Assets Generation
+   Building upon the widely used Bridge-v2 dataset1 , we introduce the Bridge-GS dataset, a large-scale collection of simulation-
+ready 3D assets generated via our automated pipeline. While the original Bridge-v2 dataset primarily consists of RGB images
+and robot trajectories, Bridge-GS significantly enriches this data by providing fully reconstructed scene-level and object-level
+  1 H. Walke et al., “BridgeData V2: A Dataset for Robot Learning at Scale,” in Conference on Robot Learning (CoRL), 2023.
+TABLE V: Grasping robustness under external disturbances. Success rates for a Franka Panda holding various geometries (cube, ball,
+bottle) under random shaking. A trial is successful if the object is retained for the entire evaluation horizon.
+
+                                        Engine                      dt=0.002s (success)         dt=0.01s (success)
+                                        MuJoCo (Euler)                      0/90                       0/90
+                                        MuJoCo (Implicit)                   0/90                       0/90
+                                        MuJoCo (Implicit+Noslip)            4/90                       0/90
+                                        MJWarp                              0/90                      10/90
+                                        IsaacSim                           60/90                      60/90
+                                        Genesis                            60/90                      60/90
+                                        Ours (CPU)                         90/90                      90/90
+                                        Ours (GPU)                         90/90                      74/90
+
+
+
+
+Fig. 9: Shaking Test Scene: A Franka Panda robot grasps various objects (a cube, a ball, and a bottle) while being subjected to random
+shaking motions. This setup is used to evaluate the grasping robustness of different simulation methods under dynamic perturbations.
+
+3D Gaussian Splatting (3DGS) representations, along with object-level meshes, 6D object poses, and calibrated camera intrinsics
+and extrinsics.
+   Figure 10 illustrates samples from the Bridge-GS dataset. The dataset encapsulates diverse real-world scenes converted into
+digital twins, preserving visual fidelity while enabling physical interaction. Each column represents a distinct scene processed
+by our pipeline. The top row displays the original RGB images from the Bridge-v2 dataset. The subsequent rows show the
+intermediate and final outputs of our pipeline: the estimated depth maps used for geometry estimation, the instance segmentation
+masks identifying interactable objects, and the final composited 3DGS assets rendered in the simulation environment. This
+rich set of 3D annotations empowers researchers to train visuomotor policies in high-fidelity simulated replicas of real-world
+environments.
+   In addition to Bridge-v2, we further validate our pipeline using the InteriorGS dataset2 . Although InteriorGS provides
+ground-truth 3DGS representations, we utilize it strictly as a source of diverse indoor RGB imagery. We render 2D snapshots
+from the scenes and feed them into our pipeline as raw input, without accessing the underlying 3D data. As shown in the
+bottom half of Figure 10, our pipeline successfully reconstructs these complex indoor environments into simulation-ready
+assets—recovering geometry, segmentation, and 3DGS representations purely from the rendered images. This demonstrates
+the pipeline’s robustness and its capability to generalize to a wide variety of indoor settings beyond the specific domain of
+Bridge-v2.
+
+B.2 RLGK
+   Rigid-Link Gaussian Kinematics (RLGK) is a mechanism designed to efficiently synchronize the state of millions of 3D
+Gaussians with the low-dimensional rigid body states derived from the physics engine. The core logic of RLGK is to map the
+update of high-dimensional visual representations to low-dimensional rigid body transformations, executing the synchronization
+process via massively parallelized vector operations on the GPU. Importantly, our implementation is optimized for batched
+environments, enabling the simultaneous simulation and rendering of B parallel scenes (e.g., B = 2048) using a single
+geometry template.
+   During the initialization phase, we upload a single ”template” of the scene’s Gaussians to GPU memory. We assign a rigid
+                                                                                                               i
+body index k ∈ {0, . . . , Nbodies } to each Gaussian gi and store the initial local configuration {pilocal , qlocal } relative to the body
+                                                                                     B×Nbodies ×7
+frame. At runtime, the physics engine outputs a batch of global poses St ∈ R                       containing the state of every rigid
+body in every parallel environment. RLGK performs a batched gather operation to retrieve the transform for every Gaussian
+across all environments simultaneously. The new global state for the j-th environment and i-th Gaussian is computed via:
+                                                         (j,i)          (j,t)              (j,t)
+                                                        pworld = R(qk           )pilocal + tk                                                     (8)
+                                                         (j,i)    (j,t) i
+                                                        qworld = qk ⊗ qlocal                                                                      (9)
+
+   2 SpatialVerse Research Team, Manycore Tech Inc., “InteriorGS: A 3D Gaussian Splatting Dataset of Semantically Labeled Indoor Scenes,” 2025. https:
+//huggingface.co/datasets/spatialverse/InteriorGS
+Fig. 10: Visual results of the asset generation pipeline on (top) Bridge-GS and (bottom) InteriorGS datasets. The rows display: (1) Original
+RGB images; (2) Estimated depth maps; (3) Instance segmentation masks; and (4) Reconstructed simulation-ready 3DGS assets.
+
+
+
+  This design allows for updating B × M points (where M ≈ 106 ) in sub-milliseconds. By broadcasting the single template
+geometry {pilocal } across B environments, we minimize memory bandwidth usage. The algorithmic description is provided in
+Algorithm 1.
+
+B.3 Consistency of Policy Performance between Simulation and Real World
+   We present the consistency analysis in Figure 11. We evaluated three representative imitation learning algorithms—ACT,
+Diffusion Policy (DP), and π0 —across four diverse manipulation tasks: Push Mouse, Close Laptop, Pick Fruit, and Stack Cube.
+First, our experiments demonstrate a strong correlation (0.89) between simulation and real-world success rates, indicating that
+our simulation environment achieves high consistency with the physical world across different policy architectures and task
+scenarios. Second, as detailed in Section III-C, our efficient pruning strategy significantly reduces the number of Gaussians
+while maintaining high visual fidelity. The comparison between full and pruned 3DGS rendering shows that this reduction
+in point count has a negligible impact on the validation success rate of imitation learning policies. This confirms that our
+compression strategy effectively preserves the essential visual features required for policy learning while significantly lowering
+the method’s computational footprint.
+
+                                                     A PPENDIX C. L OCOMOTION
+C.1 Environment Setup
+  In this task, we consider two environments: a Unitree Go2 quadruped environment and a Unitree G1 humanoid environment.
+Algorithm 1 Batched Rigid-Link Gaussian Kinematics (RLGK)
+ 1: Input: Template Gaussians G = {g1 , . . . , gM }, Batch Size B
+ 2: Pre-computation:
+ 3: for each Gaussian gi ∈ G do
+ 4:     Identify body index ki ∈ {1, . . . , Nbodies }
+ 5:                                  i
+        Store local pose: pilocal , qlocal
+ 6:     IndexM ap[i] ← ki
+ 7: end for
+ 8: Runtime Loop (at step t):
+ 9: Receive batch body states St ∈ RB×Nbodies ×7
+10: Transfer St to GPU memory
+11: // Massive Parallel Update for (B × M ) Gaussians
+12: K ← St [:, IndexM ap]                                                                                                                    ▷ Gather: (B, Nbodies ) → (B, M )
+13: Pworld ← Transform(Plocal , K.p, K.q)                                                                                                       ▷ Broadcast (1, M ) to (B, M )
+14: Qworld ← K.q ⊗ Qlocal
+15: Update renderer buffers with batched state Pworld , Qworld
+
+
+                                                                                              Consistency Analysis
+                                                         ACT          DP         Pi0          Push Mouse         Close Laptop        Pick Fruit        Stack Cube
+
+                                               100                                                         100
+               Sim Success Rate (Pruned) (%)
+
+
+
+
+                                                80                                                          80
+
+                                                60                                                          60
+
+                                                40                                                          40
+
+                                                20                                                          20
+                                                                                 Correlation: 0.89                                            Correlation: 0.94
+                                                 0                                                           0
+                                                     0         20       40      60       80       100            0        20      40      60         80      100
+                                                                    Real Success Rate (%)                                   Sim Success Rate (Full) (%)
+             Fig. 11: We compare the success rates of different policies in simulation and the real world on various tasks.
+
+
+
+C.2 Training Details
+Observation and Action. We use a unified observation space for all environments:
+  • Gravity projected in body frame
+  • Angular velocity
+  • Joint positions
+  • Joint velocities
+  • Previous action
+  • Velocity commands
+  • Phase
+
+The action space is defined as absolute joint position with a default offset:
+                                                                                                qt = qd + ka a                                                            (10)
+where ka is the action scale, qd is the default position and a is the action. We employ a PD controller to map joint position
+to torque:
+                                                      τ = kp (qt − q) − kd q̇                                            (11)
+
+Domain Randomization. For better sim-to-real transfer, we employ domain randomization by randomizing the following
+components:
+  •   Sensor noise: We add Gaussian noise to the data from each sensor.
+  •   Physical parameters: Noise is introduced to physical quantities that are difficult to measure accurately, such as inertia
+      and the center of mass, to enhance the robustness of the policy.
+Reward Function. The training rewards are detailed in Table VI.
+
+                                                          TABLE VI: Reward Functions for Locomotion Tasks
+
+                              Reward                           Go2 Weight      G1 Weight                     Expression
+                              Joint torques                        -1e-5             -1e-5                    |τ |2
+                              Dof pos limits                         -1                                   |q| − qmax
+                              Feet air time                          1                 2        (tair − tthreshold ) ∗ (1 − Qd )
+                                                                                                       (vcom −vd )2  (ω    −ωd )2
+                                                                                                                    + com
+                              Speed tracking                          1                1        e−[        0.01         0.005
+                                                                                                                                  ]
+
+                              Z-axis velocity                         -2               -4                   |vCoM,z |2
+                              Action rate                           -0.02            -0.01                |△qlast − △q|2
+                                                                                                                     −q̇ 2
+                              Joint acc                            -2.5e-7          -2.5e-7                 | q̇last
+                                                                                                                  △t
+                                                                                                                        |
+
+
+Network Architecture. We employ an asymmetric actor–critic setup, in which the policy network (actor) and the value
+network (critic) receive different observation inputs. The policy network is fed with the aforementioned observations, while
+the value network additionally receives uncorrupted versions of these signals and extra sensor readings such as contact forces,
+perturbation forces, and linear velocity. Both policy and value networks use a three-layer multilayer perceptron (MLP) with
+hidden sizes of 256, 128, and 64.
+Training Curve. Learning curves for the G1 and Go2 Joystick tasks are shown in Figure 12 and Figure 13, respectively.
+
+                                            18
+                                                                                     G1 Flat
+                                            16
+                                            14
+                                            12
+                                 Episode Reward
+
+
+
+
+                                            10
+                                                                                                                 5h22min10s
+                                                  8
+                                                  6
+                                                  4
+                                                  2                                    Reward
+
+                                                  0
+                                                      0     1000     2000    3000       4000    5000      6000       7000     8000
+                                                                                    Env Steps
+
+                                                           Fig. 12: Learning curves for the G1 Joystick task.
+
+
+
+                                                                                    Go2 Flat
+                                           20
+
+
+
+                                           15                                                                    10min12s
+                                 Episode Reward
+
+
+
+
+                                           10
+
+
+
+                                                  5
+
+                                                                                     Reward
+                                                  0
+                                                      0      200      400     600         800    1000       1200       1400
+                                                                                    Env Steps
+
+                                                          Fig. 13: Learning curves for the Go2 Joystick task.
+
+
+C.3 Specialized Perception
+  To enable robust locomotion across diverse terrains, we provide a suite of high-fidelity exteroceptive sensors compatible
+with various robot embodiments. As illustrated in Figure 14, these sensors can be flexibly configured to suit different tasks
+and morphologies.
+Height Scan. The Height Scan sensor projects a grid of ray-casts downwards around the robot base to sample terrain
+elevation relative to the body frame. This local height map provides high-frequency terrain geometry information, essential for
+traversability analysis on rough terrain. In our benchmarks, we equip the Unitree Go2 quadruped with this sensor to facilitate
+adaptive gait generation on uneven surfaces.
+LiDAR. The 3D LiDAR sensor performs omnidirectional or bounded ray-casting to generate a sparse point cloud of the
+environment. This modality is critical for obstacle detection, mapping, and navigation in cluttered spaces. We demonstrate its
+integration on the Unitree G1 humanoid for humanoid locomotion tasks.
+   Both sensors leverage our batched ray-casting engine to maintain high throughput during massive parallel training.
+
+
+
+
+Fig. 14: Perception setups for locomotion tasks. Left: The Unitree Go2 robot utilizing a Height Scan sensor to perceive terrain geometry
+on rough terrain. Right: The Unitree G1 humanoid equipped with a LiDAR sensor for environmental awareness.
+
+
+                                                   A PPENDIX D. M ANIPULATION
+D.1 Environment Setup
+  The environment used is AIRBOT Play PickCube, as shown in Figure 15. The objective of this task is to control the robotic
+arm to grasp a cube placed on the table and lift it to a specified target position.
+
+
+
+
+                                                                                       View1     View2
+
+Fig. 15: The AIRBOT Play PickCube manipulation environment setup. The robot needs to grasp the green cube and lift it to the target
+position.
+
+
+D.2 Training Details
+Observation and Action.
+  • Observation Space
+    – Arm joint positions
+    – Gripper position
+    – Target position
+    – Joint tracking error: the difference between the current control command and the robot’s current joint positions
+    – Two input RGB images
+  • Action Space
+    – 6 DoF joint positions
+    – 1 Gripper position
+Domain Randomization.
+  • Camera poses: We perform multi-camera domain randomization by perturbing each camera’s extrinsics independently for
+    every parallel world. For each camera, we add a per-axis uniform translation offset in the range ±0.02 m to the nominal
+    camera position, and apply a small random rotation by sampling a random 3D axis and a rotation angle uniformly up to
+    5◦ (axis–angle → quaternion, then composed with the original orientation).
+  • Box initial and target positions: At each reset, we randomize the initial 3D positions of both the box and the target by
+    sampling a small uniform offset around their nominal location. The box is perturbed within ±5 cm in x, ±10 cm in y,
+    and 0 cm in z, while the target is perturbed within 0 cm in x, ±10 cm in y, and 3–8 cm upward in z (all relative to the
+    same nominal reference).
+Reward Function.
+                                     TABLE VII: Reward Functions for PickCube Manipulation
+
+                                Reward                   Weight    Expression
+                                                                                               
+                                Gripper–Box Proximity      5.0     1 − tanh 5 ∥pbox − pgrip ∥ 
+                                                                                              
+                                Box–Target Tracking        5.0       1 − tanh 5 ∥ptgt − pbox ∥ Ireach
+                                No Floor Collision        0.25     1 − Ifloor
+                                No Box Collision           0.5     1 − Ihand-box
+                                                                                    
+                                                                          |u −umin |
+                                Gripper Closing           20.0       1 − u g −u        Ireach
+                                                                           max   min
+                                                                   I pzbox > pzbox,0 + 0.005 Ireach
+                                                                                             
+                                Lifted (sparse)            8.0
+                                                                                         
+                                Success (sparse)          10.0     I ∥pbox − ptgt ∥ < ϵ
+
+
+
+Notation. pbox is the box position, ptgt is the target (mocap) position, and pgrip is the gripper site position. pzbox and pzbox,0
+denote the current and initial box height, respectively. ug is the gripper control command (last control dimension), with limits
+umin and umax . I(·) is the indicator function. Ireach = I(∥pbox − pgrip ∥ < 0.015) gates rewards that should only activate after
+the gripper reaches the box. Ifloor and Ihand-box indicate floor contact and hand–box collision as detected by contact sensors. ϵ
+is the success threshold (set to 0.01 in our experiments).  The sparse bonuses ”Lifted” and ”Success” are applied in the vision
+setting. The episode reward is computed as clip( i wi ri , −104 , 104 ).
+                                                    P
+
+Termination. The episode terminates when any of the following conditions becomes true: (i) the box goes out of bounds (any
+coordinate exceeds 1.0 m in magnitude, or the box drops below its initial height by more than 0.01 m), (ii) the simulation
+state becomes non-finite (any NaN in qpos or qvel), or (iii) the task is successful.
+Network Architecture and Hyperparameters. We used the same vision PPO network as in Mujoco Playground, except that
+we modified the output features of the CNN encoders for both the actor and critic to 16. The training hyperparameters are
+shown in Table VIII.
+                                         TABLE VIII: PPO Hyperparameters for Manipulation
+
+                                                Hyperparameter            Default Value
+                                                empirical normalization       True
+                                                num minibatches                 8
+                                                discounting                   0.97
+                                                learning rate                1e−3
+                                                num envs                     2048
+                                                num steps per env              40
+                                                value loss coef                1.0
+                                                use clipped value loss        True
+                                                clip param                     0.2
+                                                entropy coef                  0.01
+                                                num learning epochs             4
+                                                schedule                    adaptive
+                                                gamma                         0.97
+                                                lam                           0.95
+                                                desired kl                    0.01
+                                                max grad norm                  1.0
+
+
+
+D.3 Comparison with Other Simulators
+  We conducted comparative experiments with other simulators, specifically Mujoco Playground, ManiSkill3, and Isaac Lab.
+All of these simulators support large-scale parallel rendering. All simulators employed the same image domain randomization
+strategies, including variations in brightness, contrast and exposure. However, due to the difficulty in modeling simulation
+assets for the environment and the significant visual gap between simulation and reality, the success rate when deploying these
+policies in the real world was 0%.
+
+
+
+
+                Fig. 16: Render comparison. From left to right: Real World, Ours, Isaac Lab, ManiSkill3, and Mujoco.
+
+  We evaluated each policy over 20 trials. As shown in Table IX, our method achieved a success rate of 90%, being the only
+method capable of successful sim-to-real transfer.
+
+            TABLE IX: Sim-to-Real Success Rates across Different Simulators. Each method was evaluated over 20 trials.
+
+                                                                   Simulator      Success Rate
+                                                                   Mujoco                 0%
+                                                                   ManiSkill3             0%
+                                                                   Isaac Lab              0%
+                                                                   Ours                  90%
+
+
+
+Training Curve. In Figure 17 we report environment steps versus reward across 4 seeds on a single A100 GPU.
+
+                                                                                Pick Cube
+                                                 700
+
+                                                 600
+                                                                                                         1h46m34s
+                                Episode Reward
+
+
+
+
+                                                 500
+
+                                                 400
+
+                                                 300
+
+                                                 200
+                                                                                  PPO Mean
+
+                                                       0   25     50     75        100       125   150     175      200
+                                                                                Env Steps
+                                                  Fig. 17: Learning curves for the PickCube manipulation task.
+
+
+
+                                                                A PPENDIX E. NAVIGATION
+E.1 Task Definition
+   We evaluate a simplified visual goal-seeking task in structured indoor scenes. The Unitree Go2 robot is required to locate
+and approach a red traffic cone based on egocentric RGB observations, within a time limit of Tmax = 25 seconds. The task
+is successful when the Euclidean distance between the robot’s base and the center of the target cone falls below a threshold
+ϵ = 0.35 meters. The robot’s initial pose and the cone position are randomized at episode start (see Domain Randomization).
+E.2 Scene Reconstruction and Rendering
+   The simulation scene is captured with an RGB camera and reconstructed using the PGSR algorithm to obtain a 3D
+representation suitable for rendering. During training, RGB observations are rendered from the robot dog’s egocentric viewpoint
+(camera pose and intrinsics aligned with the Go2’s onboard camera) so that the policy receives first-person visual input consistent
+with real-world deployment.
+E.3 Training Details
+Observation and Action Space. We use a hierarchical setup: a high-level navigation policy runs at 5 Hz and outputs velocity
+commands; a low-level locomotion controller runs at 50 Hz and maps commands plus proprioception to joint targets. The
+low-level controller is pre-trained with domain randomization and remains frozen during navigation training.
+   The observation space for the high-level policy is 228-dimensional: (1) Visual features (192 dimensions), i.e., image
+embeddings from a Vision Transformer (ViT) encoder; (2) Task command (3 dimensions), a one-hot vector indicating the
+target color—in this simplified task only the red cone is used; (3) Proprioception (33 dimensions), including base angular
+velocity, projected gravity, joint positions, joint velocities, and the previous action. The action space consists of 3 continuous
+velocity commands vcmd = (vx , vy , ωyaw ), squashed by a Tanh activation and scaled to the robot’s physical limits.
+Policy Architecture. The high-level policy uses an asymmetric Actor-Critic structure. The Actor takes the observations above
+and incorporates a pre-trained ViT encoder (frozen during navigation training) to extract features from 224 × 224 RGB
+images, followed by an LSTM to aggregate temporal information. The Critic uses the same visual and proprioceptive inputs;
+implementation details follow the same asymmetric design as in the locomotion appendix. Both policy and value networks are
+optimized with PPO.
+Reward Function. The reward function is given in Table X. It combines a sparse success bonus for reaching the goal with
+dense terms for goal distance reduction and heading alignment, plus regularization for action smoothness and velocity tracking.
+
+                                   TABLE X: Reward Function for High-Level Navigation Policy
+
+                                     Reward Term         Expression / Description        Weight
+                                                            Task Rewards
+                                     Reach Goal          I(dtarget < 0.35)                30.0
+                                     Goal Distance       dt−1 − dt (towards target)       15.0
+                                     Goal Heading        exp(−2(∆ψ/π)2 ) · I(d > 0.25)     3.0
+                                     Stand Still         Encourages stopping at goal       1.0
+                                                            Regularization
+                                     Action Smoothness   −∥a∥2 (L2 norm)                 −0.01
+                                     Velocity Tracking   exp(−∥vcmd − vreal ∥2 /σ)        0.2
+
+
+Domain Randomization. To improve sim-to-real transfer, we apply domain randomization during training: initial state—the
+robot’s initial position and yaw are randomly sampled within the feasible area, and the target cone position is randomized
+around predefined anchor points with additive noise; visual—random perturbations to camera extrinsics, and injection of image
+noise and motion blur; physical—random external pushes on the robot base and randomized link masses.
+Training Hyperparameters. All experiments are run on a workstation with a single NVIDIA RTX 4090 GPU. We use
+GS-Playground with 48 parallel environments and train the high-level navigation policy with PPO for 10,000 iterations.
+The learning rate follows an adaptive schedule with initial value 1.0 × 10−3 , mini-batch size is 2, and the discount factor is
+γ = 0.98. Further PPO and environment settings are consistent with the locomotion task where applicable.
+                                              A PPENDIX F. MJCF C OMPATIBILITY
+   MJCF is a widely used format in the field of robotics simulation. GS-Playground provides extensive compatibility support
+for MJCF while maintaining its own simulation capabilities and features.
+   The details of current MJCF support status in GS-Playground are listed below:
+F.1 Global Configuration
+   GS-Playground fully supports critical global options such as timestep, gravity, and solver parameters
+(tolerance, iterations). Contact parameters including o_margin, o_solref, o_solimp, and o_friction are
+also supported, ensuring consistent physics behavior. We are planning to support additional environmental factors like wind
+and magnetic fields in future updates.
+   For the compiler configuration, essential attributes like autolimits, angle, eulerseq, and asset directories (meshdir,
+texturedir) are supported, allowing for seamless model compilation.
+F.2 Asset Management
+  GS-Playground supports a wide range of asset definitions:
+  • Mesh: Supports .stl, .obj, and .dae formats. Key attributes like file, vertex, scale, and refpos are supported.
+  • Texture & Material: Supports 2d and skybox texture types, along with material properties such as reflectance,
+    metallic, and roughness for realistic rendering.
+  • Height Field: Supports hfield definitions for complex terrain generation.
+
+F.3 Scene Description
+  The core scene elements are well-supported to reconstruct complex robotic environments:
+  • Bodies & Joints: Supports body definitions with pos, orientation, and inertial properties. A comprehensive
+    set of joint attributes is implemented, including stiffness, damping, frictionloss, armature, and limited
+    ranges.
+  • Geometries: Supports primitive types (plane, sphere, capsule, cylinder, box) and mesh geoms. Contact
+    dynamics properties like solref, solimp, friction, and condim are fully compatible.
+  • Lights & Cameras: Supports spot, directional, and point lights with shadow casting capabilities. Cameras can
+    be configured with fovy, target, and tracking modes (fixed, track).
+F.4 Constraints and Equality
+  To model complex mechanical linkages, GS-Playground supports:
+  • Equality Constraints: connect, weld, and joint equality constraints are supported, allowing for loop closures and
+    rigid attachments.
+  • Tendons: Supports fixed tendons with length limits, stiffness, and damping properties.
+
+F.5 Actuators and Sensors
+  • Actuators: Supports motor, position, velocity, and general actuators. Control limits (ctrllimited,
+    forcerange) and gain parameters (kp, kv, gear) are fully implemented.
+  • Sensors: A rich suite of sensors is available, including accelerometer, velocimeter, jointpos, jointvel,
+    and frame-based sensors (framepos, framequat, framelinvel, etc.), enabling comprehensive state observation.
+F.6 Visuals and Defaults
+   GS-Playground respects visual settings including global fog and lighting configurations. It also supports the default
+class system, allowing users to define hierarchical default properties for geom, joint, material, and other elements to
+streamline MJCF file structure.
+

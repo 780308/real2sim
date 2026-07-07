@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>VoxFormer: Sparse Voxel Transformer for Camera-based 3D Semantic Scene Completion</title>
+<style>
+body { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; line-height:1.65; margin:0; color:#202124; background:#f7f7f5; }
+main { max-width: 980px; margin: 0 auto; padding: 32px 24px 56px; background:#fff; }
+h1 { font-size: 30px; margin:0 0 8px; }
+h2 { margin-top: 30px; border-top:1px solid #ddd; padding-top:18px; }
+.meta { color:#5f6368; }
+.badge { display:inline-block; padding:2px 8px; border:1px solid #ccc; border-radius:6px; margin-right:6px; background:#fafafa; }
+table { border-collapse: collapse; width:100%; margin: 14px 0; }
+td, th { border:1px solid #ddd; padding:8px; vertical-align:top; }
+th { background:#f1f3f4; }
+code { background:#f1f3f4; padding:2px 4px; border-radius:4px; }
+</style>
+</head>
+<body><main>
+<h1>VoxFormer: Sparse Voxel Transformer for Camera-based 3D Semantic Scene Completion</h1>
+<p class="meta"><span class="badge">P1</span><span class="badge">standard</span><span class="badge">score 3.17/5</span><span class="badge">semantic scene completion</span></p>
+<h2>资料状态</h2>
+<table>
+<tr><th>类型</th><td>paper+repo+weights</td></tr>
+<tr><th>本地 PDF</th><td>ref/voxformer_2302_12251.pdf</td></tr>
+<tr><th>本地 repo</th><td>repos/VoxFormer</td></tr>
+<tr><th>commit</th><td>63da924</td></tr>
+<tr><th>license 文件</th><td>LICENSE</td></tr>
+</table>
+<h2>Sources</h2><ul><li>https://github.com/NVlabs/VoxFormer</li><li>https://arxiv.org/abs/2302.12251</li></ul>
+<h2>对 directional view coverage gap 的定位</h2><p>P1 baseline，用于生成 occupancy prior，不作为视觉补帧主线。</p>
+<h2>Inputs / Outputs</h2>
+<ul><li><strong>Inputs:</strong> single/multiple camera images; depth-estimated sparse visible voxels。</li><li><strong>Outputs:</strong> dense 3D semantic voxels。</li></ul>
+<h2>Method Pipeline</h2><ul><li>stage 1 query proposal from depth-estimated visible structures。</li><li>stage 2 masked autoencoder propagates information to full voxel volume。</li></ul>
+<h2>Objectives / Losses</h2><p>semantic occupancy completion losses。</p>
+<h2>Assumptions</h2><p>户外自动驾驶语境强；室内 Go2 走廊需 domain adaptation。</p>
+<h2>Failure Modes</h2><p>语义 voxel 不等于 textured mesh/NVS；不补 RGB 画面。</p>
+<h2>Isaac Sim / 平台迁移判断</h2><p>adapter needed; useful as uncertainty/occupancy prior。</p>
+<h2>Transfer Matrix 摘要</h2>
+<table>
+<tr><th>method family</th><td>semantic scene completion</td></tr>
+<tr><th>camera-pose conditioning</th><td>中/弱</td></tr>
+<tr><th>large-angle support</th><td>需验证</td></tr>
+<tr><th>3D consistency</th><td>3.5/5</td></tr>
+<tr><th>Isaac Sim path</th><td>adapter needed; useful as uncertainty/occupancy prior。</td></tr>
+<tr><th>code/weights</th><td>3.6/5</td></tr>
+<tr><th>priority score</th><td>3.17/5</td></tr>
+</table>
+</main></body></html>

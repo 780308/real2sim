@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>SceneCompleter: Dense 3D Scene Completion for Generative Novel View Synthesis</title>
+<style>
+body { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; line-height:1.65; margin:0; color:#202124; background:#f7f7f5; }
+main { max-width: 980px; margin: 0 auto; padding: 32px 24px 56px; background:#fff; }
+h1 { font-size: 30px; margin:0 0 8px; }
+h2 { margin-top: 30px; border-top:1px solid #ddd; padding-top:18px; }
+.meta { color:#5f6368; }
+.badge { display:inline-block; padding:2px 8px; border:1px solid #ccc; border-radius:6px; margin-right:6px; background:#fafafa; }
+table { border-collapse: collapse; width:100%; margin: 14px 0; }
+td, th { border:1px solid #ddd; padding:8px; vertical-align:top; }
+th { background:#f1f3f4; }
+code { background:#f1f3f4; padding:2px 4px; border-radius:4px; }
+</style>
+</head>
+<body><main>
+<h1>SceneCompleter: Dense 3D Scene Completion for Generative Novel View Synthesis</h1>
+<p class="meta"><span class="badge">P0</span><span class="badge">deep</span><span class="badge">score 3.55/5</span><span class="badge">dense 3D completion for generative NVS</span></p>
+<h2>资料状态</h2>
+<table>
+<tr><th>类型</th><td>paper</td></tr>
+<tr><th>本地 PDF</th><td>ref/scenecompleter_2506_10981.pdf</td></tr>
+<tr><th>本地 repo</th><td>无</td></tr>
+<tr><th>commit</th><td>N/A</td></tr>
+<tr><th>license 文件</th><td>未在 repo 根目录确认</td></tr>
+</table>
+<h2>Sources</h2><ul><li>https://arxiv.org/abs/2506.10981</li></ul>
+<h2>对 directional view coverage gap 的定位</h2><p>P0 方法参考，工程上排在有代码的 SEVA/GEN3C/PGSR/OpenReal2Sim 之后。</p>
+<h2>Inputs / Outputs</h2>
+<ul><li><strong>Inputs:</strong> partial 3D / generated novel-view context；关注 2D inpainting 导致 geometry distortion 的问题。</li><li><strong>Outputs:</strong> dense completed 3D scene representation for NVS。</li></ul>
+<h2>Method Pipeline</h2><ul><li>先补 dense 3D scene，而不是逐帧 2D inpainting。</li><li>用完整 3D 表示约束 generative novel view synthesis，降低 appearance drift。</li><li>更适合在 3DGS 黑洞处生成结构先验，再渲染多视角。</li></ul>
+<h2>Objectives / Losses</h2><p>3D completion + generative NVS consistency；论文强调避免 2D inpainting paradigm 的几何漂移。</p>
+<h2>Assumptions</h2><p>代码状态不明；需要验证输入格式是否能接 Go2 3DGS/point cloud。</p>
+<h2>Failure Modes</h2><p>若场景拓扑先验错误，所有补视角会一致地错；需 uncertainty map 和 active re-capture 对照。</p>
+<h2>Isaac Sim / 平台迁移判断</h2><p>adapter needed；比纯 world model 更适合 Isaac 的几何中间层。</p>
+<h2>Transfer Matrix 摘要</h2>
+<table>
+<tr><th>method family</th><td>dense 3D completion for generative NVS</td></tr>
+<tr><th>camera-pose conditioning</th><td>强</td></tr>
+<tr><th>large-angle support</th><td>强</td></tr>
+<tr><th>3D consistency</th><td>4.5/5</td></tr>
+<tr><th>Isaac Sim path</th><td>adapter needed；比纯 world model 更适合 Isaac 的几何中间层。</td></tr>
+<tr><th>code/weights</th><td>1.2/5</td></tr>
+<tr><th>priority score</th><td>3.55/5</td></tr>
+</table>
+</main></body></html>

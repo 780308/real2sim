@@ -1,0 +1,831 @@
+                                                            VoxFormer: Sparse Voxel Transformer for Camera-based
+                                                                       3D Semantic Scene Completion
+
+                                                            Yiming Li1 Zhiding Yu2∗ Christopher Choy2 Chaowei Xiao2,3
+                                                        Jose M. Alvarez2 Sanja Fidler2,4,5 Chen Feng1 Anima Anandkumar2,6
+                                                    1
+                                                      NYU 2 NVIDIA 3 ASU 4 University of Toronto 5 Vector Institute 6 Caltech
+arXiv:2302.12251v2 [cs.CV] 25 Mar 2023
+
+
+
+
+                                                                   Abstract                                               Cross-Attention                 Self-Attention
+                                                                                                                                                                                          Output
+
+                                             Humans can easily imagine the complete 3D geometry of
+                                         occluded objects and scenes. This appealing ability is vital
+                                         for recognition and understanding. To enable such capa-               Input: 2D Images      Query Proposals         Mask Token      3D Semantic Voxels
+                                         bility in AI systems, we propose VoxFormer, a Transformer-                            (a) A high-level architecture diagram of VoxFormer
+                                         based semantic scene completion framework that can out-
+                                         put complete 3D volumetric semantics from only 2D images.
+                                         Our framework adopts a two-stage design where we start                        70.2%
+                                                                                                                                    49.6%
+                                                                                                                                                                    75.9%
+                                                                                                                                                                                  50.7%
+                                         from a sparse set of visible and occupied voxel queries from                                           20.0%
+                                                                                                                                                                                               18.1%
+
+
+                                         depth estimation, followed by a densification stage that gen-
+                                         erates dense 3D voxels from the sparse ones. A key idea of
+                                         this design is that the visual features on 2D images corre-
+                                         spond only to the visible scene structures rather than the                                  (b) A comparison with the state of the art
+
+                                         occluded or empty spaces. Therefore, starting with the fea-
+                                         turization and prediction of the visible structures is more       Figure 1. (a) A diagram of VoxFormer for camera-based se-
+                                                                                                           mantic scene completion that predicts complete 3D geometry and
+                                         reliable. Once we obtain the set of sparse queries, we ap-
+                                                                                                           semantics given only 2D images. After obtaining voxel query
+                                         ply a masked autoencoder design to propagate the infor-
+                                                                                                           proposals based on depth, VoxFormer generates semantic voxels
+                                         mation to all the voxels by self-attention. Experiments on        via an MAE-like architecture [3]. (b) A comparison against
+                                         SemanticKITTI show that VoxFormer outperforms the state           the state-of-the-art MonoScene [4] in different ranges on Se-
+                                         of the art with a relative improvement of 20.0% in geome-         manticKITTI [5]. VoxFormer performs much better in safety-
+                                         try and 18.1% in semantics and reduces GPU memory dur-            critical short-range areas, while MonoScene performs indiffer-
+                                         ing training to less than 16GB. Our code is available on          ently at three distances. The relative gains are marked by red.
+                                         https://github.com/NVlabs/VoxFormer.
+                                                                                                           occluded regions. This task is further backed by the fact
+                                         1. Introduction                                                   that humans can naturally reason about scene geometry and
+                                                                                                           semantics from partial observations. However, there is still
+                                            Holistic 3D scene understanding is an important problem
+                                                                                                           a significant performance gap between state-of-the-art SSC
+                                         in autonomous vehicle (AV) perception. It directly affects
+                                                                                                           methods [2] and human perception in driving scenes.
+                                         downstream tasks such as planning and map construction.
+                                                                                                              Most existing SSC solutions consider LiDAR a pri-
+                                         However, obtaining accurate and complete 3D information
+                                                                                                           mary modality to enable accurate 3D geometric measure-
+                                         of the real world is difficult, since the task is challenged by
+                                                                                                           ment [6–9]. However, LiDAR sensors are expensive and
+                                         the lack of sensing resolution and the incomplete observa-
+                                                                                                           less portable, while cameras are cheaper and provide richer
+                                         tion due to the limited field of view and occlusions.
+                                                                                                           visual cues of the driving scenes. This motivated the study
+                                            To tackle the challenges, semantic scene completion            of camera-based SSC solutions, as first proposed in the pio-
+                                         (SSC) [1] was proposed to jointly infer the complete scene        neering work of MonoScene [4]. MonoScene lifts 2D image
+                                         geometry and semantics from limited observations. An SSC          inputs to 3D using dense feature projection. However, such
+                                         solution has to simultaneously address two subtasks: scene        a projection inevitably assigns 2D features of visible regions
+                                         reconstruction for visible areas and scene hallucination for      to the empty or occluded voxels. For example, an empty
+                                           * Corresponding author: Zhiding Yu (zhidingy@nvidia.com)        voxel occluded by a car will still get the car’s visual feature.
+                                                                                                           As a result, the generated 3D features contain many ambi-
+guities for subsequent geometric completion and semantic          (2) multi-view reconstruction by leveraging different view-
+segmentation, resulting in unsatisfactory performance.            points [16, 17]. Both explicit [12, 14] and implicit represen-
+    Our contributions. Unlike MonoScene, VoxFormer                tations [18–22] are investigated for the object/scene. Unlike
+considers 3D-to-2D cross-attention to represent the sparse        3D reconstruction, 3D completion requires the model to hal-
+queries. The proposed design is motivated by two insights:        lucinate the unseen structure related to single-view 3D re-
+(1) reconstruction-before-hallucination: the non-visible re-      construction, yet the input is in 3D except for 2D. 3D object
+gion’s 3D information can be better completed using the re-       shape completion is an active research topic that estimates
+constructed visible areas as starting points; and (2) sparsity-   the complete geometry from a partial shape in the format of
+in-3D-space: since a large volume of the 3D space is usu-         point [23–25], voxels [26–28], and distance fields [29], etc.
+ally unoccupied, using a sparse representation instead of a       In addition to object-level completion, scene-level 3D com-
+dense one is certainly more efficient and scalable. Our con-      pletion has also been investigated in both indoor [30] and
+tributions in this work can be summarized as follows:             outdoor scenes [31]: [30] proposes a sparse generative net-
+                                                                  work to convert a partial RGB-D scan into a high-resolution
+ • A novel two-stage framework that lifts images into a           3D reconstruction with missing geometry. [31] learns a neu-
+   complete 3D voxelized semantic scene.                          ral network to convert each scan to a dense volume of trun-
+ • A novel query proposal network based on 2D convolu-            cated signed distance fields (TSDF).
+   tions that generates reliable queries from image depth.           Semantic segmentation. Human-level scene under-
+                                                                  standing for intelligent agents is typically advanced by se-
+ • A novel Transformer similar to masked autoencoder
+                                                                  mantic segmentation on images [32] or point clouds [33].
+   (MAE) [3] that yields complete 3D scene representation.
+                                                                  Researchers have significantly promoted image segmenta-
+ • VoxFormer sets a new state-of-the-art in camera-based          tion performance with a variety of deep learning techniques,
+   SSC on SemanticKITTI [5], as shown in Fig. 1 (b).              such as convolutional neural network [34, 35], vision trans-
+                                                                  formers [36, 37], prototype learning [38, 39], etc. To have
+    VoxFormer consists of class-agnostic query proposal           intelligent agents interact with the 3D environment, think-
+(stage-1) and class-specific semantic segmentation (stage-        ing in 3D is essential because the physical world is not 2D
+2), where stage-1 proposes a sparse set of occupied vox-          but rather 3D. Thus various 3D point cloud segmentation
+els, and stage-2 completes the scene representations starting     methods have been developed to address 3D semantic un-
+from the proposals given by stage-1. Specifically, stage-1        derstanding [40–42]. However, real-world sensing in 3D is
+has a lightweight 2D CNN-based query proposal network             inherently sparse and incomplete. For holistic semantic un-
+using the image depth to reconstruct the scene geometry. It       derstanding, it is insufficient to solely parse the sparse mea-
+then proposes a sparse set of voxels from predefined learn-       surements while ignoring the unobserved scene structures.
+able voxel queries over the entire field of view. Stage-2 is
+                                                                      3D semantic scene completion. Holistic 3D scene un-
+based on a novel sparse-to-dense MAE-like architecture as
+                                                                  derstanding is challenged by limited sensing range, and re-
+shown in Fig. 1 (a). It first strengthens the featurization of
+                                                                  searchers have proposed multi-agent collaborative percep-
+the proposed voxels by allowing them to attend to the im-
+                                                                  tion to introduce more observations of the 3D scene [43–
+age observations. Next, the non-proposed voxels will be
+                                                                  49]. Another line of research is 3D semantic scene comple-
+associated with a learnable mask token, and the full set of
+                                                                  tion, unifying scene completion and semantic segmentation
+voxels will be processed by self-attention to complete the
+                                                                  which are investigated separately at the early stage [50, 51].
+scene representations for per-voxel semantic segmentation.
+                                                                  SSCNet [1] first defines the semantic scene completion task
+    Extensive tests on the large-scale SemanticKITTI [5]
+                                                                  where geometry and semantics are jointly inferred given
+show that VoxFormer achieves state-of-the-art performance
+                                                                  an incomplete visual observation. In recent years, SSC in
+in geometric completion and semantic segmentation. More
+                                                                  the indoor scenes with a relatively small scale has been in-
+importantly, the improvements are significant in safety-
+                                                                  tensively studied [52–59]. Meanwhile, SSC in the large-
+critical short-range areas, as shown in Fig. 1 (b).
+                                                                  scale outdoor scenes have also started to receive attention
+2. Related Works                                                  after the release of SemanticKITTI dataset [5]. Semantic
+                                                                  scene completion with a sparse observation is a highly de-
+   3D reconstruction and completion. 3D reconstruction            sirable capability for autonomous vehicles since it can gen-
+aims to infer the 3D geometry of objects or scenes from           erate a dense 3D voxelized semantic representation of the
+single or multiple 2D images. This challenging problem re-        scene. Such representation can aid 3D semantic map con-
+ceives extensive attention in the traditional computer vision     struction of the static environment and help perceive dy-
+era [10] and the recent deep learning era [11]. 3D recon-         namic objects. Unfortunately, SSC for large-scale driving
+struction can be divided into (1) single-view reconstruction      scenes is only at the preliminary development and explo-
+by learning shape priors from massive data [12–15], and           ration stages. Existing works commonly depend on 3D
+input such as LiDAR point clouds [6–9, 60]. In contrast,            Design rationale. Motivated by reconstruction-before-
+the recent MonoScene [4] has studied semantic scene com-        hallucination and sparsity-in-3D-space, we build a two-
+pletion from a monocular image. It proposes 2D-3D fea-          stage framework: stage-1 based on CNN proposes a sparse
+ture projections and uses successive 2D and 3D UNets to         set of voxel queries from image depth to attend to images
+achieve camera-only 3D semantic scene completion. How-          since the image features correspond to visible and occu-
+ever, 2D-to-3D feature projection is prone to introduce false   pied voxels instead of non-visible and empty ones; stage-
+features for unoccupied 3D positions, and the heavy 3D          2 based on Transformer uses an MAE-like architecture to
+convolution will lower the system’s efficiency.                 first strengthen the featurization of the proposed voxels by
+    Camera-based 3D perception. Camera-based systems            voxel-to-image cross-attention, and then process the full set
+have received extensive attention in the autonomous driving     of voxels with self-attention to enable the voxel interactions.
+community because the camera is low-cost, easy to deploy,
+and widely available. In addition, the camera can provide       3.2. Overall Architecture
+rich visual attributes of the scene to help vehicles achieve       We learn 3D voxel features from 2D images for SSC
+holistic scene understanding. Several works have recently       based on Transformer, as illustrated in Fig. 2: our archi-
+been proposed for 3D object detection or map segmentation       tecture extracts 2D features from RGB images and then
+from RGB images. Inspired by DETR [62] in 2D detec-             uses a sparse set of 3D voxel queries to index into these
+tion, DETR3D [63] links learnable 3D object queries with        2D features, linking 3D positions to an image stream using
+2D images by camera projection matrices and enables end-        camera projection matrices. Specifically, voxel queries are
+to-end 3D bounding box prediction without non-maximum           3D-grid-shaped learnable parameters designed to query fea-
+suppression (NMS). M2BEV [64] also investigates the vi-         tures inside the 3D volume from images via attention mech-
+ability of simultaneously running multi-tasks perception        anisms [67]. Our framework is a two-stage cascade com-
+based on BEV features. BEVFormer [65] proposes a spa-           posed of class-agnostic proposals and class-specific seg-
+tiotemporal transformer that aggregates BEV features from       mentation similar to [68]: stage-1 generates class-agnostic
+current and previous features via deformable attention [66].    query proposals, and stage-2 uses an MAE-like architecture
+Compared to object detection, semantic scene completion         to propagate information to all voxels. Ultimately, the voxel
+can provide occupancy for each small cell instead of assign-    features will be up-sampled for semantic segmentation. A
+ing a fixed-size bounding box to an object. This could help     more specific procedure is as follows:
+identify an irregularly-shaped object with an overhanging
+obstacle. Compared to 2D BEV representation, 3D vox-             • Extract 2D features F2Dt   ∈ Rb×c×d from RGB image It
+elized scene representation has more information, which is         using ResNet-50 backbone [61], where b × c is spatial
+particularly helpful when vehicles are driving over bumpy          resolution, and d is feature dimension.
+roads. Hence, dense volumetric semantics can provide a
+                                                                 • Generate class-agnostic query proposals Qp ∈ RNp ×d
+more comprehensive 3D scene representation, while how to
+                                                                   which is a subset of the predefined voxel queries Q ∈
+create it with only cameras receives scarce attention.
+                                                                   RNq ×d , where Np and Nq are the numbers of query pro-
+3. Methodology                                                     posals and the total number of voxel queries respectively.
+
+3.1. Preliminary                                                 • Refine voxel features F3D
+                                                                                           t   ∈ RNq ×d with two steps: (1)
+    Problem setup. We aim to predict a dense seman-                update the subset of voxels corresponding to query pro-
+tic scene within a certain volume in front of the vehi-            posals by using Qp to attend to image features F2D t   via
+cle, given only RGB images. More specifically, we use              cross-attention and (2) update all voxels by letting them
+as input current and previous images denoted by It =               attend to each other via self-attention.
+{It , It−1 , ...}, and use as output a voxel grid Yt ∈           • Output dense semantic map Yt ∈ RH×W ×Z×(M +1) by
+{c0 , c1 , ..., cM }H×W ×Z defined in the coordinate of ego-       up-sampling and linear projection of F3D
+                                                                                                         t .
+vehicle at timestamp t, where each voxel is either empty
+(denoted by c0 ) or occupied by a certain semantic class in     We will detail the voxel queries in Sec. 3.3, stage-1
+{c1 , cm , ..., cM }. Here M denotes the total number of in-    in Sec. 3.4, stage-2 in Sec. 3.5, and training loss in Sec. 3.6.
+terested classes, and H, W , Z denote the length, width, and
+height of the voxel grid, respectively. In summary, the over-   3.3. Predefined Parameters
+all objective is to learn a neural network Θ to generate a          Voxel queries. We pre-define a total of Nq voxel queries
+semantic voxel Yt = Θ(It ) as close to the ground truth         as a cluster of 3D-grid-shaped learnable parameters Q ∈
+Ŷt as possible. Note that previous SSC works commonly          Rh×w×z×d (Nq = h × w × z) as shown in the bottom
+consider 3D input [2]. The most related work to us [4] con-     left corner of Fig. 2, with h × w × z its spatial resolution
+siders a single image as input which is our special case.       which is lower than output resolution H × W × Z to save
+         Image 𝐼% , 𝐼%&', …    Feature Extractor     Image Features 𝑭𝟐𝑫
+                                                                     𝒕         Updated Queries                    Mask Token            𝒎
+                                                                                               …
+                                                                                                                                    …
+                                                                                               …
+
+                                                                     K
+                                                                          Deformable Cross-Attention
+                                                   Stage-2           V
+                              Stage-1                                     Q                    …
+                                                                                                                  Q             K        V
+                                                                                               …       𝑸𝒑
+                                                                                                               Deformable Self-Attention
+        Depth Prediction
+                                                           Depth-
+                                                           based
+                                                           Query                                                      UP & FC
+                                                          Proposal
+        Voxel Queries 𝑸
+                       𝑧
+                                           ℎ
+                                   𝑤                                      Query Proposals 𝑸𝒑       Voxel Features 𝑭𝟑𝑫
+                                                                                                                   𝒕                    Output
+
+Figure 2. Overall framework of VoxFormer. Given RGB images, 2D features are extracted by ResNet50 [61] and the depth is estimated
+by an off-the-shelf depth predictor. The estimated depth after correction enables the class-agnostic query proposal stage: the query located
+at an occupied position will be selected to carry out deformable cross-attention with image features. Afterwards, mask tokens will be added
+for completing voxel features by deformable self-attention. The refined voxel features will be upsampled and projected to the output space
+for per-voxel semantic segmentation. Note that our framework supports the input of single or multiple images.
+
+
+computations. Note that d denotes the feature dimension,                       formed to (x, y, z) in 3D by:
+which is equal to that of image features. More specifically,
+a single voxel query q ∈ Rd located at (i, j, k) position of                           (u − cu ) × z      (v − cv ) × z
+                                                                                 x=                  ,y =               , z = Z(u, v), (1)
+Q is responsible for the corresponding 3D voxel inside the                                  fu                 fv
+volume. Each voxel corresponds to a real-world size of a
+meters. Meanwhile, the voxel queries are defined in the ego                    where (cu , cv ) is the camera center and fu and fv are the
+vehicle’s coordinate, and learnable positional embeddings                      horizontal and vertical focal length. However, the resulting
+will be added to voxel queries for attention stages, following                 3D point cloud has low quality, especially in the long-range
+existing works for 2D BEV feature learning [65].                               area, because the depth at the horizon is extremely inconsis-
+    Mask token. While some voxel queries are selected to                       tent; only a few pixels determine the depth of a large area.
+attend to images; the remaining voxels will be associated                          Depth correction. To obtain satisfactory query propos-
+with another learnable parameter to complete 3D voxel fea-                     als, we employ a model Θocc to predict an occupancy map
+tures. We name such learnable parameter as mask token [3]                      at a lower spatial resolution to help correct the image depth.
+for conciseness since unselected from Q is analogous to                        Specifically, the synthetic point cloud is firstly converted
+masked from Q. Specifically, each mask token m ∈ Rd                            into a binary voxel grid map Min , where each voxel is
+is a learnable vector that indicates the presence of a missing                 marked as 1 if occupied by at least one point. Then we
+voxel to be predicted. The positional embeddings are also                      can predict the occupancy by Mout = Θocc (Min ), where
+added to help mask tokens be aware of their 3D locations.                      Mout ∈ {0, 1}h×w×z has a lower resolution than the in-
+                                                                               put Min ∈ {0, 1}H×W ×Z since a lower resolution is more
+3.4. Stage-1: Class-Agnostic Query Proposal                                    robust to depth errors and compatible with the resolution
+                                                                               of voxel queries. Θocc is a lightweight UNet-like model
+   Our stage-1 determines which voxels to be queried based                     adapted from [6], mainly using 2D convolutions for binary
+on depth: the occupied voxels deserve careful attention,                       classification of each voxel.
+while the empty ones can be detached from the group.                               Query proposal. Following depth correction, we can
+Given a 2D RGB observation, we first obtain a 2.5D rep-                        select voxel queries from Q based on the binary Mout :
+resentation of the scene based on depth estimation. After-
+wards, we acquire 3D query positions by occupancy predic-                                          Qp = Reshape(Q[Mout ]),                       (2)
+tion that help correct the inaccurate image depth.
+   Depth estimation. We leverage off-the-shelf depth es-                       where Qp ∈ RNp ×d is the query proposals to attend to
+timation models such as monocular depth [69] or stereo                         images later on. Our depth-based query proposal can: (1)
+depth [70] to directly predict the depth Z(u, v) of each im-                   save computations and memories by removing many empty
+age pixel (u, v). Afterwards, the depth map Z will be back-                    spaces and (2) ease attention learning by reducing ambigu-
+projected into a 3D point cloud: a pixel (u, v) will be trans-                 ities caused by erroneous 2D-to-3D correspondences.
+3.5. Stage-2: Class-Specific Segmentation                         3.6. Training Loss
+   Following stage-1, we then attend to image features with          We train stage-2 with a weighted cross-entropy loss. The
+query proposals Qp to learn rich visual features of the 3D        ground truth Ŷt ∈ {c0 , c1 , ..., cM }H×W ×Z defined at time
+scene. For efficiency, we utilize deformable attention [66],      t represents a multi-class semantic voxel grid. Therefore,
+which interacts with local regions of interest, and only sam-     the loss can be computed by:
+ple Ns points around the reference point to compute the
+                                                                                       cM
+                                                                                     K X
+attention results. Mathematically, each query q will be up-                          X                        eyk,c
+                                                                             L=−               wc ŷk,c log( P yk,c ),       (6)
+dated by the following general equation:                                                                       ce
+                                                                                     k=1   c=c0
+
+                          Ns
+                          X                                       where k is the voxel index, K is the total number of the
+          DA(q, p, F) =          As Ws F(p + δps ),         (3)
+                                                                  voxel (K = H × W × C), c indexes class, yk,c is the pre-
+                           s=1
+                                                                  dicted logits for the k-th voxel belonging to class c, ŷk,c is
+where p denotes the reference point, F represents input fea-      the k-th element of Ŷt and is a one-hot vector (yi,k,c = 1
+tures, and s indexes the sampled point from a total of Ns         if voxel k belongs to class c). wc is a weight for each class
+points. Ws ∈ Rd×d denotes learnable weights for the value         according to the inverse of the class frequency as in [6].
+generation, As ∈ [0, 1] is the learnable attention weight.        We also use scene-class affinity loss proposed in [4]. For
+δps ∈ R2 is the predicted offset to the reference point p,        stage-1, we employ a binary cross-entropy loss for occu-
+and F(p + δps ) is the feature at location p + δps extracted      pancy prediction at a lower spatial resolution.
+by bilinear interpolation. Note that we only show the for-
+mulation of single-head attention for conciseness.                4. Experiments
+    Deformable cross-attention. For each proposed query
+qp , we obtain its corresponding real-world location based        4.1. Experimental Setup
+on the voxel resolution h × w × z and the real size of the in-       Dataset. We verify VoxFormer on SemanticKITTI [5],
+terested 3D volume. Afterwards, we project the 3D point to        which provides dense semantic annotations for each LiDAR
+2D image features F2D = {F2D          2D
+                                t , Ft−1 , ...} based on pro-     sweep from the KITTI Odometry Benchmark [71] com-
+jection matrics. However, the projected 2D point can only         posed of 22 outdoor driving scenarios. SemanticKITTI SSC
+fall on some images due to the limited field of view. Here,       benchmark is interested in a volume of 51.2m ahead of the
+we term the hit image as Vt . After that, we regard these         car, 25.6m to left and right side, and 6.4m in height. The
+2D points as the reference points of the query qp and sam-        voxelization of this volume leads to a group of 3D voxel
+ple the features from the hit views around these reference        grids with a dimension of 256 × 256 × 32 since each voxel
+points. Finally, we perform a weighted sum of the sampled         has a size of 0.2m × 0.2m × 0.2m. The voxel grids are
+features as the output of deformable cross-attention (DCA):       labelled with 20 classes (19 semantics and 1 free). Regard-
+                          1 X                                     ing the target output, SemanticKITTI provides the ground-
+      DCA(qp , F2D ) =             DA(qp , P(p, t), F2D
+                                                     t ),   (4)
+                         |Vt | t∈V                                truth semantic voxel grids by voxelization of the aggregated
+                                  t
+                                                                  consecutive registered semantic point cloud. Regarding the
+where t indexes the images, and for each query proposal qp        sparse input to an SSC model, it can be either a single vox-
+located at p = (x, y, z), we use camera projection function       elized LiDAR sweep or an RGB image. In this work, we
+P(p, t) to obtain the reference point on image t.                 investigate image-based SSC similar to [4], yet our input
+   Deformable self-attention. After several layers of de-         could be multiple images including temporal information.
+formable cross-attention, the query proposals will be up-            Implementation details. Regarding stage-1, we employ
+dated to Q̂p . To get the complete voxel features, we com-        the MobileStereoNet [70] for direct depth estimation. Such
+bine the updated query proposals Q̂p and the mask tokens          depth can help generate a pseudo-LiDAR point cloud at a
+m to get the initial voxel features F3D ∈ R×h×w×z×d .             much lower cost based solely on stereo images. The occu-
+Then we use deformable self-attention to get the refined          pancy prediction network for depth correction is adapted
+voxel features F̂3D ∈ R×h×w×z×d :                                 from LMSCNet [6] which is on top of lightweight 2D
+                                                                  CNNs. We directly utilize the depth predictor in [70],
+              DSA(F3D , F3D ) = DA(f , p, F3D ),            (5)
+                                                                  and we train an occupancy predictor from scratch, using
+where f could be either a mask token or an updated query          as input a voxelized pseudo point cloud with a size of
+proposal located at p = (x, y, z).                                256 × 256 × 32 and as output an occupancy map with a size
+   Output Stage. After obtaining refined voxel features           of 128 × 128 × 16. Regarding stage-2, we crop RGB im-
+F̂3D , it will be upsampled and projected to the output space     ages of cam2 to size 1220 × 370 and employ ResNet50 [61]
+to get the final output Yt ∈ RH×W ×Z×(M +1) , where M +1          to extract image features, then the features in the 3rd stage
+denotes M semantic classes and one empty class.                   will be taken by FPN [72] to produce a feature map whose
+ Methods                  VoxFormer-T (Ours)      VoxFormer-S (Ours)         MonoScene [4]           LMSCNet∗ [6]                SSCNet∗ [1]
+ Range                   12.8m   25.6m   51.2m   12.8m   25.6m   51.2m   12.8m   25.6m   51.2m   12.8m   25.6m   51.2m   12.8m     25.6m       51.2m
+ IoU (%)                 65.38   57.69   44.15   65.35   57.54   44.02   38.42   38.55   36.80   65.52   54.89   38.36   59.51      53.20      40.93
+ Precision (%)           76.54   69.95   62.06   77.65   70.85   62.32   51.22   51.96   52.19   86.51   82.21   77.60   65.38      59.13      48.77
+ Recall (%)              81.77   76.70   60.47   80.49   75.39   59.99   60.60   59.91   55.50   72.98   62.29   43.13   86.89      84.15      71.80
+ mIoU                    21.55   18.42   13.35   17.66   16.48   12.35   12.25   12.22   11.30   15.69   14.13    9.94   16.32      14.55      10.27
+  car (3.92%)            44.90   37.46   26.54   39.78   35.24   25.79   24.34   24.64   23.29   42.99   35.41   23.62   37.48      31.09      22.32
+  bicycle (0.03%)         5.22    2.87    1.28    3.04    1.48    0.59   0.07    0.23    0.28    0.00     0.00   0.00    0.00        0.00      0.00
+  motorcycle (0.03%)      2.98    1.24    0.56    2.84    1.10    0.51   0.05    0.20    0.59    0.00     0.00   0.00    0.00        0.00      0.00
+  truck (0.16%)           9.80   10.38    7.26    7.50    7.47    5.63   15.44   13.84    9.29   0.76     3.49   1.69    10.23       8.49       4.69
+  other-veh. (0.20%)     17.21   10.61    7.81    8.71    4.98    3.77   1.18    2.13    2.63    0.00     0.00   0.00    7.60        4.55      2.43
+  person (0.07%)          4.44    3.50    1.93    4.10    3.31    1.78   0.90    1.37    2.00    0.00     0.00   0.00    0.00        0.00      0.00
+  bicyclist (0.07%)       2.65    3.92    1.97    6.82    7.14    3.32   0.54    1.00    1.07    0.00     0.00   0.00    0.00        0.02      0.01
+  motorcyclist (0.05%)    0.00    0.00    0.00    0.00    0.00    0.00   0.00    0.00    0.00    0.00     0.00   0.00    0.00        0.00      0.00
+  road (15.30%)          75.45   66.15   53.57   72.40   65.74   54.76   57.37   57.11   55.89   73.85   67.56   54.90   72.27      65.78      51.28
+  parking (1.12%)        21.01   23.96   19.69   10.79   18.49   15.50   20.04   18.60   14.75   15.63   13.22    9.89   15.55      13.35       9.07
+  sidewalk (11.13%)      45.39   34.53   26.52   39.35   33.20   26.35   27.81   27.58   26.50   42.29   34.20   25.43   40.88      32.84      22.38
+  other-grnd(0.56%)       0.00   0.76     0.42    0.00    1.54    0.70   1.73    2.00    1.63    0.00     0.00   0.00    0.00        0.01      0.02
+  building (14.10%)      25.13   29.45   19.54   17.91   24.09   17.65   16.67   15.97   13.55   22.46   27.83   14.55   18.19      24.59      15.20
+  fence (3.90%)          16.17   11.15    7.31   12.98   10.63    7.64   7.57    7.37    6.60    5.84     4.42   3.27    5.31        4.53      3.57
+  vegetation (39.3%)     43.55   38.07   26.10   40.50   34.68   24.39   19.52   19.68   17.98   39.04   33.32   20.19   36.34      33.17      22.24
+  trunk (0.51%)          21.39   12.75    6.10   15.81   10.64    5.08   2.02    2.57    2.44    6.32     3.01   1.06    13.35       8.53       4.33
+  terrain (9.17%)        42.82   39.61   33.06   32.25   35.08   29.96   31.72   31.59   29.84   41.59   41.51   32.30   37.61      38.46      31.21
+  pole (0.29%)           20.66   15.56    9.15   14.47   11.95    7.11   3.10    3.79    3.91    7.28     4.43   2.04    11.36       8.33       4.83
+  traf.-sign (0.08%)     10.63    8.09    4.94    6.19    6.29    4.18   3.69    2.54     2.43   0.00     0.00   0.00    3.86        2.65       1.49
+
+
+Table 1. Quantitative comparison against the state-of-the-art camera-based SSC methods. We report the performances inside three
+volumes, i.e., 12.8×12.8×6.4m3 , 25.6×25.6×6.4m3 , and 51.2×51.2×6.4m3 . The first two volumes are introduced for assessing the SSC
+performance in safety-critical nearby locations. The top three performances are marked by red, green, and blue respectively.
+
+size is 1/16 of the input image size. The feature dimension                as SDVs get closer to it to collect more observations. We re-
+is set as d = 128. The numbers of deformable attention                     port the results within different ranges on the validation set,
+layers for cross-attention and self-attention are 3 and 2 re-              and the results within the full range on the hidden test set
+spectively. We use 8 sampling points around each reference                 are in the supplementary.
+point for the cross-/self-attention head. There is also a lin-                Baseline methods. We compare VoxFormer against
+ear layer that projects feature dimension 128 to the number                the state-of-the-art SSC methods with public resources:
+of classes 20. We train stage-1 and stage-2 separately with                (1) a camera-based SSC method MonoScene [4] based
+24 epochs, a learning rate of 2×10−4 . Note that we provide                on 2D-to-3D feature projection, (2) LiDAR-based SSC
+two versions of VoxFormer, one takes only the current im-                  methods including JS3CNet [8], LMSCNet [6], and SSC-
+age as input (VoxFormer-S), and the other takes the current                Net [1], and (3) RGB-inferred baselines LMSCNet∗ [6] and
+and the previous 4 images as input (VoxFormer-T).                          SSCNet∗ [1] which take as input a pseudo LiDAR point
+                                                                           cloud generated by the stereo depth [70].
+    Evaluation metrics. We employ intersection over union
+(IoU) to evaluate the scene completion quality, regardless                 4.2. Performance
+of the allocated semantic labels. Such a group of geometry-                4.2.1    Comparison against camera-based methods
+only voxel grids is actually a binary occupancy map which
+is crucial for obstacle avoidance in self-driving. We use                  3D-to-2D query outperforms 2D-to-3D projection.
+the mean IoU (mIoU) of 19 semantic classes to assess the                   VoxFormer-S outperforms MonoScene by a large margin in
+performance of semantic segmentation. Note that there is a                 terms of geometric completion (36.80 → 44.02, 19.62%);
+strong interaction between IoU and mIoU, e.g., a high mIoU                 see Table 1. Such a large improvement stems from stage-
+can be achieved by naively decreasing the IoU. There-                      1 with explicit depth estimation and correction, reducing a
+fore, the desired model should achieve excellent perfor-                   lot of empty spaces during the query process. In contrast,
+mance in both geometric completion and semantic segmen-                    MonoScene based on 2D-to-3D projection will associate a
+tation. Meanwhile, we further propose to assess different                  lot of empty voxels with false features, e.g., if a free voxel
+ranges ahead of the car for a thorough evaluation: we in-                  is occluded by a car, it will be assigned the car’s features
+dividually report the IoU and mIoU inside the volume of                    when reprojected to the image, causing ambiguities during
+12.8m × 12.8m × 6.4m, 25.6m × 25.6m × 6.4m, and                            training. Meanwhile, the semantic score is also improved
+51.2m × 51.2m × 6.4m. Note that the understanding of                       by 9.29% without sacrificing IoU.
+a short-range area is more crucial since it leaves less time                   Temporal information boost the semantic under-
+for autonomous vehicles to improve. Differently, the under-                standing.     Despite the negligible difference in IoU,
+standing of a provisional long-range area could be enhanced                VoxFormer-T further improves the SSC performance over
+       Camera View                Ground Truth            VoxFormer-T           MonoScene                       LMSCNet*                SSCNet*
+
+
+
+
+        road      sidewalk        parking        other-grnd     building     vegetation        trunk           terrain.    traf.-sign     pole
+        car       person          bicyclist      motorcyclist    bicyclist   fence             truck           bicycle     motorcycle     other-veh.
+
+Figure 3. Qualitative results of our method and others. VoxFormer better captures the scene layout in large-scale self-driving scenarios.
+Meanwhile, VoxFormer shows satisfactory performances in completing small objects such as trunks and poles.
+
+                                      IoU (%)           mIoU (%)                                                         IoU (%)           mIoU (%)
+     Methods          Modality                                                       Methods            Depth
+                                 12.8m 25.6m 51.2m 12.8m 25.6m 51.2m                                                12.8m 25.6m 51.2m 12.8m 25.6m 51.2m
+
+   MonoScene [4]       Camera    38.42 38.55 36.80 12.25 12.22 11.30             MonoScene [4]             -        38.42 38.55 36.80 12.25 12.22 11.30
+ VoxFormer-T (Ours)    Camera    65.38 57.69 44.15 21.55 18.42 13.35                             Stereo [70] 65.38 57.69 44.15 21.55 18.42 13.35
+                                                                              VoxFormer-T (Ours)
+     SSCNet [1]        LiDAR     64.37 61.02 50.22 20.02 19.68 16.35                             Mono [69] 59.03 50.47 38.08 18.67 15.42 11.27
+    LMSCNet [6]        LiDAR     74.88 69.45 55.22 22.37 21.50 17.19                                   Stereo [70] 65.35 57.54 44.02 17.66 16.48 12.35
+                                                                              VoxFormer-S (Ours)
+    JS3CNet [8]        LiDAR     63.47 63.40 53.09 30.55 28.12 22.67                                   Mono [69] 57.41 50.61 38.68 14.62 14.01 10.67
+
+Table 2. Quantitative comparison against the state-of-the-art                Table 3. Ablation study for image depth. With monocular
+LiDAR-based SSC methods. VoxFormer even performs on par                      depth, VoxFormer-S performs better than MonoScene in geome-
+with some LiDAR-based methods at close range.                                try (12.8m, 25.6m, and 51.2m) and semantics (12.8m and 25.6m).
+
+VoxFormer-S with temporal information: the mIoU is im-                          Our superiority over others for small objects. Vox-
+proved by 8.10%, 11.77%, and 22.03% inside three vol-                        Former shows a large advancement in completing small ob-
+umes (51.2m, 25.6m, and 12.8m) respectively as shown in                      jects compared to the main baseline MonoScene such as the
+Table 1. For example, the IoU scores of building, park-                      bicycle (0.07 → 5.22), motorcycle (0.05 → 2.98), bicyclist
+ing, and terrain categories are respectively improved by                     (0.54 → 6.82), trunk (2.02 → 21.39), pole (3.10 → 20.66),
+10.71%, 27.03%, and 10.35% inside the full volume be-                        and traffic sign (3.69 → 10.63), as shown in Table 1. The
+cause VoxFormer-S is restricted by the individual viewpoint                  gap is even larger compared to LMSCNet∗ and SSCNet∗
+while involving more viewpoints can mitigate this issue.                     directly consuming the pseudo point cloud, e.g., bicycle
+   Our superiority over others in short-range areas.                         (0.00 → 5.22), motorcycle (0.00 → 2.98), and person
+Our method shows a significant improvement over other                        (0.00 → 4.44). Such major improvements come from the
+camera-based methods in safety-critical short-range ar-                      full exploitation of visual attributes of the 3D scene.
+eas, as shown in Table 1. VoxFormer-T can achieve                               Our superiority in size and memory. VoxFormer has a
+mIoU scores of 21.55 and 18.42 within 12.8 meters                            total of ∼60M parameters, which is more lightweight than
+and 25.6 meters, which outperforms the state-of-the-art                      MonoScene with ∼150M parameters. Besides, VoxFormer
+MonoScene by 75.92% and 50.74% respectively. Com-                            needs less than 16GB GPU memory during training.
+pared to MonoScene with comparable performances at dif-
+ferent distances (11.30 ∼ 12.25), VoxFormer with much                        4.2.2     Comparison against LiDAR-based methods
+better short-range performances is more desirable in self-
+driving. The reason is that the insufficient understanding of                As shown in Table 2, as the distance gets closer to the ego-
+a provisional long-range area could be gradually advanced                    vehicle, the performance gap between our method and the
+as SDVs move forward to collect more close observations.                     state-of-the-art LiDAR-based methods becomes smaller,
+  Query      Dense                   Random                          Occupancy               Spatial resolution
+                                                                                         1       1     1       1    IoU (%)     mIoU (%)   Params (M)
+ Ratio (%)    100    90   80   70   60   50     40    30   20   10     10∼20             4       8     16      32
+
+                                                                                         X                           44.26        10.24      57.81
+Memory (G) 18.5 18.2 17.6 17.3 16.8 16.3 15.8 15.3 14.9 14.4            14.6                    X                    44.38        11.33      57.84
+ IoU (%)   34.6 34.5 34.1 34.0 34.2 33.9 24.5 34.0 33.5 24.6            44.0                           X             44.02        12.35      57.90
+ mIoU (%) 10.1 9.9 9.9 9.8 9.6 9.5 3.8 9.3 8.9 3.8                      12.4                                   X     44.19        12.29      58.04
+                                                                                         X      X      X       X     44.01        12.22      58.93
+Table 4. Ablation study for query proposal. Our depth-based
+query proposal performs best.                                                    Table 6. Ablation study for 2D image feature layers. Spatial
+                                                                                 resolution is relative to the input image size.
+  t       -10 0 +10 +20 +30 +40 +50 +60 IoU (%) mIoU (%) Memory (G)
+  Online X X                                  44.31    13.24         15.21                           Methods                  IoU (%)      mIoU (%)
+
+          X X X                               44.48    14.02         15.74                             Ours                    44.02        12.35
+          X X X      X                        44.24    14.53         16.25                   Ours w/o depth estimation         34.64        10.14
+          X X X      X    X                   44.83    15.42         16.81                   Ours w/o depth correction         36.95        11.36
+  Offline                                                                                     Ours w/o cross-attention         32.74        9.94
+          X X X      X    X X                 44.58    15.88         17.43
+          X X X      X    X X X               44.53    16.09         18.03                    Ours w/o self-attention          43.73        10.70
+          X X X      X    X X X X             45.05    16.20         19.37
+                                                                                                 Table 7. Ablation study for architecture.
+Table 5. Ablation study for temporal input. +N means using
+the future frame t + N . Memory denotes training memory.                             Temporal input. The ablation study for temporal infor-
+                                                                                 mation is shown in Table 5. The offline setting with more
+e.g., compared to LMSCNet, the mIoU pair is 13.35 ↔                              future observations can largely boost semantic segmenta-
+17.19 if considering the area of 51.2 × 51.2m2 ahead of the                      tion. Compared to the online setting with only previous and
+ego-vehicle, while the mIoU pair will be 21.55 ↔ 22.37 if                        current images, the mIoU can be improved from 13.24 to
+only considering the area of 12.8 × 12.8m2 . This observa-                       16.20 (22.36%). Note that involving more temporal input
+tion is promising and inspiring to the self-driving commu-                       can lead to more memory consumption.
+nity since VoxFormer only needs cheap cameras during in-                             Image features. The ablation study for 2D feature layers
+ference. More interestingly, our mIoU within 12.8×12.8m2                         is shown in Table 6. We see that using different layers has
+is even better than LiDAR-based SSCNet with a relative                           comparable IoU but different mIoU. Using the layer whose
+gain of 7.63%, and our IoU within 12.8 × 12.8m2 is bet-                          size is 1/16 of the input image size achieves an excellent
+ter than LiDAR-based JS3CNet with an improvement of                              balance between the performance and the model size.
+3.00%. In contrast, there is always a large gap between                              Architecture. We conduct architecture ablation as
+MonoScene and LiDAR-based methods at different ranges.                           shown in Table 7. For stage-1, depth estimation and correc-
+                                                                                 tion are both important since a group of reasonable voxel
+4.2.3     Ablation studies                                                       queries can set a good basis for complete scene representa-
+Depth estimation. We compare the performances between                            tion learning. For stage-2, self-attention and cross-attention
+VoxFormers using monocular [69] and stereo depth [70],                           can help improve the performance by enabling voxel-to-
+as shown in Table 3. In general, stereo depth is more accu-                      voxel and voxel-to-image interactions.
+rate than monocular depth since the former exploits epipolar
+geometry, but the latter relies on pattern recognition [73].                     4.2.4        Limitation and future work
+Hence, VoxFormer with stereo depth performs best. Note                           Our performance at long range still needs to be improved,
+that our framework can be integrated with any state-of-the-                      because the depth is very unreliable at the corresponding
+art depth models, so using a stronger existing depth predic-                     locations. Decoupling the long-range and short-range SSC
+tor [74–76] could enhance our SSC performance. Mean-                             is a potential solution to enhance the SSC far away from the
+while, VoxFormer can be further promoted along with the                          ego vehicle. We leave this as our future work.
+advancement of depth estimation.
+    Query mechanism. The ablation study for the query                            5. Conclusion
+mechanism is reported in Table 4. We find that: (1)
+dense query (use all voxel queries in stage-2) is ineffi-                           In this paper, we present VoxFormer, a strong camera-
+cient in memory consumption and performs worse than our                          based 3D semantic scene completion (SSC) framework
+occupancy-based query in both geometry and semantics; (2)                        composed of (1) class-agnostic query proposal based on
+the performance of random query (randomly proposing a                            depth estimation and (2) class-specific segmentation with a
+subset from all 128 × 128 × 16 voxel queries based on a                          sparse-to-dense MAE-like design. VoxFormer outperforms
+specific ratio) is not stable, and there is a large gap between                  the state-of-the-art camera-based method and even performs
+the random and occupancy-based query in both geometry                            on par with LiDAR-based methods at close range. We hope
+and semantics; (3) our method achieves an excellent trade-                       VoxFormer can motivate further research in camera-based
+off between the memory consumption and the performance.                          SSC and its applications in AV perception.
+Appendix                                                           [2] Luis Roldao, Raoul De Charette, and Anne Verroust-
+                                                                       Blondet. 3d semantic scene completion: a survey. Inter-
+   In the appendix, we mainly provide quantitative and                 national Journal of Computer Vision, pages 1–28, 2022. 1,
+qualitative results of our method and the state-of-the-art             3
+camera-based SSC method MonoScene [4] on the hidden
+                                                                   [3] Kaiming He, Xinlei Chen, Saining Xie, Yanghao Li, Piotr
+test set of SemanticKITTI [5]. Since we do not have access             Dollár, and Ross Girshick. Masked autoencoders are scalable
+to the ground truth of the test set, we can only report the            vision learners. In Proceedings of the IEEE/CVF Conference
+performances within the full range (51.2×51.2×6.4m3 ).                 on Computer Vision and Pattern Recognition, pages 16000–
+                                                                       16009, 2022. 1, 2, 4
+A. Quantitative Comparison                                         [4] Anh-Quan Cao and Raoul de Charette. Monoscene: Monoc-
+    Scene completion. As shown in Table I, VoxFormer out-              ular 3d semantic scene completion. In Proceedings of
+performs MonoScene with a large gap in terms of geometric              the IEEE/CVF Conference on Computer Vision and Pattern
+                                                                       Recognition, pages 3991–4001, 2022. 1, 3, 5, 6, 7, 9
+completion. VoxFormer-S without using historical observa-
+tions improves MonoScene on IoU with a relative gain of            [5] Jens Behley, Martin Garbade, Andres Milioto, Jan Quen-
+25.73%. Note that in autonomous driving, geometry occu-                zel, Sven Behnke, Cyrill Stachniss, and Jurgen Gall. Se-
+pancy is critical for obstacle avoidance since a false negative        mantickitti: A dataset for semantic scene understanding of
+                                                                       lidar sequences. In Proceedings of the IEEE/CVF Interna-
+could result in severe accidents. Therefore, our method is
+                                                                       tional Conference on Computer Vision, pages 9297–9307,
+more desirable than MonoScene in safety-critical camera-               2019. 1, 2, 5, 9
+based autonomous driving applications.
+    Semantic scene completion. As shown in Table I, Vox-           [6] Luis Roldao, Raoul de Charette, and Anne Verroust-Blondet.
+                                                                       Lmscnet: Lightweight multiscale 3d semantic completion.
+Former also demonstrates a better semantic scene under-
+                                                                       In 2020 International Conference on 3D Vision (3DV), pages
+standing. VoxFormer-S and VoxFormer-T both demonstrate                 111–119. IEEE, 2020. 1, 3, 4, 5, 6, 7
+better mIoU than MonoScene. VoxFormer-T / VoxFormer-
+S have a relative improvement of 21.03% / 10.11% com-              [7] Ran Cheng, Christopher Agia, Yuan Ren, Xinhai Li, and Liu
+                                                                       Bingbing. S3cnet: A sparse semantic scene completion net-
+pared with the cutting-edged MonoScene. Note that the
+                                                                       work for lidar point clouds. In Conference on Robot Learn-
+values of IoU and mIoU are intertwined, and some meth-                 ing, pages 2148–2161. PMLR, 2021. 1, 3
+ods can naively increase the value of mIoU by sacrificing
+IoU. In contrast, our method shows superior performance            [8] Xu Yan, Jiantao Gao, Jie Li, Ruimao Zhang, Zhen Li, Rui
+                                                                       Huang, and Shuguang Cui. Sparse single sweep lidar point
+in terms of both geometry and semantics.
+                                                                       cloud segmentation via learning contextual shape priors from
+    Short-range performances. Although short-range eval-               scene completion. In Proceedings of the AAAI Conference on
+uations are not available on the hidden test set, we expect            Artificial Intelligence, volume 35, pages 3101–3109, 2021.
+to see a similar trend (we perform much better in safety-              1, 3, 6, 7
+critical short-range areas than MonoScene). The reason is
+                                                                   [9] Pengfei Li, Yongliang Shi, Tianyu Liu, Hao Zhao, Guyue
+that the scores of mIoU and IoU on the test set are compara-           Zhou, and Ya-Qin Zhang. Semi-supervised implicit scene
+ble to that on the validation set inside the 51.2×51.2×6.4m3           completion from sparse lidar, 2021. 1, 3
+volume. For example, VoxFormer-S achieves an mIoU of
+                                                                  [10] Richard Hartley and Andrew Zisserman. Multiple view ge-
+12.35 on the validation set and 12.20 on the test set.
+                                                                       ometry in computer vision. Cambridge university press,
+                                                                       2003. 2
+B. Qualitative Comparison
+                                                                  [11] Xian-Feng Han, Hamid Laga, and Mohammed Bennamoun.
+   More visualizations are shown in Fig. I. We can see                 Image-based 3d object reconstruction: State-of-the-art and
+that our method performs much better than MonoScene in                 trends in the deep learning era. IEEE transactions on pattern
+the short-range areas. There are some missing objects for              analysis and machine intelligence, 43(5):1578–1604, 2019.
+MonoScene at close range, as shown in the first and last row           2
+of Fig. I. Meanwhile, the long-range performance of our           [12] Christopher B Choy, Danfei Xu, JunYoung Gwak, Kevin
+method can be further improved, e.g., the trunks in the long-          Chen, and Silvio Savarese. 3d-r2n2: A unified approach for
+range areas are not completed in the fourth row of Fig. I.             single and multi-view 3d object reconstruction. In European
+                                                                       conference on computer vision, pages 628–644. Springer,
+References                                                             2016. 2
+                                                                  [13] Shubham Tulsiani, Tinghui Zhou, Alexei A Efros, and Ji-
+ [1] Shuran Song, Fisher Yu, Andy Zeng, Angel X Chang, Mano-
+                                                                       tendra Malik. Multi-view supervision for single-view re-
+     lis Savva, and Thomas Funkhouser. Semantic scene com-
+                                                                       construction via differentiable ray consistency. In Proceed-
+     pletion from a single depth image. In Proceedings of the
+                                                                       ings of the IEEE conference on computer vision and pattern
+     IEEE conference on computer vision and pattern recogni-
+                                                                       recognition, pages 2626–2634, 2017. 2
+     tion, pages 1746–1754, 2017. 1, 2, 6, 7
+                                                                                                                                                                       motorcyclist (0.05%)
+                                                                         motorcycle (0.03%)
+
+
+
+
+                                                                                                                                                                                                                                                                                                                       vegetation (39.3%)
+                                                                                                                                                                                                                                                          other-grnd(0.56%)
+                                                                                                                                                                                                                                   sidewalk (11.13%)
+                                                                                                              other-veh.(0.20%)
+
+
+
+
+                                                                                                                                                                                                                                                                              building (14.10%)
+
+
+
+
+                                                                                                                                                                                                                                                                                                                                                                                                traf.-sign (0.08%)
+                                                                                                                                                   bicyclist (0.07%)
+
+
+
+
+                                                                                                                                                                                                                 parking (1.12%)
+
+
+
+
+                                                                                                                                                                                                                                                                                                                                                               terrain (9.17%)
+                                                       bicycle (0.03%)
+
+
+
+
+                                                                                                                                  person (0.07%)
+
+
+
+
+                                                                                                                                                                                              road (15.30%)
+
+
+
+
+                                                                                                                                                                                                                                                                                                                                             trunk (0.51%)
+                                                                                              truck (0.16%)
+
+
+
+
+                                                                                                                                                                                                                                                                                                       fence (3.90%)
+
+
+
+
+                                                                                                                                                                                                                                                                                                                                                                                 pole (0.29%)
+                                      car (3.92%)
+             Method
+
+
+
+
+                                                                                                                                                                                                                                                                                                                                                                                                                     mIoU
+                              IoU
+         MonoScene          34.16 18.80 0.50 0.70 3.30 4.40 1.00 1.40 0.40 54.70 24.80 27.10 5.70 14.40 11.10 14.90 2.40 19.50 3.30 2.10 11.08
+     VoxFormer-S (Ours) 42.95 20.80 1.00 0.70 3.50 3.70 1.40 2.60 0.20 53.90 21.10 25.30 5.60 19.80 11.10 22.40 7.50 21.30 5.10 4.90 12.20
+     VoxFormer-T (Ours) 43.21 21.70 1.90 1.60 3.60 4.10 1.60 1.10 0.00 54.10 25.10 26.90 7.30 23.50 13.10 24.40 8.10 24.20 6.60 5.70 13.41
+
+
+         Table I. Quantitative results of VoxFormer and the state-of-the-art MonoScene on the hidden test set of SemanticKITTI.
+
+
+                       Camera View                                                       VoxFormer-T                                                                             MonoScene                                                                             LMSCNet*                                                                              SSCNet*
+
+
+
+
+                road       sidewalk                 parking                                   other-grnd                                           building                                             vegetation                                     trunk                                      terrain.                              traf.-sign                               pole
+                 car       person                   bicyclist                                 motorcyclist                                         bicyclist                                             fence                                         truck                                      bicycle                               motorcycle                               other-veh.
+
+
+Figure I. Qualitative results of our method and others on the hidden test set. VoxFormer better captures the scene layout in large-scale
+self-driving scenarios. Meanwhile, VoxFormer shows satisfactory performances in completing small objects such as trunks and poles.
+[14] Haoqiang Fan, Hao Su, and Leonidas J Guibas. A point set             Transformer-based shape completion via sparse representa-
+     generation network for 3d object reconstruction from a single        tion. In Proceedings of the IEEE/CVF Conference on Com-
+     image. In Proceedings of the IEEE conference on computer             puter Vision and Pattern Recognition, pages 6239–6249,
+     vision and pattern recognition, pages 605–613, 2017. 2               2022. 2
+[15] Xinchen Yan, Jimei Yang, Ersin Yumer, Yijie Guo, and            [26] Julian Chibane, Thiemo Alldieck, and Gerard Pons-Moll.
+     Honglak Lee. Perspective transformer nets: Learning single-          Implicit functions in feature space for 3d shape reconstruc-
+     view 3d object reconstruction without 3d supervision. In Ad-         tion and completion. In Proceedings of the IEEE/CVF Con-
+     vances in neural information processing systems, volume 29,          ference on Computer Vision and Pattern Recognition, pages
+     2016. 2                                                              6970–6981, 2020. 2
+[16] Richard A Newcombe, Shahram Izadi, Otmar Hilliges,              [27] Xiaogang Wang, Marcelo H Ang, and Gim Hee Lee. Voxel-
+     David Molyneaux, David Kim, Andrew J Davison, Pushmeet               based network for shape completion by leveraging edge gen-
+     Kohi, Jamie Shotton, Steve Hodges, and Andrew Fitzgibbon.            eration. In Proceedings of the IEEE/CVF international con-
+     Kinectfusion: Real-time dense surface mapping and track-             ference on computer vision, pages 13189–13198, 2021. 2
+     ing. In 2011 10th IEEE international symposium on mixed
+                                                                     [28] Linqi Zhou, Yilun Du, and Jiajun Wu. 3d shape generation
+     and augmented reality, pages 127–136. Ieee, 2011. 2
+                                                                          and completion through point-voxel diffusion. In Proceed-
+[17] Benjamin Ummenhofer, Huizhong Zhou, Jonas Uhrig, Niko-               ings of the IEEE/CVF International Conference on Com-
+     laus Mayer, Eddy Ilg, Alexey Dosovitskiy, and Thomas                 puter Vision, pages 5826–5835, 2021. 2
+     Brox. Demon: Depth and motion network for learning
+                                                                     [29] Angela Dai, Charles Ruizhongtai Qi, and Matthias Nießner.
+     monocular stereo. In Proceedings of the IEEE conference on
+                                                                          Shape completion using 3d-encoder-predictor cnns and
+     computer vision and pattern recognition, pages 5038–5047,
+                                                                          shape synthesis. In Proceedings of the IEEE conference on
+     2017. 2
+                                                                          computer vision and pattern recognition, pages 5868–5877,
+[18] Lars Mescheder, Michael Oechsle, Michael Niemeyer, Se-               2017. 2
+     bastian Nowozin, and Andreas Geiger. Occupancy networks:
+     Learning 3d reconstruction in function space. In Proceedings    [30] Angela Dai, Christian Diller, and Matthias Nießner. Sg-nn:
+     of the IEEE/CVF conference on computer vision and pattern            Sparse generative neural networks for self-supervised scene
+     recognition, pages 4460–4470, 2019. 2                                completion of rgb-d scans. In Proceedings of the IEEE/CVF
+                                                                          Conference on Computer Vision and Pattern Recognition,
+[19] Songyou Peng, Michael Niemeyer, Lars Mescheder, Marc                 pages 849–858, 2020. 2
+     Pollefeys, and Andreas Geiger. Convolutional occupancy
+     networks. In European Conference on Computer Vision,            [31] Ignacio Vizzo, Benedikt Mersch, Rodrigo Marcuzzi, Louis
+     pages 523–540. Springer, 2020. 2                                     Wiesmann, Jens Behley, and Cyrill Stachniss. Make it dense:
+                                                                          Self-supervised geometric scan completion of sparse 3d lidar
+[20] Qiangeng Xu, Weiyue Wang, Duygu Ceylan, Radomir
+                                                                          scans in large outdoor environments. IEEE Robotics and Au-
+     Mech, and Ulrich Neumann. Disn: Deep implicit surface
+                                                                          tomation Letters, 7(3):8534–8541, 2022. 2
+     network for high-quality single-view 3d reconstruction. Ad-
+     vances in Neural Information Processing Systems, 32, 2019.      [32] Shervin Minaee, Yuri Boykov, Fatih Porikli, Antonio Plaza,
+     2                                                                    Nasser Kehtarnavaz, and Demetri Terzopoulos. Image seg-
+                                                                          mentation using deep learning: A survey. IEEE Transactions
+[21] Stefan Popov, Pablo Bauszat, and Vittorio Ferrari. Corenet:
+                                                                          on Pattern Analysis and Machine Intelligence, 44(7):3523–
+     Coherent 3d scene reconstruction from a single rgb image. In
+                                                                          3542, 2022. 2
+     European Conference on Computer Vision, pages 366–383.
+     Springer, 2020. 2                                               [33] Yulan Guo, Hanyun Wang, Qingyong Hu, Hao Liu, Li Liu,
+[22] Zihan Zhu, Songyou Peng, Viktor Larsson, Weiwei Xu, Hu-              and Mohammed Bennamoun. Deep learning for 3d point
+     jun Bao, Zhaopeng Cui, Martin R Oswald, and Marc Polle-              clouds: A survey. IEEE transactions on pattern analysis and
+     feys. Nice-slam: Neural implicit scalable encoding for slam.         machine intelligence, 43(12):4338–4364, 2020. 2
+     In Proceedings of the IEEE/CVF Conference on Computer           [34] Jonathan Long, Evan Shelhamer, and Trevor Darrell. Fully
+     Vision and Pattern Recognition, pages 12786–12796, 2022.             convolutional networks for semantic segmentation. In Pro-
+     2                                                                    ceedings of the IEEE conference on computer vision and pat-
+[23] Wentao Yuan, Tejas Khot, David Held, Christoph Mertz, and            tern recognition, pages 3431–3440, 2015. 2
+     Martial Hebert. Pcn: Point completion network. In 2018          [35] Hyeonwoo Noh, Seunghoon Hong, and Bohyung Han.
+     International Conference on 3D Vision (3DV), pages 728–              Learning deconvolution network for semantic segmentation.
+     737. IEEE, 2018. 2                                                   In Proceedings of the IEEE International Conference on
+[24] Jiayuan Gu, Wei-Chiu Ma, Sivabalan Manivasagam,                      Computer Vision (ICCV), December 2015. 2
+     Wenyuan Zeng, Zihao Wang, Yuwen Xiong, Hao Su, and              [36] Enze Xie, Wenhai Wang, Zhiding Yu, Anima Anandkumar,
+     Raquel Urtasun. Weakly-supervised 3d shape completion                Jose M Alvarez, and Ping Luo. Segformer: Simple and ef-
+     in the wild. In European Conference on Computer Vision,              ficient design for semantic segmentation with transformers.
+     pages 283–299. Springer, 2020. 2                                     In Advances in Neural Information Processing Systems, vol-
+[25] Xingguang Yan, Liqiang Lin, Niloy J Mitra, Dani Lischin-             ume 34, pages 12077–12090, 2021. 2
+     ski, Daniel Cohen-Or, and Hui Huang. Shapeformer:
+[37] Bowen Cheng, Alex Schwing, and Alexander Kirillov. Per-                collaborative perception. In 6th Annual Conference on Robot
+     pixel classification is not all you need for semantic segmenta-        Learning, 2022. 2
+     tion. In Advances in Neural Information Processing Systems,       [49] Sanbao Su, Yiming Li, Sihong He, Songyang Han, Chen
+     volume 34, pages 17864–17875, 2021. 2                                  Feng, Caiwen Ding, and Fei Miao. Uncertainty quantifica-
+[38] Kaixin Wang, Jun Hao Liew, Yingtian Zou, Daquan Zhou,                  tion of collaborative detection for self-driving. In IEEE In-
+     and Jiashi Feng. Panet: Few-shot image semantic seg-                   ternational Conference on Robotics and Automation, 2023.
+     mentation with prototype alignment. In Proceedings of the              2
+     IEEE/CVF International Conference on Computer Vision,
+                                                                       [50] Saurabh Gupta, Pablo Arbelaez, and Jitendra Malik. Percep-
+     pages 9197–9206, 2019. 2
+                                                                            tual organization and recognition of indoor scenes from rgb-
+[39] Tianfei Zhou, Wenguan Wang, Ender Konukoglu, and Luc                   d images. In Proceedings of the IEEE conference on com-
+     Van Gool. Rethinking semantic segmentation: A proto-                   puter vision and pattern recognition, pages 564–571, 2013.
+     type view. In Proceedings of the IEEE/CVF Conference                   2
+     on Computer Vision and Pattern Recognition, pages 2582–
+                                                                       [51] S. Thrun and B. Wegbreit. Shape from symmetry. In
+     2593, 2022. 2
+                                                                            Tenth IEEE International Conference on Computer Vision
+[40] Charles R Qi, Hao Su, Kaichun Mo, and Leonidas J Guibas.               (ICCV’05) Volume 1, volume 2, pages 1824–1831 Vol. 2,
+     Pointnet: Deep learning on point sets for 3d classification            2005. 2
+     and segmentation. In Proceedings of the IEEE conference
+                                                                       [52] Jiahui Zhang, Hao Zhao, Anbang Yao, Yurong Chen,
+     on computer vision and pattern recognition, pages 652–660,
+                                                                            Li Zhang, and Hongen Liao. Efficient semantic scene com-
+     2017. 2
+                                                                            pletion network with spatial group convolution. In Pro-
+[41] Xun Xu and Gim Hee Lee. Weakly supervised semantic                     ceedings of the European Conference on Computer Vision
+     point cloud segmentation: Towards 10x fewer labels. In Pro-            (ECCV), pages 733–749, 2018. 2
+     ceedings of the IEEE/CVF conference on computer vision
+     and pattern recognition, pages 13706–13715, 2020. 2               [53] Shice Liu, Yu Hu, Yiming Zeng, Qiankun Tang, Beibei Jin,
+                                                                            Yinhe Han, and Xiaowei Li. See and think: Disentangling
+[42] Qingyong Hu, Bo Yang, Linhai Xie, Stefano Rosa, Yulan                  semantic scene completion. In Advances in Neural Informa-
+     Guo, Zhihua Wang, Niki Trigoni, and Andrew Markham.                    tion Processing Systems, volume 31, 2018. 2
+     Randla-net: Efficient semantic segmentation of large-scale
+     point clouds. In Proceedings of the IEEE/CVF Conference           [54] Jie Li, Yu Liu, Xia Yuan, Chunxia Zhao, Roland Sieg-
+     on Computer Vision and Pattern Recognition, pages 11108–               wart, Ian Reid, and Cesar Cadena. Depth based semantic
+     11117, 2020. 2                                                         scene completion with position importance aware loss. IEEE
+                                                                            Robotics and Automation Letters, 5(1):219–226, 2019. 2
+[43] Tsun-Hsuan Wang, Sivabalan Manivasagam, Ming Liang,
+     Bin Yang, Wenyuan Zeng, and Raquel Urtasun. V2vnet:               [55] Jie Li, Yu Liu, Dong Gong, Qinfeng Shi, Xia Yuan, Chunxia
+     Vehicle-to-vehicle communication for joint perception and              Zhao, and Ian Reid. Rgbd based dimensional decomposition
+     prediction. In European conference on computer vision,                 residual network for 3d semantic scene completion. In Pro-
+     pages 605–621. Springer, 2020. 2                                       ceedings of the IEEE/CVF Conference on Computer Vision
+                                                                            and Pattern Recognition, pages 7693–7702, 2019. 2
+[44] Yiming Li, Dekun Ma, Ziyan An, Zixun Wang, Yiqi Zhong,
+     Siheng Chen, and Chen Feng. V2x-sim: Multi-agent col-             [56] Pingping Zhang, Wei Liu, Yinjie Lei, Huchuan Lu, and Xi-
+     laborative perception dataset and benchmark for autonomous             aoyun Yang. Cascaded context pyramid for full-resolution 3d
+     driving. IEEE Robotics and Automation Letters, 7(4):10914–             semantic scene completion. In Proceedings of the IEEE/CVF
+     10921, 2022. 2                                                         International Conference on Computer Vision, pages 7801–
+                                                                            7810, 2019. 2
+[45] Runsheng Xu, Hao Xiang, Zhengzhong Tu, Xin Xia, Ming-
+     Hsuan Yang, and Jiaqi Ma. V2x-vit: Vehicle-to-everything          [57] Jie Li, Kai Han, Peng Wang, Yu Liu, and Xia Yuan.
+     cooperative perception with vision transformer. In European            Anisotropic convolutional networks for 3d semantic scene
+     conference on computer vision, pages 107–124. Springer,                completion. In Proceedings of the IEEE/CVF Conference
+     2022. 2                                                                on Computer Vision and Pattern Recognition, pages 3351–
+[46] Yiming Li, Shunli Ren, Pengxiang Wu, Siheng Chen, Chen                 3359, 2020. 2
+     Feng, and Wenjun Zhang. Learning distilled collaboration          [58] Xiaokang Chen, Kwan-Yee Lin, Chen Qian, Gang Zeng, and
+     graph for multi-agent perception. In Advances in Neural                Hongsheng Li. 3d sketch-aware semantic scene comple-
+     Information Processing Systems, volume 34, pages 29541–                tion via semi-supervised structure prior. In Proceedings of
+     29552, 2021. 2                                                         the IEEE/CVF Conference on Computer Vision and Pattern
+[47] Runsheng Xu, Zhengzhong Tu, Hao Xiang, Wei Shao, Bolei                 Recognition, pages 4193–4202, 2020. 2
+     Zhou, and Jiaqi Ma. Cobevt: Cooperative bird’s eye view se-       [59] Yingjie Cai, Xuesong Chen, Chao Zhang, Kwan-Yee Lin,
+     mantic segmentation with sparse transformers. In 6th Annual            Xiaogang Wang, and Hongsheng Li. Semantic scene com-
+     Conference on Robot Learning, 2022. 2                                  pletion via integrating instances and scene in-the-loop. In
+[48] Yiming Li, Juexiao Zhang, Dekun Ma, Yue Wang, and Chen                 Proceedings of the IEEE/CVF Conference on Computer Vi-
+     Feng. Multi-robot scene completion: Towards task-agnostic              sion and Pattern Recognition, pages 324–333, 2021. 2
+[60] Christoph B Rist, David Emmerichs, Markus Enzweiler, and            proposal networks. In Advances in neural information pro-
+     Dariu M Gavrila. Semantic scene completion using local              cessing systems, volume 28, 2015. 3
+     deep implicit functions on lidar data. IEEE transactions       [69] Shariq Farooq Bhat, Ibraheem Alhashim, and Peter Wonka.
+     on pattern analysis and machine intelligence, 44(10):7205–          Adabins: Depth estimation using adaptive bins. In Proceed-
+     7218, 2021. 3                                                       ings of the IEEE/CVF Conference on Computer Vision and
+[61] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun.              Pattern Recognition, pages 4009–4018, 2021. 4, 7, 8
+     Deep residual learning for image recognition. In Proceed-      [70] Faranak Shamsafar, Samuel Woerz, Rafia Rahim, and An-
+     ings of the IEEE conference on computer vision and pattern          dreas Zell. Mobilestereonet: Towards lightweight deep net-
+     recognition, pages 770–778, 2016. 3, 4, 5                           works for stereo matching. In Proceedings of the IEEE/CVF
+[62] Nicolas Carion, Francisco Massa, Gabriel Synnaeve, Nicolas          Winter Conference on Applications of Computer Vision,
+     Usunier, Alexander Kirillov, and Sergey Zagoruyko. End-to-          pages 2417–2426, 2022. 4, 5, 6, 7, 8
+     end object detection with transformers. In European confer-    [71] Andreas Geiger, Philip Lenz, and Raquel Urtasun. Are we
+     ence on computer vision, pages 213–229. Springer, 2020. 3           ready for autonomous driving? the kitti vision benchmark
+[63] Yue Wang, Vitor Campagnolo Guizilini, Tianyuan Zhang,               suite. In 2012 IEEE conference on computer vision and pat-
+     Yilun Wang, Hang Zhao, and Justin Solomon. Detr3d:                  tern recognition, pages 3354–3361. IEEE, 2012. 5
+     3d object detection from multi-view images via 3d-to-2d        [72] Tsung-Yi Lin, Piotr Dollár, Ross Girshick, Kaiming He,
+     queries. In Conference on Robot Learning, pages 180–191.            Bharath Hariharan, and Serge Belongie. Feature pyra-
+     PMLR, 2022. 3                                                       mid networks for object detection. In Proceedings of the
+[64] Enze Xie, Zhiding Yu, Daquan Zhou, Jonah Philion, Anima             IEEE conference on computer vision and pattern recogni-
+     Anandkumar, Sanja Fidler, Ping Luo, and Jose M Alvarez.             tion, pages 2117–2125, 2017. 5
+     Mˆ 2bev: Multi-camera joint 3d detection and segmentation      [73] Hamid Laga, Laurent Valentin Jospin, Farid Boussaid, and
+     with unified birds-eye view representation. arXiv preprint          Mohammed Bennamoun. A survey on deep learning tech-
+     arXiv:2204.05088, 2022. 3                                           niques for stereo-based depth estimation. IEEE Transactions
+[65] Zhiqi Li, Wenhai Wang, Hongyang Li, Enze Xie, Chong-                on Pattern Analysis and Machine Intelligence, 2020. 8
+     hao Sima, Tong Lu, Qiao Yu, and Jifeng Dai. Bevformer:         [74] Zhenda Xie, Zigang Geng, Jingcheng Hu, Zheng Zhang, Han
+     Learning bird’s-eye-view representation from multi-camera           Hu, and Yue Cao. Revealing the dark secrets of masked im-
+     images via spatiotemporal transformers. In European con-            age modeling. arXiv preprint arXiv:2205.13543, 2022. 8
+     ference on computer vision, 2022. 3, 4
+                                                                    [75] Vladimir Tankovich, Christian Hane, Yinda Zhang, Adarsh
+[66] Xizhou Zhu, Weijie Su, Lewei Lu, Bin Li, Xiaogang Wang,             Kowdle, Sean Fanello, and Sofien Bouaziz. Hitnet: Hierar-
+     and Jifeng Dai. Deformable detr: Deformable transformers            chical iterative tile refinement network for real-time stereo
+     for end-to-end object detection. In International Conference        matching. In Proceedings of the IEEE/CVF Conference on
+     on Learning Representations, 2020. 3, 5                             Computer Vision and Pattern Recognition, pages 14362–
+[67] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszko-             14372, 2021. 8
+     reit, Llion Jones, Aidan N Gomez, Łukasz Kaiser, and Illia     [76] Weihao Yuan, Xiaodong Gu, Zuozhuo Dai, Siyu Zhu, and
+     Polosukhin. Attention is all you need. In Advances in neural        Ping Tan. Newcrfs: Neural window fully-connected crfs for
+     information processing systems, volume 30, 2017. 3                  monocular depth estimation. In Proceedings of the IEEE
+[68] Shaoqing Ren, Kaiming He, Ross Girshick, and Jian Sun.              Conference on Computer Vision and Pattern Recognition,
+     Faster r-cnn: Towards real-time object detection with region        2022. 8
+

@@ -1,0 +1,64 @@
+<!doctype html><html><head><meta charset="utf-8"><title>RoboGSim: A Real2Sim2Real Robotic Gaussian Splatting Simulator</title><style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.65;max-width:1120px;margin:32px auto;padding:0 24px;color:#17202a;background:#fbfbf8}
+h1{font-size:30px;margin-bottom:8px}h2{font-size:22px;margin-top:30px;border-bottom:1px solid #ddd;padding-bottom:4px}h3{font-size:18px;margin-top:22px}
+p,li{font-size:15px}.meta{color:#555}.card{border:1px solid #ddd;border-radius:8px;padding:14px 16px;background:#fff;margin:14px 0}
+.table-line{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;background:#fff;padding:2px 6px;margin:0;border-left:1px solid #ddd;border-right:1px solid #ddd}
+pre{background:#111827;color:#f9fafb;padding:14px;border-radius:8px;overflow:auto}
+</style></head><body><h1>RoboGSim: A Real2Sim2Real Robotic Gaussian Splatting Simulator</h1>
+
+<h2>定位</h2>
+<p>与师兄任务描述几乎同构，但代码证据弱于 GSWorld/Re3Sim；适合作为系统 taxonomy 和指标参考。</p>
+
+<p class="table-line">| 字段 | 内容 |</p>
+<p class="table-line">| --- | --- |</p>
+<p class="table-line">| priority / score | P0 / 3.73/5 |</p>
+<p class="table-line">| family | R2S2R Gaussian reconstructor + digital twins builder |</p>
+<p class="table-line">| sources | https://arxiv.org/abs/2411.11839&lt;br&gt;https://robogsim.github.io/ |</p>
+<p class="table-line">| local_pdf | ref/robogsim_2411_11839.pdf |</p>
+<p class="table-line">| local_supplementary_pdfs | 无 |</p>
+<p class="table-line">| local_repo | 无 |</p>
+<p class="table-line">| commit / license | n/a / n/a (no-repo) |</p>
+
+<h2>Inputs / Outputs</h2>
+<ul>
+<li>Inputs: multi-view RGB image sequences, robotic arm MDH parameters, real layout measurements.</li>
+<li>Outputs: 3DGS scene/object reconstruction, mesh reconstruction, layout-aligned digital twin in Isaac Sim, novel view/object/trajectory simulated data.</li>
+</ul>
+
+<h2>Full Method Pipeline</h2>
+<ul>
+<li>Gaussian Reconstructor builds 3DGS scene/objects and segments robotic arm.</li>
+<li>Digital Twins Builder reconstructs scene/object meshes and aligns real/sim/GS coordinate spaces.</li>
+<li>Scene Composer synthesizes novel objects, scenes and views.</li>
+<li>Interactive Engine connects Isaac Sim collision/kinematics with GS renderer feedback to policy.</li>
+</ul>
+
+<h2>Losses / Objectives</h2>
+<p>3DGS reconstruction losses, mesh reconstruction objectives, policy/evaluation metrics for sim2real consistency.</p>
+
+<h2>Assumptions</h2>
+<p>需要 MDH/robot setup 和 layout measurements；digital twin builder 的实现可用性需进一步核验。</p>
+
+<h2>Failure Modes</h2>
+<p>如果没有代码，短期复现成本高；layout alignment 误差会直接导致 grasp/collision mismatch。</p>
+
+<h2>对 Directional View Gap 的关系</h2>
+<p>可以生成 novel views，但不是针对 unseen backside completion 的方法。</p>
+
+<h2>Isaac Sim Transfer</h2>
+<p>direct conceptually: 明确使用 Isaac Sim 做 digital twin；工程落地需找完整代码。</p>
+
+<h2>可迁移模块</h2>
+<ul>
+<li>scene/object representation: R2S2R Gaussian reconstructor + digital twins builder</li>
+<li>view/object completion: 可以生成 novel views，但不是针对 unseen backside completion 的方法。</li>
+<li>geometry/collision: 3DGS scene/object reconstruction, mesh reconstruction, layout-aligned digital twin in Isaac Sim, novel view/object/trajectory simulated data.</li>
+<li>simulator integration: direct conceptually: 明确使用 Isaac Sim 做 digital twin；工程落地需找完整代码。</li>
+<li>evaluation metrics: mesh watertightness, collision proxy validity, object-level novel-view consistency, task success / collision rate.</li>
+</ul>
+
+<h2>Recommended Role</h2>
+<p>P0 方法论参考，工程优先级排在 GSWorld/Re3Sim 后。</p>
+
+<h2>Next Experiment</h2>
+<p>抽取其四模块接口，映射到本项目：Gaussian Reconstructor/Object Extractor/Isaac Asset Builder/Interactive Evaluator。</p></body></html>

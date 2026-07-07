@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>CAT3D: Create Anything in 3D with Multi-View Diffusion Models</title>
+<style>
+body { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; line-height:1.65; margin:0; color:#202124; background:#f7f7f5; }
+main { max-width: 980px; margin: 0 auto; padding: 32px 24px 56px; background:#fff; }
+h1 { font-size: 30px; margin:0 0 8px; }
+h2 { margin-top: 30px; border-top:1px solid #ddd; padding-top:18px; }
+.meta { color:#5f6368; }
+.badge { display:inline-block; padding:2px 8px; border:1px solid #ccc; border-radius:6px; margin-right:6px; background:#fafafa; }
+table { border-collapse: collapse; width:100%; margin: 14px 0; }
+td, th { border:1px solid #ddd; padding:8px; vertical-align:top; }
+th { background:#f1f3f4; }
+code { background:#f1f3f4; padding:2px 4px; border-radius:4px; }
+</style>
+</head>
+<body><main>
+<h1>CAT3D: Create Anything in 3D with Multi-View Diffusion Models</h1>
+<p class="meta"><span class="badge">P0</span><span class="badge">deep</span><span class="badge">score 3.24/5</span><span class="badge">multi-view diffusion for reconstruction input synthesis</span></p>
+<h2>资料状态</h2>
+<table>
+<tr><th>类型</th><td>paper</td></tr>
+<tr><th>本地 PDF</th><td>ref/cat3d_2405_10314.pdf</td></tr>
+<tr><th>本地 repo</th><td>无</td></tr>
+<tr><th>commit</th><td>N/A</td></tr>
+<tr><th>license 文件</th><td>未在 repo 根目录确认</td></tr>
+</table>
+<h2>Sources</h2><ul><li>https://cat3d.github.io</li><li>https://arxiv.org/abs/2405.10314</li></ul>
+<h2>对 directional view coverage gap 的定位</h2><p>保留为强方法参考，短期优先使用有代码/权重的 SEVA/GEN3C 替代。</p>
+<h2>Inputs / Outputs</h2>
+<ul><li><strong>Inputs:</strong> 任意数量 input images + target novel viewpoints。</li><li><strong>Outputs:</strong> multi-view consistent generated views，可送入 3D reconstruction。</li></ul>
+<h2>Method Pipeline</h2><ul><li>模拟真实 capture process：从少量输入合成一批目标相机视角。</li><li>把生成视图交给已有 3D reconstruction 技术产出 3D representation。</li><li>适合补齐 Go2 未覆盖 yaw 后再训练 3DGS/mesh。</li></ul>
+<h2>Objectives / Losses</h2><p>multi-view diffusion generation objective；不直接估计物理属性。</p>
+<h2>Assumptions</h2><p>公开资料以论文/项目页为主，代码可用性不足；更适合作为策略范式而非第一工程依赖。</p>
+<h2>Failure Modes</h2><p>可能生成与真实局部不完全一致的 backside content；无显式 collision guarantee。</p>
+<h2>Isaac Sim / 平台迁移判断</h2><p>adapter needed；作为 pseudo-view synthesis 前端。</p>
+<h2>Transfer Matrix 摘要</h2>
+<table>
+<tr><th>method family</th><td>multi-view diffusion for reconstruction input synthesis</td></tr>
+<tr><th>camera-pose conditioning</th><td>强</td></tr>
+<tr><th>large-angle support</th><td>强</td></tr>
+<tr><th>3D consistency</th><td>4.4/5</td></tr>
+<tr><th>Isaac Sim path</th><td>adapter needed；作为 pseudo-view synthesis 前端。</td></tr>
+<tr><th>code/weights</th><td>1.2/5</td></tr>
+<tr><th>priority score</th><td>3.24/5</td></tr>
+</table>
+</main></body></html>

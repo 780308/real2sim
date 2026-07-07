@@ -1,0 +1,730 @@
+                                                                                                                                                                                  1
+
+
+
+
+                                          SceneCompleter: Dense 3D Scene Completion for Generative Novel
+                                                                                                 View Synthesis
+                                                       Weiliang Chen, Jiayi Bi, Yuanhui Huang, Wenzhao Zheng, and Yueqi Duan, Member, IEEE
+
+
+
+                                            Abstract—Generative models have shown great promise for                when applied to other viewpoints. Pioneered by Zero-1-to-
+                                         novel view synthesis (NVS) by leveraging strong image genera-             3 [3], research [4], [16], [17] has begun to explore generative
+                                         tion priors. However, existing approaches typically follow a 2D           novel view synthesis using powerful generative models. These
+                                         inpainting paradigm, first completing missing image regions and
+                                         then performing 3D reconstruction. This strategy often causes             methods typically involve synthesizing novel views with image
+                                         geometry distortion and appearance drift, as 2D inpainting                or video generation models [18]–[21], followed by estimating
+arXiv:2506.10981v2 [cs.CV] 16 Jun 2026
+
+
+
+
+                                         models cannot reliably infer the underlying 3D structure required         the 3D structure from the generated views for downstream
+                                         for cross-view consistent generation. In this paper, we propose           reconstruction. However, the implicit nature of performing
+                                         SceneCompleter, a geometry-aware framework that reformulates              novel view synthesis in 2D pixel space makes it challenging
+                                         generative NVS as dense 3D scene completion. Instead of hal-
+                                         lucinating isolated 2D views, SceneCompleter jointly completes            for these methods to infer 3D structure, leading to distorted
+                                         geometry and appearance through a geometry-appearance dual-               geometry. For example, in a projected incomplete view of a
+                                         stream diffusion model in a spatially aligned RGBD latent                 hall as shown in Figure 1, a 2D generative model might fill
+                                         space. To provide holistic scene context, we further introduce            in overly smooth chair backs in the missing areas, while over-
+                                         a Scene Embedder that conditions generation on global semantic            looking the armrests. This may happen because the armrests of
+                                         and stylistic information from reference images. The completed
+                                         RGBD predictions are then aligned and integrated into an                  the chairs occupy much less area than the backs, causing the
+                                         expandable 3D scene representation, enabling iterative and coher-         model to interpolate the appearance of the chair backs in the
+                                         ent scene completion. Extensive experiments on in-domain and              missing areas. However, in 3D space, the small area of the
+                                         out-of-distribution datasets demonstrate that SceneCompleter              chair armrests holds greater geometric significance, offering
+                                         produces visually plausible and geometrically consistent novel            3D clues for novel view synthesis.
+                                         views across diverse scenarios.
+                                                                                                                      In this paper, we introduce SceneCompleter, a novel frame-
+                                           Index Terms—Novel view synthesis, 3D scene completion,                  work that leverages dense 3D scene completion to enable
+                                         generative models, diffusion models, dense 3D reconstruction.             geometry-consistent generative novel view synthesis. The core
+                                                                                                                   insight is that geometry information is crucial in generative
+                                                                                                                   novel view synthesis, as the model needs to infer the 3D
+                                                                 I. I NTRODUCTION                                  structure of the scene and extrapolate to generate the miss-
+                                                                                                                   ing area. Therefore, simultaneously modeling geometry and
+                                            Novel view synthesis (NVS) has gained significant attention            appearance is crucial for generative novel view synthesis.
+                                         in computer vision due to its broad applications in virtual real-         Specifically, we first extract the geometry and appearance clues
+                                         ity [1], 3D content creation [2]–[7], autonomous driving [8]–             from the reference view with a powerful stereo reconstruction
+                                         [11] and beyond. The core challenge lies in inferring 3D                  model Dust3R [22]. Then we design a Geometry-Appearance
+                                         structure and appearance from limited views while generating              Dual-stream Diffusion model to perform generative novel
+                                         plausible and visually coherent novel views. Despite achieving            view synthesis in 3D geometry-appearance space (A, G). By
+                                         promising results with powerful differentiable 3D represen-               jointly modeling geometry and appearance, this approach
+                                         tations [12], [13], optimization-based methods rely on dense              enables the generation of geometrically plausible novel views.
+                                         multi-view inputs to dynamically search for the 3D structure,             Additionally, we introduce a Scene Embedder that encodes
+                                         posing challenges in both efficiency and practical application.           the overall scene information from the reference view to
+                                            Recently, regression-based methods [14], [15] have explored            guide generation, which plays a crucial role in addressing
+                                         feedforward novel view synthesis, directly regressing pixel-              the highly ill-posed problem of large-angle viewpoint changes.
+                                         aligned 3D representation parameters from sparse views.                   After recovering the completed geometry and appearance, we
+                                         Despite showing promising results for nearby viewpoints                   propose an effective alignment strategy to seamlessly integrate
+                                         through scene priors learned from large-scale training data,              the completed 3D structure with the original, ensuring a more
+                                         the ill-posed nature of the problem causes these methods                  coherent and accurate reconstruction. Extensive experiments
+                                         to produce unsatisfactory artifacts and unrealistic geometry              demonstrate that our method enables zero-shot novel view
+                                                                                                                   synthesis with both appearance and geometric consistency
+                                            Weiliang Chen, Jiayi Bi, and Yueqi Duan are with the Depart-           across multiple datasets.
+                                         ment of Electronic Engineering, Tsinghua University, Beijing, China
+                                         (e-mail: cwl24@mails.tsinghua.edu.cn; bijy22@mails.tsinghua.edu.cn; du-      We summarize our key contributions as follows:
+                                         anyueqi@tsinghua.edu.cn).                                                    • We propose SceneCompleter, a geometry-aware frame-
+                                            Yuanhui Huang and Wenzhao Zheng are with the Department                      work for generative novel view synthesis from sparse
+                                         of Automation, Tsinghua University, Beijing, China (e-mail:
+                                         huangyh22@mails.tsinghua.edu.cn; wenzhao.zheng@outlook.com).                    input views. It reformulates view generation as dense 3D
+                                            Corresponding author: Yueqi Duan.                                            scene completion, allowing the model to reason about
+                                                                                                                                                                         2
+
+
+
+                    RGB            Depth          RGB            Depth
+                                                                                                                Optimization-based                  2D generative
+ViewCrafter
+
+                                                                                                                Regression-based                    3D generative
+                                                                                                                                          Overall
+
+
+
+
+                                                                                                                           e
+                                                                                                                        anc
+
+
+
+
+                                                                                                                                                            Ge o m
+                                                                                                                     ear
+
+
+
+
+                                                                                                                                                                  etry
+Ours
+
+
+
+
+                                                                                                                 Ap p
+                                                                                                                !"
+Ground Truth
+
+
+
+
+                                                                                                 !"#%
+                                                                                     !"#$                              Sp
+
+
+
+
+                                                                                                                                                        cy
+                                                                                                                            ars
+
+
+
+
+                                                                                                                                                      ien
+                                                                                                        Scene
+                                                                                   Project
+                                                                                               !‍ Completer                    ev
+
+
+
+
+                                                                                                                                                      fic
+                                                                                                                                    iew
+                                                                                   Complete
+
+
+
+
+                                                                                                                                                    Ef
+                      NVS Appearance-Geometry Comparison                       3D scene completion                             NVS Comparison
+
+Fig. 1. SceneCompleter explores 3D scene completion for generative novel view synthesis. By jointly modeling geometry and appearance, and incorporating
+geometry information into the generative process, SceneCompleter enables geometrically consistent and visually compelling novel view synthesis. With
+SceneCompleter, we can iteratively complete 3D scenes, ensuring both appearance and structure are accurately restored.
+
+
+
+                 missing geometry and appearance jointly and thereby         to the reference view. However, the ill-posed nature of this
+                 reducing geometry distortion and appearance drift across    approach causes significant issues when dealing with large
+                 generated views.                                            viewpoint changes, leading to unrealistic results. In this paper,
+               • We develop a geometry-aware generative architecture         we explore generative novel view synthesis by using generative
+                 that unifies RGBD completion, scene-level condition-        models to complete the missing 3D structure in sparse views,
+                 ing, and 3D scene integration. This design enables          thus enabling realistic novel view synthesis even with large
+                 SceneCompleter to synthesize missing appearance and         viewpoint changes.
+                 geometry in a spatially aligned latent space, preserve         Generative Novel View Synthesis. The impressive capabil-
+                 holistic scene coherence through global context, and        ities of recent generative models [18], [32] suggest a natural
+                 convert generated RGBD outputs into an expandable 3D        approach to addressing missing viewpoints in novel view syn-
+                 scene representation for iterative completion.              thesis. Earlier generative view synthesis methods also explored
+               • We validate the proposed formulation and architecture       self-consistent generation for synthesizing novel views [33].
+                 through comprehensive experiments on DL3DV-10K,             Pioneered by Zero-1-to-3 [3], researchers have begun explor-
+                 RealEstate10K, Tanks-and-Temples, and CO3D, covering        ing generative models [2], [34]–[38] for object novel view
+                 both in-domain and out-of-distribution evaluation. The      synthesis, framing it as a conditional generation task. Mo-
+                 results demonstrate consistent improvements in visual       tionCtrl [39] and CameraCtrl [40] extend this idea by synthe-
+                 realism, cross-view coherence, and 3D geometric con-        sizing novel views through video generation models, taking a
+                 sistency over regression-based and RGB-only generative      reference image and a camera trajectory as input to generate a
+                 baselines.                                                  sequence of novel view videos. However, since the image itself
+                                                                             lacks scale information, the model struggles to learn accurate
+                                II. R ELATED W ORK                           camera trajectories, making it difficult to generate perspective-
+   Regression-based Novel View Synthesis. Conventional                       correct novel views. Complementary efforts introduce residual
+approaches in Novel View Synthesis (NVS) rely on dense                       encoders or GAN priors for monocular and degraded-input
+multi-view images as inputs to learn the 3D representation                   view synthesis [41], [42], and video diffusion priors further
+of the target scene in an optimization manner [12], [23], [24],              support long-range perpetual view generation [43]. Recently,
+suffering from inefficiency and limited applicability in practi-             ViewCrafter [17] and ReconX [44] have addressed the scale
+cal scenarios. Sparse-view variants reduce input requirements                ambiguity by leveraging video generation for novel view
+through feed-forward scene priors, regularization, and geomet-               synthesis. They project the reference view onto the target
+ric priors [25]–[28], but they still reconstruct radiance fields             view before generation, inherently resolving the scale issue.
+from observed views rather than explicitly completing unseen                 However, these methods still focus on RGB image completion
+3D structure. Robust variants further relax strict calibration               while weakly constraining missing geometry, which can lead
+assumptions by jointly refining camera poses and neural fields               to inconsistent 3D structures. In this paper, we explore 3D
+under imperfect pose estimates [29], but they remain tied to                 generative novel view synthesis by jointly modeling geometry
+observed-view reconstruction. Leveraging the fast rendering                  and appearance for dense 3D scene completion, enabling 3D-
+speed of 3D Gaussians [13], a series of works [14], [15],                    consistent novel view synthesis.
+[30], [31] have shifted toward a new regression-based pipeline,                 Dense 3D Scene Reconstruction. Based on the powerful
+which extracts scene priors from large datasets. These methods               3D pointmap representation, Dust3R [22] initiates a trend
+directly regress pixel-aligned 3D Gaussian parameters from                   toward dense 3D scene reconstruction without relying on
+sparse input views, demonstrating excellent interpolation re-                traditional camera models. Subsequently, Mast3R [45] fur-
+sults and high efficiency when synthesizing novel views close                ther introduces a local feature for each pixel-aligned point
+                                                                                                                                                       3
+
+
+
+
+                                                           Align and Update " Geometry-Appearance Dual-Stream Diffusion
+                                        Depth                                        (×                                                    Depth
+
+                                                     ❄                                                                       ❄
+                                                       ℰ                                                                       *
+                                                                    Diffusion
+
+
+
+
+                                                      =
+                                        RGB                                                                                                  RGB
+                                                                    Process
+                                                     ❄
+                          ?                            ℰ                                                                     ❄
+                                                                                                                               *
+                                                                   + Noise
+                                                                                                                                      Completed View
+                                   Projected View
+                                                             %&                   %'
+               Point Cloud                                                                                                             " Trainable
+                                                                   ❄CLIP                        Cross Attention
+                Prediction                                                             !, #                        +                   ❄ Frozen
+                                                                                              " Scene Embedder
+                                   Reference View
+
+Fig. 2. Framework of SceneCompleter. We first extract the geometry-appearance clues from the reference view using an unconstrained stereo reconstruction
+method. Then, we employ a Geometry-Appearance Dual-Stream Diffusion model to generate novel views in 3D space, conditioned on the extracted geometry-
+appearance clues. After generating the 3D novel view, we align the synthesized geometry with the original 3D structure to achieve 3D scene completion.
+Notably, this process can be iterated to progressively generate a larger 3D scene.
+
+                                                                                                                                       ❄
+to achieve a better performance. These works require post-
+                                                                                                                                         ℰ
+                                                                                across generated regions; and (2) geometric correctness, i.e.,
+processing and global alignment when reconstructing dense                       ensuring that synthesized content respects the 3D structure
+scenes from multiple inputs, as they only establish spatial                     defined by camera poses. These requirements make NVS
+matching between two views. To overcome this, Spann3r [46]                      inherently a 3D generation problem, which 2D inpainting
+and Fast3r [47] achieve dense 3D scene reconstruction directly                  formulations cannot faithfully satisfy.
+from multiple images by maintaining a spatial memory of past                       To address this limitation, we formulate NVS as a 3D scene
+frames or further expanding the original network. However,                      completion task. Rather than performing 2D inpainting, we
+these works only operate in a discriminative manner, densely                    aim to infer a complete scene representation by modeling the
+reconstructing the scene based on as many visual inputs as                      conditional distribution
+possible. In this paper, we guide this dense reconstruction
+network to provide unified geometry clues for generative 3D                                          p(A, G | Gobs , Aobs , F ),
+scene completion and then achieve the ultimate novel view                       where Gobs and Aobs denote the observed geometry clues
+synthesis.                                                                      and appearance clues extracted from input views, and F
+                                                                                represents global feature-level information distilled from those
+                    III. P ROPOSED A PPROACH                                    observations (e.g., semantic or style cues). The generated
+   In this section, we introduce SceneCompleter, a novel                        appearance A and geometry G provide a single 3D explanation
+framework that leverages dense 3D scene completion to                           that inherently enforces multi-view consistency and geometric
+achieve geometrically consistent generative novel view syn-                     correctness across novel viewpoints.
+thesis. We first outline the motivation behind SceneCompleter
+in Section III-A. Then, we describe the Geometry-Appearance                     B. Geometry-Appearance Clue Extraction
+Clue Extraction process in Section III-B. Next, we intro-
+duce the Scene Embedder in Section III-C and Geometry-                             To establish the inpainting conditions required by our for-
+Appearance Dual-Stream Diffusion module in Section III-D.                       mulation, we derive the observed geometry and appearance
+Finally, we present our Geometry Alignment and Scene Com-                       clues Gobs and Aobs from the known views. We employ the
+pletion strategy in Section III-E. An overview of our frame-                    unconstrained stereo 3D reconstruction method Dust3R [22]
+work is illustrated in Figure 2.                                                to recover dense geometry from the input images. The recon-
+                                                                                structed RGB point cloud is then projected into each target
+                                                                                camera, producing the appearance clues Aobs . For geometry
+A. Motivation of Our SceneCompleter                                             clues, a straightforward idea is to use Dust3R’s predicted
+   Recent methods [17], [44] attempt to formulate Novel View                    pointmaps. However, in the context of novel view synthesis,
+Synthesis (NVS) as a 2D inpainting problem by leveraging                        the geometry of each target pixel is constrained by the camera
+strong pretrained 2D generative models. While this strategy                     parameter, leaving only one valid degree of freedom along
+often produces visually appealing results and alleviates the                    its corresponding camera ray. Introducing full 3D pointmap
+ill-posedness of sparse-view reconstruction, the synthesized                    values injects redundant degrees of freedom that may break
+novel views frequently exhibit geometry distortion and ap-                      geometric consistency at unseen viewpoints. To avoid this
+pearance drift. The core issue is that such approaches ignore                   issue, we replace the point map with a projected depth map,
+the fundamental nature of NVS: (1) cross-view consistency,                      which removes unnecessary degrees of freedom. Moreover,
+i.e., aligning with known pixels and maintaining coherence                      depth maps are spatially smoother and structurally more
+                                                                                                                                         4
+
+
+
+similar to RGB images, making them easier for the model to          for numerical scale differences between images and depth
+learn jointly with appearance information. The entire process       maps, we apply an affine-invariant depth normalization:
+can be formally expressed as:                                                                            
+                                                                                            d − d2
+                                                                                   dn =              − 0.5 × 2,             (1)
+               (Gobs , Aobs ) = Proj(Xs , Is , Πt ),                                       d98 − d2
+
+where Xs denotes the 3D points reconstructed from the source        where d and dn are the depth maps before and after normaliza-
+view by Dust3R [22], Is is the corresponding source image,          tion, and d2 and d98 are the 2nd and 98th percentile values of
+and Πt represents the target camera projection. Proj extracts       the depth map. Similar to Marigold [51], this ensures the origi-
+the depth as Gobs and the RGB as Aobs .                             nal SD-VAE can reconstruct depth losslessly. Accordingly, we
+                                                                    use two weight-sharing VAEs to encode and decode depth and
+                                                                    image independently without any fine-tuning:
+C. Scene Embedder
+                                                                                        zd = E(dn ),         dˆ = D(zd ),             (2)
+   To further mitigate geometry distortion and appearance drift
+and enforce cross-view consistency, we design a Scene Em-                                zi = E(I),         Iˆ = D(zi ),              (3)
+bedder that provides global context from reference images.
+                                                                    where zd and zi are the latent codes for depth and image, E
+Inspired by Q-Former [48], it leverages a learnable scene
+                                                                    and D denote the encoder and decoder, and dˆ and Iˆ are the
+embedding to interact with features extracted from a reference
+                                                                    reconstructed depth and image.
+view, encoding holistic scene information. Specifically, we
+                                                                       Geometry-appearance denoising U-Net. To simultane-
+extract reference features fref using a pretrained CLIP image
+                                                                    ously complete geometry and appearance (A, G), we perform
+encoder [49], and let the learnable embedding femb query these
+                                                                    generation in the 3D latent space of image and depth. A
+features through cross-attention:
+                                                                  key challenge is how to construct the latent representation.
+      fscene = CrossAttn Wq (femb ), Wk (fref ), Wv (fref ) ,       We choose to concatenate the geometry and appearance
+                                                                    latents along the channel dimension, rather than treating
+where Wq , Wk , and Wv are the query, key, and value pro-           them as separate latents or concatenating spatially into a large
+jections. The resulting scene embedding fscene is incorporated      image. This design inherently aligns the spatial positions of the
+into the U-Net via cross-attention, effectively injecting global    two latents, so that each feature corresponds to a 3D feature.
+scene context to guide generation in missing regions. With          We apply the same concatenation strategy to the validity
+this design, the Scene Embedder enforces consistent global          mask, which indicates whether a feature at a given position
+context across all views, providing guidance to the model in        originates from input views or should be completed. This mask
+unobserved regions and alleviating the inherent ill-posedness       is obtained from the projection-based feature interpolation.
+of novel view synthesis, while remaining lightweight and            Consequently, the initial latent is constructed by concatenating
+efficiently integrated via cross-attention without requiring full   the validity mask, the projected and ground-truth depth and
+image-level processing.                                             image latents:
+
+                                                                                   z0 = concat(m, zdproj , ziproj , zdgt , zigt ),
+D. Geometry-Appearance Dual-stream Diffusion
+                                                                    where m is the validity mask, zdproj and ziproj are the depth and
+   Our goal is to achieve dense 3D scene completion, where
+                                                                    image latents from observed (projected) regions, and zdgt and
+the key challenge lies in effectively incorporating geometry G
+                                                                    zigt are the corresponding ground-truth latents.
+into the completion process while preserving the generative
+                                                                        During the reverse diffusion process, the U-Net predicts the
+model’s capability for image completion. To address this,
+                                                                    noise ϵ̂ conditioned on the noised latent zc , the initial latent z0 ,
+we design a depth encoder-decoder that shares weights with
+                                                                    the scene embedding fscene , and the timestep t. The training
+the image encoder, mapping the depth map into a latent
+                                                                    loss is formulated as:
+space. The latent geometry is fused with the image latent and                                       h                                i
+                                                                                                                                   2
+processed by a single Geometry-Appearance dual-stream U-               L = Ed0 ,ϵ∼N (0,1),t∼U (1,T ) ϵ − ϵ̂θ (zc , z0 , t, fscene ) . (4)
+Net to simultaneously complete both appearance and geometry
+in the latent space. Our model builds upon Stable Diffusion         This design ensures that the model jointly completes appear-
+2 [32], pretrained on the large-scale LAION-5B [50] dataset,        ance and geometry in a spatially aligned 3D latent space while
+leveraging its strong priors for natural image generation.          leveraging global scene context.
+   Depth encoder and decoder. A straightforward way to
+encode both depth and image into the latent space is to
+                                                                    E. Geometry Alignment and 3D Scene Completion
+modify the channel dimensions of the diffusion model’s VAE.
+However, this requires reconstructing the entire latent space,         Since we apply affine-invariant normalization during 3D
+which would compromise the pretrained priors learned by the         scene completion, it is necessary to align the completed scene
+diffusion model for natural images. Instead, we employ two          with the original geometry. This alignment can be achieved
+separate VAEs to encode depth and image independently. For          by matching the predicted depth dˆ with the incomplete depth
+the depth VAE, we replicate the depth map three times to            clues dp . Specifically, we use the valid depth mask Mdp to
+satisfy the VAE’s three-channel input requirement. To account       locate the corresponding predicted depths dˆp , and then apply
+                                                                                                                                     5
+
+
+
+a least-squares fitting to align dˆp to dp . The optimization for    comparisons. In terms of 2D metrics, our model outperforms
+computing the scale and offset is:                                   all others in PSNR and SSIM, primarily due to our joint
+                                                                     modeling of both geometry and appearance, which results in
+              s, o = arg min ∥dp − (sdˆp + o)∥2 .              (5)
+                             s,o                                     more consistent and realistic structures in novel view synthesis.
+Here, s and o denote the scale and offset that map the               Additionally, we achieve the best LPIPS scores in most cases
+normalized predicted depth to the coordinate scale of the            (except for one), demonstrating that our model not only
+projected depth clues. We then apply them to the full predicted      generates high-quality and geometrically consistent structures
+depth map to restore the missing areas in the scene. The final       but also produces visually realistic appearances in novel view
+aligned depth dˆaligned is yielded as follows:                       synthesis. In terms of 3D metrics, our method consistently
+                                                                     outperforms 2D-based generative methods, thanks to the incor-
+                        dˆaligned = sdˆ + o.                   (6)   poration of geometry information into the generation process,
+                                                                     which ensures more consistent structures. However, our 3D
+After obtaining dˆaligned , we can restore it to a 3D pointmap X̂i
+                                                                     metrics sometimes fall slightly behind the regression-based
+using the camera parameters Ki , Ri , and Ti as follows:
+                                                                     method, Dust3R. This could be due to some details being filled
+              X̂i = Ri−1 Ki−1 p̃i dˆaligned − Ri−1 Ti ,        (7)   in the missing areas during generation, which may influence
+                                                                     the calculation of 3D metrics.
+where p̃i denotes the pixel homogeneous coordinates.                    Qualitative comparison. Figure 3 shows the qualitative
+                                                                     comparison results of our method. Dust3R [22], being a
+                       IV. E XPERIMENTS                              regression-based method, lacks generative capabilities, re-
+A. Implementation Details                                            sulting in missing areas in the novel view generation. Mo-
+   Our model is built upon Stable Diffusion v2 [32]. Following       tionCtrl [39], on the other hand, synthesizes novel views
+ViewCrafter [17], we train our model using the DL3DV-                based on a single image and camera trajectory. However, the
+10K [52] and RealEstate10K [53] datasets. Since neither              image itself lacks scale information, leading to a mismatch
+dataset provides calibrated depth or other geometric infor-          between the camera trajectory’s scale and the image scale,
+mation, we employ Dust3R [22] to generate the required               which makes it difficult to control the new viewpoint. As
+training data. Specifically, we randomly sample five frames          shown in Figure 3, MotionCtrl often exhibits minimal camera
+with temporal strides of 1, 2, 4, and 8 to simulate diverse          viewpoint changes, leading to inaccurate novel view synthesis.
+viewpoint changes, and estimate their depth maps, camera             ViewCrafter [17] projects the reference view to the novel
+poses, and intrinsics with Dust3R. During training, each target      view and relies on a video generation model to complete
+frame is paired with a randomly projected source frame as the        the overall image, naturally avoiding scale issues by directly
+conditional input. We train the model for 50k iterations with        using camera projection to obtain the incomplete conditional
+an effective batch size of 32 and a learning rate of 3e-5 on 8       image. However, by relying solely on RGB input without 3D
+NVIDIA A6000 GPUs.                                                   information, ViewCrafter sometimes struggles to understand
+                                                                     scene relationships, resulting in incorrect scene results or the
+B. Zero-shot Novel View Synthesis Comparison                         addition/removal of scene content. For example, in the second
+                                                                     row, the generated 3D structure appears inconsistent, while
+  Datasets and Metrics We evaluate our model’s generative            in the second-to-last row, an extra wine bottle is erroneously
+novel view synthesis on the zero-shot DL3DV-10K [52],                added to the table, conflicting with other viewpoints. Our
+RealEstate10K [53] test sets, and out-of-distribution datasets       SceneCompleter, which simultaneously models both geometry
+Tanks-and-Temples [54] and CO3D [55]. We choose the                  and appearance, benefits from structural guidance, ensuring
+regression-based method Dust3R, the 2D generative-based              superior 3D consistency. Additionally, our Scene Embedder
+methods MotionCtrl, and ViewCrafter as our baselines. For            encodes global scene information, enabling our model to
+2D metrics, we use PSNR, SSIM, and LPIPS for evaluation.             effectively complete large missing regions while preserving
+For 3D metrics, we calculate the camera rotation distance Rdist      consistency with the original structure, even under significant
+and translation distance Tdist as follows:                           camera viewpoint changes.
+                      n
+                      X               tr(Rigen RiT
+                                                 gt ) − 1               Generalization analysis. Beyond in-domain evaluation
+            Rdist =         arccos(                       ),   (8)   on DL3DV-10K and RealEstate10K, we explicitly test
+                      i=1
+                                               2
+                                                                     SceneCompleter on the out-of-distribution Tanks-and-Temples
+                             n
+                             X                                       and CO3D datasets. As shown in Table I and Figure 3,
+                  Tdist =          ∥Tigt − Tigen ∥2 ,          (9)   our method maintains strong visual quality and 3D consis-
+                             i=1
+                                                                     tency across both scene-level and object-centric data. The
+where Rigen and Rigt are the predicted and ground truth rotation     improvements are especially clear on hard splits and out-
+matrices, respectively, and Tigen and Tigt are the predicted and     of-distribution scenes, where RGB-only generative baselines
+ground truth translation vectors, respectively.                      often hallucinate inconsistent content and regression-based
+  Quantitative Comparison. Table I presents our quantitative         reconstruction leaves large missing regions. These results indi-
+comparison experiments, where we consider both 2D appear-            cate that modeling geometry and appearance jointly provides
+ance and 3D structure metrics. Additionally, we divide the           more robust scene priors for large-viewpoint generative novel
+dataset into an easy set and a hard set for more granular            view synthesis.
+                                                                                                                                                6
+
+
+
+                                                             TABLE I
+Q UANTITATIVE COMPARISON OF ZERO - SHOT NOVEL VIEW SYNTHESIS ON TANKS - AND -T EMPLES [54], R EAL E STATE 10K [53], DL3DV-10K [52]
+   AND CO3D [55] DATASETS . O UR S CENE C OMPLETER OUTPERFORMS BASELINES ACROSS MOST IMAGE QUALITY AND POSE ACCURACY METRICS .
+
+
+      Dataset                                   Easy set                                                Hard set
+      Method                LPIPS ↓    PSNR ↑     SSIM ↑    Rdist ↓     Tdist ↓    LPIPS ↓     PSNR ↑     SSIM ↑      Rdist ↓     Tdist ↓
+      Tanks-and-Temples
+      Dust3R [22]            0.478      16.26      0.506    0.173       1.021       0.527      14.74       0.368      0.498        1.125
+      MotionCtrl [39]        0.415      16.55      0.498    0.222       0.992       0.464      15.52       0.437      0.578        1.384
+      ViewCrafter [17]       0.217      20.67      0.668    0.213       0.853       0.273      18.50       0.554      0.514        1.200
+      Ours                   0.207      21.43      0.700    0.163       0.828       0.247      19.80       0.555      0.496        1.037
+      RealEstate10K
+      Dust3R [22]            0.689      12.55      0.496    0.046       0.174       0.661      12.31       0.490      0.047        0.169
+      MotionCtrl [39]        0.102      22.88      0.810    0.116       1.937       0.117      22.56       0.808      0.031        1.051
+      ViewCrafter [17]       0.141      22.43      0.807    0.021       0.134       0.161      22.01       0.802      0.030        0.149
+      Ours                   0.121      26.03      0.867    0.035       0.121       0.118      25.94       0.868      0.031        0.143
+      DL3DV-10K
+      Dust3R [22]            0.660      13.63      0.429    0.828       1.181       0.741      10.05       0.488      0.819        0.785
+      MotionCtrl [39]        0.540      16.74      0.657    0.412       1.107       0.585      14.90       0.462      0.822        0.951
+      ViewCrafter [17]       0.346      22.91      0.697    2.215       1.098       0.426      18.49       0.472      0.821        0.951
+      Ours                   0.192      24.38      0.789    0.369       0.456       0.271      21.25       0.660      0.368        0.640
+      CO3D
+      Dust3R [22]            0.555      13.40      0.284    0.163       1.363       0.595       8.67       0.257      2.334        1.779
+      MotionCtrl [39]        0.531      11.03      0.147    0.171       1.214       0.394      11.64       0.178      2.607        0.968
+      ViewCrafter [17]       0.399      15.14      0.263    0.178       1.197       0.548      14.54       0.121      2.610        0.968
+      Ours                   0.378      17.45      0.326    0.168       0.607       0.374      15.07       0.306      2.330        0.607
+
+
+
+C. 3D Scene Completion                                                                            TABLE II
+                                                                          Q UANTITATIVE ABLATION ON GEOMETRY CLUE AND S CENE
+   We present our 3D scene completion results in Figure 4.             E MBEDDER . T HE RESULTS DEMONSTRATE THAT BOTH THE GEOMETRY
+From left to right, we iteratively update and refine the scene           CLUE AND S CENE E MBEDDER PLAY CRUCIAL ROLES IN THE FINAL
+                                                                                                  OUTCOME .
+information, gradually improving the completion. As shown,
+leveraging our joint modeling of geometry and appearance,
+                                                                       Dataset                             Test set
+along with our simple yet effective alignment strategy, our
+model achieves iterative and coherent 3D scene completion              Method        LPIPS ↓     PSNR ↑      SSIM ↑      Rdist ↓      Tdist ↓
+while preserving the original 3D structure, enabling single-           TNT
+image 3D scene generation. Notably, as illustrated in Fig-             w/o depth      0.727       18.82       0.431       2.805       0.920
+ure 4(d), our model adapts not only to camera translation but          w/o SE         0.305       21.66       0.798       2.802       0.896
+                                                                       Full           0.275       23.19       0.826       2.790       0.752
+also to camera rotation, demonstrating its strong robustness.
+                                                                       Re10K
+                                                                       w/o depth      0.726       10.92       0.224       0.592       1.246
+                                                                       w/o SE         0.404       15.44       0.484       0.373       1.000
+D. Ablation Study                                                      Full           0.391       15.56       0.510       0.369       0.752
+   In this section, we conduct an ablation study to validate           DL3DV
+the effectiveness of our design. Specifically, we focus on             w/o depth      0.810       14.83       0.128       1.993       0.960
+two crucial components: the joint modeling of geometry and             w/o SE         0.459       18.28       0.456       2.086       0.948
+appearance, which ensures structural consistency during 3D             Full           0.387       19.97       0.506       1.785       0.824
+scene completion, and the global scene embedder, which                 CO3D
+provides holistic scene understanding for improved completion          w/o depth      0.586       18.20       0.277       0.387       0.794
+                                                                       w/o SE         0.341       18.18       0.373       0.111       0.287
+quality.                                                               Full           0.328       19.11       0.420       0.101       0.287
+   Quantitative Results. Table II shows the results of our
+quantitative ablation study. As observed, after removing the
+depth guidance, both 2D and 3D metrics decrease, with signifi-
+cant drops in LPIPS and SSIM. This highlights the importance             Qualitative Results. Figure 5 presents our qualitative ab-
+of modeling geometry for achieving reasonable and structured          lation study. From the figure, we observe the following key
+image completion. Additionally, when the Scene Embedder is            points: 1) Simultaneously modeling geometry is crucial for
+ablated, both 2D and 3D metrics show some decline, which              accurate geometric structure prediction. For example, in the
+aligns with our qualitative analysis, where we observed that the      second row, the image after completion still contains signif-
+Scene Embedder helps the model handle detailed information            icant noise, likely due to the absence of depth information
+more effectively.                                                     for flat surfaces. Additionally, in the second column, the lack
+                                                                                                                                        7
+
+
+
+         Input                Dust3R               MotionCtrl            ViewCrafter                Ours              Ground Truth
+
+
+
+
+Fig. 3. Qualitative comparison of zero-shot novel view synthesis on Tanks-and-Temples [54], RealEstate10K [53], DL3DV-10K [52], CO3D [55]
+datasets. Our SceneCompleter achieves more realistic and 3D-consistent novel view synthesis.
+
+
+
+of geometric structure information results in unreasonable            E. Discussion on Scene Embedder
+floating shadows in the missing areas, which would be even
+more evident in the depth map as incorrect. 2) The global scene          Figure 6 analyzes how the choice of reference views affects
+information encoded by the scene embedder plays a critical            the Scene Embedder. Since the Scene Embedder is designed
+role in handling fine details. For instance, in the first column,     to capture global scene-level information rather than local
+the beams appear structurally deformed, with their sharp edges        pixel correspondences, different single reference views provide
+lost, and in the fourth row, the bike’s projection information        comparable guidance for preserving the overall style, seman-
+appears messy. When scene information is available, the model         tics, and layout of the scene. As a result, SceneCompleter
+can accurately infer the bike’s structure, but in its absence, it     remains robust to the specific reference view selected for
+generates incorrect structures.                                       conditioning and produces consistent completion results across
+                                                                      different choices.
+                                                                                                                                                                          8
+
+
+
+
+     T"                                      …
+
+
+
+     T#
+
+
+
+
+     T$
+
+
+
+
+   T%
+
+
+               (a)                              (b)                              (c)                                            (d)                        (e)
+Fig. 4. 3D scene completion visualization. Our SceneCompleter can iteratively refine 3D scenes.
+Input
+Masked Input
+
+
+
+
+                                                                              (a) Different-frames Condition   (b) Multi-frames Condition   (c) Original         (d) GT
+w/o Depth
+
+
+
+
+                                                                            Fig. 6. Different choices of reference view for the Scene Embedder.
+                                                                            Each single view provides similar global context for the scene, while using
+                                                                            multiple reference views can further help infer 3D structure by aggregating
+w/o Image
+
+
+
+
+                                                                            complementary information.
+
+
+
+                                                                            regions. In our main experiments, we use a randomly selected
+Full
+
+
+
+
+                                                                            single reference view for efficiency unless otherwise specified.
+Ground Truth
+
+
+
+
+                                                                                                                         V. C ONCLUSION
+                                                                               In this paper, we presented SceneCompleter, a geometry-
+Fig. 5. Ablation on geometry clue and Scene Embedder. The results           aware framework for generative novel view synthesis from
+demonstrate that the geometry clues play a decisive role in novel view      sparse input views. By reformulating view generation as dense
+synthesis, while the scene information encoded by the Scene Embedder is     3D scene completion, SceneCompleter jointly reasons about
+crucial for detail recovery.
+                                                                            missing geometry and appearance rather than relying on iso-
+                                                                            lated 2D image hallucination. Our geometry-appearance dual-
+                                                                            stream diffusion model completes RGB and depth in a spa-
+   We also observe that using multiple reference views can                  tially aligned latent space, while the Scene Embedder injects
+further improve the fidelity of challenging regions. By aggre-              holistic scene context to improve global coherence and detail
+gating complementary observations from different viewpoints,                recovery. We further introduced a geometry alignment and
+the Scene Embedder obtains a more complete global prior                     integration strategy that converts completed RGBD predictions
+and can better infer structures that are ambiguous from a                   into an expandable 3D scene representation, enabling itera-
+single image. This behavior confirms that the Scene Embedder                tive scene completion under camera translation and rotation.
+does not simply copy local textures from the reference image;               Experiments across DL3DV-10K, RealEstate10K, Tanks-and-
+instead, it provides scene-level context that helps the diffusion           Temples, and CO3D show that explicit geometry-appearance
+model generate plausible and geometrically coherent missing                 modeling improves visual realism, cross-view coherence, and
+                                                                                                                                                             9
+
+
+
+3D consistency over regression-based and RGB-only genera-                         [22] S. Wang, V. Leroy, Y. Cabon, B. Chidlovskii, and J. Revaud, “Dust3r:
+tive baselines.                                                                        Geometric 3d vision made easy,” in Proceedings of the IEEE/CVF
+                                                                                       Conference on Computer Vision and Pattern Recognition, 2024, pp.
+                                                                                       20 697–20 709.
+                              R EFERENCES                                         [23] B. Huang, Z. Yu, A. Chen, A. Geiger, and S. Gao, “2d gaussian splatting
+                                                                                       for geometrically accurate radiance fields,” in ACM SIGGRAPH 2024
+ [1] H. Cho, J. Kim, and W. Woo, “Novel view synthesis with multiple                   conference papers, 2024, pp. 1–11.
+     360 images for large-scale 6-dof virtual reality system,” in 2019 IEEE       [24] T. Müller, A. Evans, C. Schied, and A. Keller, “Instant neural graphics
+     Conference on Virtual Reality and 3D User Interfaces (VR). IEEE,                  primitives with a multiresolution hash encoding,” ACM transactions on
+     2019, pp. 880–881.                                                                graphics (TOG), vol. 41, no. 4, pp. 1–15, 2022.
+ [2] X. Long, Y.-C. Guo, C. Lin, Y. Liu, Z. Dou, L. Liu, Y. Ma, S.-H. Zhang,      [25] A. Yu, V. Ye, M. Tancik, and A. Kanazawa, “pixelnerf: Neural radiance
+     M. Habermann, C. Theobalt et al., “Wonder3d: Single image to 3d using             fields from one or few images,” in Proceedings of the IEEE/CVF
+     cross-domain diffusion,” in Proceedings of the IEEE/CVF conference on             Conference on Computer Vision and Pattern Recognition, 2021, pp.
+     computer vision and pattern recognition, 2024, pp. 9970–9980.                     4578–4587.
+ [3] R. Liu, R. Wu, B. Van Hoorick, P. Tokmakov, S. Zakharov, and C. Von-         [26] M. Niemeyer, J. T. Barron, B. Mildenhall, M. S. M. Sajjadi, A. Geiger,
+     drick, “Zero-1-to-3: Zero-shot one image to 3d object,” in Proceedings            and N. Radwan, “Regnerf: Regularizing neural radiance fields for
+     of the IEEE/CVF international conference on computer vision, 2023,                view synthesis from sparse inputs,” in Proceedings of the IEEE/CVF
+     pp. 9298–9309.                                                                    Conference on Computer Vision and Pattern Recognition, 2022, pp.
+ [4] F. Liu, W. Sun, H. Wang, Y. Wang, H. Sun, J. Ye, J. Zhang, and Y. Duan,           5470–5480.
+     “Reconx: Reconstruct any scene from sparse views with video diffusion        [27] J. Yang, M. Pavone, and Y. Wang, “Freenerf: Improving few-shot neural
+     model,” arXiv preprint arXiv:2408.16767, 2024.                                    rendering with free frequency regularization,” in Proceedings of the
+ [5] F. Liu, H. Wang, W. Chen, H. Sun, and Y. Duan, “Make-your-3d:                     IEEE/CVF Conference on Computer Vision and Pattern Recognition,
+     Fast and consistent subject-driven 3d content generation,” in European            2023, pp. 8254–8263.
+     Conference on Computer Vision. Springer, 2024, pp. 389–406.                  [28] G. Wang, Z. Chen, C. C. Loy, and Z. Liu, “Sparsenerf: Distilling
+ [6] F. Liu, D. Wu, Y. Wei, Y. Rao, and Y. Duan, “Sherpa3d: Boosting                   depth ranking for few-shot novel view synthesis,” in Proceedings of
+     high-fidelity text-to-3d generation via coarse 3d prior,” arXiv preprint          the IEEE/CVF International Conference on Computer Vision, 2023, pp.
+     arXiv:2312.06655, 2023.                                                           9031–9042.
+ [7] W. Chen, F. Liu, D. Wu, H. Sun, J. Lu, and Y. Duan, “Dreamcinema:            [29] H. Fu, X. Yu, L. Li, and L. Zhang, “CBARF: Cascaded bundle-adjusting
+     Cinematic transfer with free camera and 3d character,” arXiv preprint             neural radiance fields from imperfect camera poses,” IEEETMM, vol. 26,
+     arXiv:2408.12601, 2024.                                                           pp. 9304–9315, 2024.
+ [8] H. Lu, T. Xu, W. Zheng, Y. Zhang, W. Zhan, D. Du, M. Tomizuka,
+                                                                                  [30] X. Fei, W. Zheng, Y. Duan, W. Zhan, M. Tomizuka, K. Keutzer, and
+     K. Keutzer, and Y. Chen, “Drivingrecon: Large 4d gaussian reconstruc-
+                                                                                       J. Lu, “Pixelgaussian: Generalizable 3d gaussian reconstruction from
+     tion model for autonomous driving,” arXiv preprint arXiv:2412.09043,
+                                                                                       arbitrary views,” arXiv preprint arXiv:2410.18979, 2024.
+     2024.
+                                                                                  [31] C. Wewer, K. Raj, E. Ilg, B. Schiele, and J. E. Lenssen, “latentsplat:
+ [9] Y. Huang, W. Zheng, B. Zhang, J. Zhou, and J. Lu, “Selfocc: Self-
+                                                                                       Autoencoding variational gaussians for fast generalizable 3d reconstruc-
+     supervised vision-based 3d occupancy prediction,” in CVPR, 2024, pp.
+                                                                                       tion,” in European Conference on Computer Vision. Springer, 2024,
+     19 946–19 956.
+                                                                                       pp. 456–473.
+[10] W. Zheng, W. Chen, Y. Huang, B. Zhang, Y. Duan, and J. Lu, “Occworld:
+                                                                                  [32] R. Rombach, A. Blattmann, D. Lorenz, P. Esser, and B. Ommer, “High-
+     Learning a 3d occupancy world model for autonomous driving,” in
+                                                                                       resolution image synthesis with latent diffusion models,” in Proceedings
+     European Conference on Computer Vision. Springer, 2024, pp. 55–
+                                                                                       of the IEEE/CVF conference on computer vision and pattern recognition,
+     72.
+                                                                                       2022, pp. 10 684–10 695.
+[11] A.-Q. Cao and R. De Charette, “Scenerf: Self-supervised monocular 3d
+     scene reconstruction with radiance fields,” in ICCV, 2023, pp. 9387–         [33] Z. Liu, W. Jia, M. Yang, P. Luo, Y. Guo, and M. Tan, “Deep view
+     9398.                                                                             synthesis via self-consistent generative network,” IEEETMM, vol. 24,
+[12] B. Mildenhall, P. P. Srinivasan, M. Tancik, J. T. Barron, R. Ramamoorthi,         pp. 451–465, 2022.
+     and R. Ng, “Nerf: Representing scenes as neural radiance fields for view     [34] K. Sargent, Z. Li, T. Shah, C. Herrmann, H.-X. Yu, Y. Zhang, E. R.
+     synthesis,” Communications of the ACM, vol. 65, no. 1, pp. 99–106,                Chan, D. Lagun, L. Fei-Fei, D. Sun et al., “Zeronvs: Zero-shot 360-
+     2021.                                                                             degree view synthesis from a single image,” in Proceedings of the
+[13] B. Kerbl, G. Kopanas, T. Leimkühler, and G. Drettakis, “3d gaussian              IEEE/CVF Conference on Computer Vision and Pattern Recognition,
+     splatting for real-time radiance field rendering.” ACM Trans. Graph.,             2024, pp. 9420–9429.
+     vol. 42, no. 4, pp. 139–1, 2023.                                             [35] M. Liu, C. Xu, H. Jin, L. Chen, M. Varma T, Z. Xu, and H. Su,
+[14] D. Charatan, S. L. Li, A. Tagliasacchi, and V. Sitzmann, “pixelsplat:             “One-2-3-45: Any single image to 3d mesh in 45 seconds without
+     3d gaussian splats from image pairs for scalable generalizable 3d re-             per-shape optimization,” Advances in Neural Information Processing
+     construction,” in Proceedings of the IEEE/CVF conference on computer              Systems, vol. 36, pp. 22 226–22 246, 2023.
+     vision and pattern recognition, 2024, pp. 19 457–19 467.                     [36] Y. Liu, C. Lin, Z. Zeng, X. Long, L. Liu, T. Komura, and W. Wang,
+[15] Y. Chen, H. Xu, C. Zheng, B. Zhuang, M. Pollefeys, A. Geiger, T.-                 “Syncdreamer: Generating multiview-consistent images from a single-
+     J. Cham, and J. Cai, “Mvsplat: Efficient 3d gaussian splatting from               view image,” in International Conference on Learning Representations,
+     sparse multi-view images,” in European Conference on Computer Vision.             2024.
+     Springer, 2024, pp. 370–386.                                                 [37] Y. Shi, P. Wang, J. Ye, M. Long, K. Li, and X. Yang, “Mvdream:
+[16] J. Chung, S. Lee, H. Nam, J. Lee, and K. M. Lee, “Luciddreamer:                   Multi-view diffusion for 3d generation,” in International Conference on
+     Domain-free generation of 3d gaussian splatting scenes,” arXiv preprint           Learning Representations, 2024.
+     arXiv:2311.13384, 2023.                                                      [38] R. Shi, H. Chen, Z. Zhang, M. Liu, C. Xu, X. Wei, L. Chen, C. Zeng, and
+[17] W. Yu, J. Xing, L. Yuan, W. Hu, X. Li, Z. Huang, X. Gao, T.-T. Wong,              H. Su, “Zero123++: A single image to consistent multi-view diffusion
+     Y. Shan, and Y. Tian, “Viewcrafter: Taming video diffusion models                 base model,” arXiv preprint arXiv:2310.15110, 2023.
+     for high-fidelity novel view synthesis,” IEEE Transactions on Pattern        [39] Z. Wang, Z. Yuan, X. Wang, Y. Li, T. Chen, M. Xia, P. Luo, and
+     Analysis and Machine Intelligence, pp. 1–18, 2025.                                Y. Shan, “Motionctrl: A unified and flexible motion controller for video
+[18] J. Ho, A. Jain, and P. Abbeel, “Denoising diffusion probabilistic models,”        generation,” in ACM SIGGRAPH 2024 Conference Papers, 2024, pp.
+     NIPS, vol. 33, pp. 6840–6851, 2020.                                               1–11.
+[19] R. Rombach, A. Blattmann, D. Lorenz, P. Esser, and B. Ommer, “High-          [40] H. He, Y. Xu, Y. Guo, G. Wetzstein, B. Dai, H. Li, and C. Yang,
+     resolution image synthesis with latent diffusion models,” in CVPR, 2022,          “Cameractrl: Enabling camera control for text-to-video generation,”
+     pp. 10 684–10 695.                                                                arXiv preprint arXiv:2404.02101, 2024.
+[20] W. Peebles and S. Xie, “Scalable diffusion models with transformers,”        [41] K. Guo, T. Chen, S. Ren, B. Hu, Z. Wu, S. Guo, and H. Fang, “ReE3D:
+     in ICCV, 2023, pp. 4195–4205.                                                     Boosting novel view synthesis for monocular images using residual
+[21] J. Xing, M. Xia, Y. Zhang, H. Chen, W. Yu, H. Liu, G. Liu, X. Wang,               encoders,” IEEETMM, vol. 28, pp. 1989–1999, 2026.
+     Y. Shan, and T.-T. Wong, “Dynamicrafter: Animating open-domain               [42] K. Guo, Z. Wu, X. Wen, S. Guo, Z. Xi, and T. Chen, “GAN prior-
+     images with video diffusion priors,” in ECCV. Springer, 2024, pp.                 enhanced novel view synthesis from monocular degraded images,”
+     399–417.                                                                          IEEETMM, vol. 27, pp. 5352–5362, 2025.
+                                                                                 10
+
+
+
+[43] B. Pan, Y. Chen, Y. Pan, T. Yao, W. Chen, and T. Mei, “DreamJourney:
+     Perpetual view generation with video diffusion models,” IEEETMM,
+     vol. 28, pp. 2578–2592, 2026.
+[44] F. Liu, W. Sun, H. Wang, Y. Wang, H. Sun, J. Ye, J. Zhang, and Y. Duan,
+     “Reconx: Reconstruct any scene from sparse views with video diffusion
+     model,” 2024. [Online]. Available: https://arxiv.org/abs/2408.16767
+[45] V. Leroy, Y. Cabon, and J. Revaud, “Grounding image matching in 3d
+     with mast3r,” in ECCV. Springer, 2024, pp. 71–91.
+[46] H. Wang and L. Agapito, “3d reconstruction with spatial memory,” arXiv
+     preprint arXiv:2408.16061, 2024.
+[47] J. Yang, A. Sax, K. J. Liang, M. Henaff, H. Tang, A. Cao, J. Chai,
+     F. Meier, and M. Feiszli, “Fast3r: Towards 3d reconstruction of 1000+
+     images in one forward pass,” arXiv preprint arXiv:2501.13928, 2025.
+[48] J. Li, D. Li, S. Savarese, and S. Hoi, “Blip-2: Bootstrapping language-
+     image pre-training with frozen image encoders and large language
+     models,” in International conference on machine learning. PMLR,
+     2023, pp. 19 730–19 742.
+[49] A. Radford, J. W. Kim, C. Hallacy, A. Ramesh, G. Goh, S. Agarwal,
+     G. Sastry, A. Askell, P. Mishkin, J. Clark et al., “Learning transferable
+     visual models from natural language supervision,” in International
+     conference on machine learning. PmLR, 2021, pp. 8748–8763.
+[50] C. Schuhmann, R. Beaumont, R. Vencu, C. Gordon, R. Wightman,
+     M. Cherti, T. Coombes, A. Katta, C. Mullis, M. Wortsman et al., “Laion-
+     5b: An open large-scale dataset for training next generation image-text
+     models,” Advances in neural information processing systems, vol. 35,
+     pp. 25 278–25 294, 2022.
+[51] B. Ke, A. Obukhov, S. Huang, N. Metzger, R. C. Daudt, and
+     K. Schindler, “Repurposing diffusion-based image generators for monoc-
+     ular depth estimation,” in Proceedings of the IEEE/CVF Conference on
+     Computer Vision and Pattern Recognition, 2024, pp. 9492–9502.
+[52] L. Ling, Y. Sheng, Z. Tu, W. Zhao, C. Xin, K. Wan, L. Yu, Q. Guo,
+     Z. Yu, Y. Lu et al., “Dl3dv-10k: A large-scale scene dataset for deep
+     learning-based 3d vision,” in Proceedings of the IEEE/CVF Conference
+     on Computer Vision and Pattern Recognition, 2024, pp. 22 160–22 169.
+[53] T. Zhou, R. Tucker, J. Flynn, G. Fyffe, and N. Snavely, “Stereo
+     magnification: Learning view synthesis using multiplane images,” arXiv
+     preprint arXiv:1805.09817, 2018.
+[54] A. Knapitsch, J. Park, Q.-Y. Zhou, and V. Koltun, “Tanks and temples:
+     Benchmarking large-scale scene reconstruction,” ACM Transactions on
+     Graphics (ToG), vol. 36, no. 4, pp. 1–13, 2017.
+[55] J. Reizenstein, R. Shapovalov, P. Henzler, L. Sbordone, P. Labatut,
+     and D. Novotny, “Common objects in 3d: Large-scale learning and
+     evaluation of real-life 3d category reconstruction,” in Proceedings of
+     the IEEE/CVF international conference on computer vision, 2021, pp.
+     10 901–10 911.
+

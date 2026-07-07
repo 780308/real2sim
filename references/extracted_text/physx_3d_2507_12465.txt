@@ -1,0 +1,2024 @@
+PhysX-3D: Physical-Grounded 3D Asset Generation
+
+Ziang Cao1 Zhaoxi Chen1 Liang Pan2 Ziwei Liu1∗
+1
+Nanyang Technological University 2 Shanghai AI Lab
+
+arXiv:2507.12465v4 [cs.CV] 28 Nov 2025
+
+https://physx-3d.github.io/
+
+Physical properties
+
+Absolute
+Scale
+
+Affordance
+Frist Second
+Chair_surface
+Chair_back
+
+Physical
+dimension:
+120×70×70 cm
+
+Officer Chair
+
+Physical
+dimension:
+35×25×2 cm
+
+Laptop
+Handbag
+
+Physical
+dimension:
+30×10×25 cm
+
+Keyboard
+Touchpad
+
+Handle
+Bag_body
+
+Material &
+Density
+Foam and Fabric
+𝐸 = 0.05 𝐺𝑃𝑎, 𝜈 = 0.35
+𝜌 = 0.3 𝑔/𝑐𝑚3
+
+Glass
+
+Kinematics
+Child Parent
+
+Function
+Description
+
+Rotation: [-180,180] Find the part that
+Dir: [0,1,0]
+Supports the
+Pos: [-0.01,-0.27,0.2] user's left arm.
+
+Range: [-135,45]
+
+Find the part that
+
+Dir: [-0.99,0,0]
+𝐸 = 70.0 𝐺𝑃𝑎, 𝜈 = 0.23
+displays visual
+𝜌 = 2.5 𝑔/𝑐𝑚3
+Pos: [-0.03,-0.15,-0.17] output to the user.
+
+Leather
+𝐸 = 0.5 𝐺𝑃𝑎, 𝜈 = 0.4
+𝜌 = 0.86 𝑔/𝑐𝑚3
+
+Range: [-180,180]
+Dir: [0.99,0,0]
+Pos: [0.44,0.33,0.04]
+
+Find the part that
+holds and stores
+items.
+
+Figure 1: Visualizations of our PhysXNet for phsycial 3D generation. 3D assets in our dataset have
+fine-grained physical property annotations, including 1) absolute scale, 2) material, 3) affordance,
+4) kinematics, and 5) function descriptions (basic, functional, and kinematical descriptions).
+
+Abstract
+3D modeling is moving from virtual to physical. Existing 3D generation primarily emphasizes geometries and textures while neglecting physical-grounded
+modeling. Consequently, despite the rapid development of 3D generative models,
+the synthesized 3D assets often overlook rich and important physical properties,
+hampering their real-world application in physical domains like simulation and
+embodied AI. As an initial attempt to address this challenge, we propose PhysX,
+an end-to-end paradigm for physical-grounded 3D asset generation. 1) To bridge
+the critical gap in physics-annotated 3D datasets, we present PhysXNet - the first
+physics-grounded 3D dataset systematically annotated across five foundational
+dimensions: absolute scale, material, affordance, kinematics, and function
+description. In particular, we devise a scalable human-in-the-loop annotation
+pipeline based on vision-language models, which enables efficient creation of
+physics-first assets from raw 3D assets. 2) Furthermore, we propose PhysXGen,
+∗
+
+Corresponding author, ziwei.liu@ntu.edu.sg
+
+39th Conference on Neural Information Processing Systems (NeurIPS 2025).
+
+a feed-forward framework for physics-grounded image-to-3D asset generation,
+injecting physical knowledge into the pre-trained 3D structural space. Specifically,
+PhysXGen employs a dual-branch architecture to explicitly model the latent correlations between 3D structures and physical properties, thereby producing 3D
+assets with plausible physical predictions while preserving the native geometry
+quality. Extensive experiments validate the superior performance and promising
+generalization capability of our framework. All the code, data, and models will be
+released to facilitate future research in generative physical AI.
+
+1
+
+Introduction
+
+The creation of diverse and high-quality 3D assets has gained significant prominence in recent
+years, driven by their expanding applications across gaming, robotics, and embodied simulators.
+Substantial research efforts have been focused on appearance and geometry only, from high-quality
+3D datasets [1, 2, 3, 4], efficient 3D representations, to generative modeling. However, most of them
+predominantly emphasize structural characteristics while overlooking physical properties inherent to
+real-world objects. Given the rising demand for physical modeling, understanding, and reasoning in
+3D space, we argue that a comprehensive suite for physics-grounded 3D objects is important, from
+upstream data annotations pipeline to downstream generative modeling.
+Beyond purely structural attributes like geometry and appearance, real-world objects intrinsically
+possess rich physical and semantic characteristics comprising: 1) absolute scale, 2) material, 3) affordance, 4) kinematics, and 5) function descriptions. By integrating these fundamental properties
+with classical physical principles, we can derive critical dynamic metrics, including gravitational
+effects, frictional forces, contact region, motion trajectories, and interaction. However, existing
+datasets/annotation pipelines only offer partial solutions towards physically grounded knowledge in
+3D objects that cover the entire spectrum. Recent efforts to support articulated object applications
+have yielded datasets like PartNet-Mobility [5], which provides 2.7K human-annotated articulated
+3D models. Yet, this collection still lacks essential physical descriptors - including dimensional
+specifications, material composition, and functional affordances - that are crucial for physically
+accurate simulations and robotics applications.
+To bridge this representational gap, we propose PhysXNet – the first comprehensive physical 3D
+dataset containing over 26K richly annotated 3D objects, as illustrated in Figure 1. Except for the
+object-level annotation, i.e., 1), we annotate 2) and 5) for each part. Besides, for 3), we provide the
+affordance rank for all parts, while we annotate the 4) detailed parameters of kinematic constraints,
+including motion range, motion direction, child parts, and parent parts. Besides, we introduce an
+extended version, PhysXNet-XL, featuring over 6 million procedurally generated and annotated 3D
+objects.
+Most importantly, PhysXNet is built with an efficient, robust, and scalable labeling pipeline. We
+introduce a human-in-the-loop annotation pipeline to annotate the properties for the existing objectlevel 3D dataset, i.e., PartNet [6]. The pipeline proceeds in three stages: 1) target visual isolation, in
+which we render each component via alpha compositing to get the best visual prompts with minimized
+visual interference. 2) automatic VLM labeling, where a large vision-language model (VLM) to
+annotate most of the properties; and 3) expert refinement, combining systematic spot-checks with
+focused human annotation of complex kinematic behaviors. To the best of our knowledge, PhysXNet
+is the first 3D dataset with abundant properties for each part.
+To bridge the modeling gap of physical-grounded 3D assets, we further introduce PhysXGen, a
+feedforward model for physical 3D generation. Given the fact that physical properties are spatially
+related to geometry and appearance, we repurpose pretrained 3D generative priors to generate physical 3D assets, enabling efficient training with reasonable generalizability. Specifically, PhysXGen
+leverages a dual-branch architecture to jointly model the latent correlations between 3D geometric
+structures and physical properties, which is naturally compatible with existing 3D native generative
+priors. Moreover, this formulation makes the best use of pretrained latent space, leading to plausible
+physical predictions while keeping the decent geometry quality from the pretrained model. Comprehensive experiments prove the promising performance of PhysXGen. We hope our work reveals new
+observations, challenges, and potential directions for future research in embodied AI and robotics.
+To summarize, our main contributions are:
+2
+
+Table 1: Comparison of related datasets which can support research in physical 3D generation.
+While the ABO dataset [7] contains material metadata and keywords, its object-level annotation
+granularity constrains part-aware applications like robotic manipulation or physical simulation. In
+contrast, PhysXNet provides part-level annotations.
+Dataset
+
+# Objs
+
+Part anno
+
+Physical Dim
+
+Material
+
+Affordance
+
+Kinematic
+
+Description
+
+Year
+
+ShapeNet [1]
+PartNet [6]
+PartNet-Mobility [5]
+GAPartNet [8]
+ABO [7]
+OmniObject3D [4]
+Objaverse [2]
+
+51K
+26K
+2.7K
+1.1K
+7.9K
+6K
+818K
+
+✗
+✓
+✓
+✓
+✗
+✗
+✗
+
+✗
+✗
+✗
+✗
+✓
+✗
+✗
+
+✗
+✗
+✗
+✗
+Obj-level
+✗
+✗
+
+✗
+✗
+✗
+✗
+✗
+✗
+✗
+
+✗
+✗
+✓
+✓
+✗
+✗
+✗
+
+✗
+✗
+✗
+✗
+Obj-level
+✗
+✗
+
+2015
+2019
+2020
+2022
+2022
+2023
+2023
+
+PhysXNet (ours)
+PhysXNet-XL (ours)
+
+26K
+6M
+
+✓
+✓
+
+✓
+✓
+
+Part-level
+Part-level
+
+✓
+✓
+
+✓
+✓
+
+Part-level
+Part-level
+
+2025
+2025
+
+• We pioneer the first end-to-end paradigm for physical-grounded 3D asset generation, advancing the research frontier in physical-grounded content creation and unlocking new
+possibilities for downstream applications in simulation.
+• We build the first physical-grounded 3D dataset, PhysXNet, and propose a human-in-theloop annotation pipeline to convert existing geometry-focused datasets into fine-grained
+physics-annotated 3D datasets efficiently and robustly. In addition, we present an extended
+version, PhysXNet-XL, which includes over 6 million annotated 3D objects generated
+through procedural methods.
+• We design a dual-branch feed-forward framework, PhysXGen. It can model the latent
+interdependencies between structural and physical features to achieve plausible physical
+predictions while maintaining the native geometry quality.
+
+2
+
+Related Work
+
+2.1
+
+3D Datasets and Benchmarks
+
+Due to the time-consuming and expensive in realistic data collection, current large-scale 3D datasets
+prefer to collect data online [1, 2, 3]. According to the type of 3D data, existing 3D datasets
+can be divided into synthetic and real-world datasets. To facilitate the development of 3D vision,
+ShapeNet [1] collects 51,300 CAD models. Building upon it, the PartNet dataset [6] introduces
+an annotation framework that provides part annotations at significantly finer granularity levels.
+Furthermore, PartNet-Mobility [5] annotates the kinematic constraints and provides 2.7K articulated
+3D objects for 3D vision, especially for embodied AI and robotics. ABO [7] is a high-quality datasets
+with around 7.9K CAD models with fine-grained geometric and textures. Compared with prior work,
+it includes the physical dimension, material, and keywords. However, the material information and
+descriptions focus on object-level, limiting the part-aware applications. Recently, Objaverse [2]
+has alleviated the scarcity of 3D data. It collects and filters over 800K 3D data. To bridge the
+gap between synthetic and real data, Omniobject3D [4] provides over 6k high-quality 3D scans. A
+detailed comparison is shown in Table 1.
+Despite significant advances in 3D data acquisition, prevailing 3D datasets primarily emphasize
+geometry and appearance fidelity or narrowly defined physical attributes, creating a critical bottleneck
+for developing physics-aware 3D vision models and their real-world applications. To bridge this
+foundational gap, we present PhysXNet – a 3D dataset with comprehensive physical properties
+encompassing physical dimension, part-level material, affordance rank, kinematic parameters, and
+part-level description. Furthermore, we extend our dataset with PhysXNet-XL, comprising more
+than 6 million annotated 3D objects created via procedural generation.
+2.2
+
+3D Generative Models
+
+As one of the most representative optimization-based method in 3D generation, DreamFusion [9]
+proposed the SDS loss function. By utilizing the prior knowledge of the 2D diffusion model, it
+achieves impressive generative performance. Despite various works, optimization-based methods still
+suffer from the multi-face Janus problem and low optimization efficiency. Recently, benefiting from
+3
+
+Definition of physical and semantic properties
+Identification
+
+Operation
+
+Function
+
+Material
+Highest
+priority
+
+Physical Density
+Volume in
+3D space
+
+Mesh
+Absolute
+scale
+
+Physical
+volume
+
+Mass &
+Gravity &
+Friction …
+
+Name & Category&
+Physical dimension
+
+Kinematic types
+
+Affordance
+Mesh
+
+Find the part that holds
+and supports the plant
+
+&
+
+A. No constraints
+
+Kinematics
+Parent and
+Child parts
+
+B. Prismatic joint
+C. Revolute joint
+D. Hinge joint
+E. Rigid joint
+
+Function Description
+
+It can be lifted with
+a force of 𝑥 N
+Unlimited
+movement
+
+Human-in-the-loop annotation pipeline
+VLM Output and Human check
+
+…
+
+Name: Wall Cabinet,
+Category: Furniture,
+Dimension: 200*40*180,
+parts: [{name: cabinet_frame, material: Wood, density: 0.65 g/cm^3,
+priority_rank: 10,
+neighbors: [{
+labels_of_movement_group: "0-3", movement_type: "C",
+parent_label: 0, child_label: "3"
+},… ],
+Basic_description: "The main structural frame of the cabinet
+made of wood.",
+Functional_description: "Provides support and structure for all
+other components.",
+Movement_description: "Fixed and rigid, does not move.",}…],
+
+Kinematic parameters determination
+Rotation axis: cyan axis
+Location: blue point
+Rotation range: [-45,45]
+Child group: Red part
+Parent group: Gray part
+
+(2.a) Calculate
+contact region
+
+(2.b) Plane fitting
+
+Rotation axis: [-1,0,0]
+Location: [-0.12,0.3,-0.08]
+Rotation range: [-0.25,0.25]
+Child group: [7,]
+Parent group: “0”
+
+(2.c) Candidate generation
+and selection
+
+Final Annotations
+
+Visual Input
+
+(2.d) Determine
+parameters
+
+Figure 2: Top: Definition of properties in PhysXNet . By defining and annotating properties across
+three categories, common physical quantities can be systematically calculated to enable physical
+simulations. Bottom: Overview of our human-in-the-loop annotation pipeline. We utilize GPT-4o
+to gather foundational raw data, which is subsequently verified through human oversight. The
+kinematic parameters are then rigorously determined and finalized through human review.
+
+its impressive efficiency and robustness, feed-foward models [10, 11, 12, 13, 14, 15, 16, 17] have
+gained more and more attention. However, those methods still focus on geometry and appearance
+quality, neglecting the physical properties of 3D assets.
+2.3
+
+Articulated and Physical 3D Object Modeling
+
+Articulated object modeling mainly consists of tasks like perception, reconstruction, and generation.
+Some works try to estimate articulation pose [18] and identify articulation parts [19], while others [20]
+focus on learn joint parameters from images. In the reconstruction field, existing works try to
+reconstruct articulated models from RGB [21], RGBD [22], and point cloud [23]. Recently, some
+methods have tried to generate articulated 3D assets by utilizing a vision-language model [24, 25] or
+adopting an optimization-based framework [26]. To bridge the critical gap between existing methods
+with real applications, many works aim to incorporate the physical properties into 3D modeling.
+Some works try to learn material parameters from videos [27] or images [28], while other methods
+aim to introduce physical guidance via simulation [29, 30] or physical principles [31].
+In contrast to fragmented paradigms in physical 3D modeling, this work introduces PhysXGen –
+a unified physics-integrated generative framework capable of learning cross-property consistency
+to generate 3D assets with all necessary physical properties. By exploiting the relationship between physical and structural features, our method achieves promising performance in physical 3D
+generation.
+
+3
+
+PhysXNet Dataset
+
+In this section, we will introduce physical properties and the human-in-the-loop annotation pipeline.
+Besides, we will report the statistics and distribution of PhysXNetand PhysXNet-XL.
+3.1
+
+Definition of Physical Properties
+
+As shown in Figure 2, we systematically categorize object properties into three progressive stages: a)
+Identification - determining the basic nature of the object; b) Function - understanding its potential
+applications; and c) Operation - detailed usage methodologies. To streamline the annotation process,
+we posit that the internal composition of a component is homogeneous, exhibiting uniform property
+4
+
+invariance throughout its structure. For stages a), we set absolute scaling and material (material
+name, Young’s modulus, Poisson’s ratio, and density). Besides, for b), we establish functional
+affordance analysis and function descriptions (basic, functional, and kinematic descriptions).
+Finally, we use kinematic parameter quantification to represent c). Specifically, we grade the priority
+of being touched on all available parts to obtain the affordance score for all parts from 1 to 10. We
+set five possible kinematic types: A. No movement constraints (like water in a bottle), B. Prismatic
+joints (like a drawer), C. Revolute joints (like a laptop), D. Hinge joint (like a hose in a shower
+system), or E. Rigid joint and a combined kinematic type: CB. Revolute and Prismatic joints (like a
+lid of a bottle). Except for A and E, we will annotate the parent, child parts, and detailed kinematic
+parameters (such as rotation direction, rotation range, and so on). Note that, due to the challenges
+in precisely quantifying the absolute physical movement range of B, we use the movement range
+within the 3D coordinate system. Besides, to avoid the unnecessary and meaningless annotation of
+over-fine-grained parts in PartNet, we merge the tiny parts whose vertices and area are smaller than a
+pre-defined threshold with their neighboring parts. We manually refine the results of the merging
+process to ensure that the merged outputs are reasonable and consistent.
+3.2
+
+Human-in-the-loop Annotation Pipeline
+
+Following the establishment of target annotation specifications, we implement a systematic and
+streamlined semi-automated annotation framework, structured into two distinct operational phases
+(see Figure 2): 1) Preliminary Data Acquisition and 2) Kinematic Parameter Determination. Specifically, we utilize GPT-4o to obtain the basic information. Besides, to ensure the quality of raw data, a
+human candidate will check and refine the output of the vision-language model (VLM).
+For the second phrase, we split it into four subtasks: (2.a) calculate contact region, (2.b) plane fitting,
+(2.c) candidate generation and selection, and (2.d) kinematic parameters. Note that (2.c) and (2.d)
+are accomplished by human candidate. For all constraint movable parts (kinematic type is not A
+or E), we will calculate the contact region with the neighboring parts. We first extract point cloud
+data from the child-parent mesh pair, formally designated as Pc and Pp , respectively. The workflow
+subsequently calculates Euclidean distance between points in Pc and Pp , followed by spatial filtration
+that eliminates point pairs failing to meet a predetermined distance threshold. Subsequently, we
+employ a plane-fitting algorithm. We sample several axes uniformly on the fitted plane as candidates.
+Note that for kinematic type C, we additionally need to determine the location of the rotation axis.
+Therefore, we will perform a k-means algorithm in the contact region for type C to generate several
+candidates. After selecting the candidate location, we can finalize the kinematic parameters.
+3.3
+
+Statistics and Distribution of PhysXNet
+
+Comprises over 26K physical 3D objects, the part number of objects in PhysXNet exhibits a longtailed distribution illustrated in Figure 3, where each object contains an average of around 5 constituent
+parts. Besides, we document the length-width-height distributions of objects in (b). Given that
+PhysXNet encompasses objects spanning from relatively small-scale indoor entities to large-scale
+outdoor structures, the physical dimension exhibits significant variation among objects. For kinematic
+types and material in PhysXNet, we show detailed proportional composition. Note the density in our
+PhysXNetadheres to the metric standardization framework, i.e., g/cm3 . Furthermore, Figure 3 (d)
+shows the frequency of the popular object tags, including the name and category. Finally, we also
+report the component category in our procedurally generated 3D objects, including a) intra-category
+combination: cabinet, bottle, faucet, chair, oven, shower, knife, table, and laptop; b) cross-category
+combination: drawer and door. More details about PhysXNet-XL are released in the appendix.
+
+4
+
+PhysXGen Framework
+
+As mentioned above, physical 3D generation is still a challenging and promising task. Most prior
+works only focus on a single or specific physical property. In this section, we aim to build a unified
+generative framework to generate physical 3D assets directly. While our PhysXNet dataset contains
+26K assets, this scale remains insufficient for training SOTA generative architectures from scratch.
+Therefore, we leverage a model pre-trained on massive geometry-only 3D scans and fine-tune it to
+adapt to physical 3D generation. Building upon the well-established 3D representation space of it,
+we present PhysXGen, a novel yet straightforward framework that combines physical properties
+5
+
+PhysXNet
+Physical Dimension Frequency
+Number of Objects
+
+Number of Objects
+
+Part Number Occurrence Frequency
+
+Number of parts in Objects
+
+(a) Part number occurrence distribution
+Kinematic type distribution
+
+A. No constraints
+C. Revolute joint
+D. Hinge joint
+
+B. Prismatic joint
+CB. Revo&Prim joint
+E. Rigid joint
+
+Young's modulus distribution
+
+Physical dimension (cm)
+
+(b) Physical dimension distribution
+Poisson's ratio distribution
+
+0.20-0.25
+0.30-0.35
+0.40-0.45
+
+0.0-2.0
+2.0-3.0
+3.0-4.0
+4.0-10.0
+10-11
+11-100
+100-200
+200-411
+
+0.25-0.30
+0.35-0.40
+0.45-0.55
+
+Density distribution
+
+0.0-0.5
+1.5-2.0
+3.0-7.5
+
+0.5-1.0
+2.0-2.5
+7.5-8.0
+
+1.0-1.5
+2.5-3.0
+8.0-10.0
+
+(c) Kinematic type and material distribution
+
+PhysXNet-XL
+
+(d) Word cloud of object tags
+
+(e) Procedurally generated data distribution
+
+Figure 3: Statistics and distribution of PhysXNet and PhysXNet-XL. (a) Distribution histogram
+of part number in PhysXNet. (b) Dimensional distribution analysis in PhysXNet, showing physical
+measurements (length/width/height) frequency. (c) Proportional composition of kinematic states and
+material, including density, Young’s modulus, and Poisson’s ratio distribution in PhysXNet, visualized
+through sectoral ratios. (d) Tag frequency statistics for prevalent object labels in PhysXNet-XL. (e)
+Component-Category distribution of procedurally generated 3D objects in PhysXNet-XL.
+with geometry and appearance shown in Figure 4. Our approach achieves this dual objective
+by simultaneously integrating fundamental physical properties into the generation process while
+optimizing the structural branch through targeted fine-tuning. This joint optimization enables the
+production of physically consistent 3D assets that maintain impressive geometry and appearance
+fidelity.
+4.1
+
+Physical 3D VAE Encoding and Decoding
+
+In this subsection, we take the textured mesh output as an example. To reduce the influence caused
+by the domain gap between geometric and physical latent space, we build a similar physical VAE
+for property encoding, following [10]. Besides, considering the interdependencies among physical
+properties, we encode them into a unified latent space. We adopt 4 physical properties: physical
+scaling (converted by physical dimension) Pdim ∈ RN ×1 , affordance priority Paf f ∈ RN ×1 , density
+Pρ ∈ RN ×1 , and kinematic parameters Pmov ∈ RN ×11 (including child RN ×1 and parent group
+6
+
+Physical 3D Assets VAE Encoding & Decoding
+
+Physical Latent Generation
+VAE Decoder
+
+RFs
+
+Physical Latents
+
+Pre-proc.
+Find the part that
+provides access
+to the cabinet
+interior
+
+Rotation: [0,180]
+Dir: [0,1,0]
+Loc: [0.5,-0.46, 0.37]
+
+Visual feat.
+DINOv2
+Voxelize
+
+Physical 3D assets in PhyXPartnet
+
+Multiview
+Average
+
+Pretrain
+Sparse
+VAE
+Decoder
+
+Pretrain
+Sparse
+VAE
+Encoder
+
+Meshes
+
+Wood
+
+Noise
+
+Output
+
+Physical
+Sparse
+VAE
+Decoder
+
+Physical
+Sparse
+Flow
+Transformer
+
+Condition
+
+3DGSs
+
+Highest
+priority
+
+Voxelize
+Property
+retrieval
+
+Physical
+Sparse
+VAE
+Encoder
+
+Structured Latents
+
+Pretrain
+Sparse
+Flow
+Transformer
+
+VAE Decoder & Output
+
+Latent Diffusion
+
+Pre-proc.
+Name: Sink Cabinet,
+Category: Bathroom/Kitchen Fixture,
+Dimension: 80*50*90
+
+Noise
+
+Figure 4: The architecture of PhysXGen framework. PhysXGen features a two-stage architecture
+comprising: a physical 3D VAE framework for latent space learning, and a physics-aware generative
+process for structured latent. The former focuses on establishing a compressed yet information-rich
+latent representation that encodes physical properties, while the latter specializes in generating
+physical latents.
+index RN ×1 , movement direction RN ×3 , movement location RN ×3 , movement range RN ×2 , and
+kinematic type RN ×1 ), where N is the number of voxel. The physical properties (Pphy ∈ RN ×14 )
+can be obtained by channel-wise concatenation. For the function descriptions, we adopt the CLIP
+model [32] to obtain the text embedding. Similarly, the description features (Psem ∈ RN ×768×3 )
+are formed by concatenating the basic, functional, and kinematic description embeddings. Besides,
+the structural branch adopts the DINOv2 to extract features. Therefore, the dimensions of structural
+feature is Paes ∈ RN ×1024 . For clarification, we denote the pretrain VAE encoder and decoder as
+Eaes and Daes while the physical VAE encoder and decoder as Ephy and Dphy . The physical latent
+Pplat ∈ RN ×8 and structured latent Pslat ∈ RN ×8 can be formulated as follows:
+Pplat = Ephy (Pphy , Psem ), Pslat = Eaes (Paes ) .
+
+(1)
+
+To study the effects of physical properties on geometry and appearance quality, we introduce a branch
+from Dphy to Daes via a residual connection. We will analyze the performance of the independent
+and dependent VAE decoder in the experiments. After decoding the structured and physical latents,
+we can implement a loss function L as follows:
+geometry
+Lvae = Lcolor
++ Lphy + Lsem + Lkl + Lreg ,
+aes + Laes
+
+(2)
+
+geometry
+where Lcolor
+represent the color loss (including L2loss, lpip loss) and geometry
+aes and Laes
+loss (including mask, normal, and depth loss). For Lphy and Lsem , we normalize the groundtruth
+respectively and adopt a L2 loss. Lkl aims to constraint the distribution of Pplat while Lreg can
+reduce the unnecessary structures of textured mesh.
+
+4.2
+
+Physical Latent Generation
+
+Following the acquisition of the compressed physical latent representation, we construct a transformerarchitecture diffusion model to jointly generate physical and structural attributes. To effectively
+leverage the inherent correlations between physical properties and structural features while maintaining compatibility with pre-trained components, we implement a dual-branch architecture that
+integrates structural guidance through residual connections. Specifically, the additional branch
+from the structural module is fused with the primary physical generation module via learnable
+skip-connection layers, enabling cross-domain feature interaction. Comprehensive ablation studies
+quantitatively validate the design rationale through systematic component comparisons. Following [10], we adopt the Conditional Flow Matching (CFM) as the objective of optimization. Therefore,
+the loss of the geometric branch is formulated:
+Laes = Et,x0 ,ϵ ||f (x, t) − (ϵ − x0 )||22 ,
+
+(3)
+
+where ϵ and t represent the noise and timestep while x0 is sampled from Pslat . Adopting a similar
+objective for the physical branch, the final loss of the latent diffusion model can be calculated as:
+Ldif f = Laes + Lphy .
+7
+
+Table 2: Quantitative comparison of different methods on the test sets of our PhysXNet. There are
+two types of evaluations: structural and physical property evaluations. PhysPre represents a separate
+physical property predictor after TRELLIS.
+Methods
+
+Geometry
+Kinematic parameters
+Absolute scale ↓ Material ↑ Affordance ↑
+Description ↑
+PSNR ↑ CD ↓ F-Score ↑
+COV ↑
+MMD ↓
+
+TRELLIS [10]
+TRELLIS + PhysPre
+PhysXGen
+
+24.31
+24.31
+24.53
+
+Image Prompts
+
+13.2
+13.2
+12.7
+
+76.9
+76.9
+77.3
+
+–
+13.21
+7.24
+
+–
+8.63
+13.01
+
+–
+7.23
+11.30
+
+–
+0.24
+0.33
+
+–
+0.12
+0.08
+
+–
+6.55
+10.11
+
+Physical properties
+
+Geometry and appearance
+Absolute Scale
+
+Affordance
+1
+
+Physical
+dimension:
+27.51×19.8×6.76
+cm
+
+0.5
+
+0
+
+Kinematics
+
+Material
+𝜌 ≈ 8.2 𝑔/𝑐𝑚3
+
+Function Description
+Find the part that
+Used to turn water
+on/off or adjust
+temperature.
+
+Kinematic type: rotation
+
+Child part
+
+Parent part
+
+Range: [-92.3,87]
+Dir: [0.18,0.736,0.02]
+Pos: [-0.56,-0.04,-0.073]
+
+Absolute Scale
+Physical
+dimension:
+98.92×69.2×64.3
+cm
+
+Affordance
+
+Function Description
+1
+0.5
+
+0
+
+Material
+𝜌 ≈ 8.0 𝑔/𝑐𝑚3
+
+Find the mesh
+fabric backrest
+surface of the chair
+
+Kinematics
+Kinematic type: rotation
+
+Child part
+
+Parent part
+
+Range: [-190.8,143.1]
+Dir: [0.02,0.864,-0.03]
+Pos: [0.032,-0.11,0.11]
+
+Figure 5: Visualization of the generated results. Given a single image as the prompt, our PhysXGen
+can generate the physical-grounded 3D assets.
+
+5
+
+Experiments
+
+5.1
+
+Implementation details
+
+In our experiments, we partition PhysXNet dataset into 24K training samples, 1K validation samples,
+and 1K test cases. By analyzing the performance on the test cases, we can evaluate the generalizability
+of our method. During the VAE and diffusion model training, we adopt AdamW with an initial
+learning rate of 1 × 10−4 to optimize the models. The inherent correlation between geometric
+configuration and physical properties in our methodology creates a critical dependency where the
+structural fidelity of the 3D representation will affect the final generative performance. In this paper,
+we repurpose the geometry- and appearance-rich structural space of TRELLIS [10] for our task. Our
+PhysXGen is trained on 8 NVIDIA A100 GPUS. More details about the architecture are released in
+the supplementary.
+5.2
+
+Evaluation Metrics
+
+Physical properties evaluation. Our framework establishes a multi-property feature space encompassing five core attributes: absolute scale, material, affordance, kinematics, and function
+descriptors. Note that the kinematics attribute manifests as dual configuration parameters: 1) structural grouping (parent-child part hierarchies) and 2) kinematic parameters. Specifically, we evaluate
+absolute scale using Euclidean distance, density and affordance images via Peak Signal-to-Noise
+Ratio (PSNR), kinematics with instantiation distance [33], and functional description through PSNR
+on cosine similarity score maps.
+Geometry evaluation. For appearance evaluation, we sample 30 random views from a unit sphere to
+calculate the mean PSNR. Besides, to evaluate the quality of geometry, we calculate the standard
+shape metrics of Chamfer Distance (CD) (×10−3 ) and F-score (FS) (×10−2 ) with thresholds of 0.05.
+8
+
+Table 3: Ablation studies about the physical 3D VAE and diffusion model. Dep-VAE and Dep-Diff
+represent the model that utilizes the interdependencies between structural and physical information.
+Thus, Trellis+PhysPre and PhysXGen are corresponding to the first and last lines.
+Dep-VAE Dep-Diff
+✗
+✗
+✓
+✓
+
+✗
+✓
+✗
+✓
+
+Geometry
+Kinematic parameters
+Absolute scale ↓ Material ↑ Affordance ↑
+Description ↑
+PSNR ↑ CD ↓ F-Score ↑
+COV ↑
+MMD ↓
+24.31
+24.31
+24.32
+24.53
+
+13.2
+13.2
+12.9
+12.7
+
+76.9
+76.9
+77.0
+77.3
+
+13.21
+12.01
+10.57
+7.24
+
+8.63
+10.69
+9.86
+13.01
+
+7.23
+8.95
+9.32
+11.30
+
+0.24
+0.26
+0.28
+0.33
+
+0.12
+0.11
+0.11
+0.08
+
+6.55
+7.71
+7.54
+10.11
+
+Property
+
+Prompts
+TRELLIS+PhysPre
+
+PhysXGen
+
+Ground Truth
+
+Affordance
+
+TRELLIS+PhysPre
+
+PhysXGen
+Function
+Description
+
+Find the part that serves as the main surface for placing items
+
+TRELLIS+PhysPre
+
+PhysXGen
+
+Ground Truth
+
+Physical Dimension:
+72.3×71.5×97.1 cm
+
+Physical Dimension:
+61.2×62.4×88.9 cm
+
+Physical Dimension:
+60×60×90 cm
+
+TRELLIS+PhysPre
+
+0.583 g/cm^3
+
+PhysXGen
+
+Absolute
+Scale
+
+Material &
+Density
+7.48 g/cm^3
+
+3.448 g/cm^3
+
+PhysXGen
+
+TRELLIS+PhysPre
+Type: E
+Range: [-174.6, -169.2]
+Dir: [-0.42,-0.53,0.26]
+Pos: [0.32,0.16,0.52]
+Child part Parent part
+
+Type: C
+Range: [-159.8, 160.8]
+Dir: [0.13,0.05,0.86]
+Pos: [0.06,0.01,0.83]
+
+Kinematics
+
+Child part Parent part
+
+Figure 6: Qualitative comparison of different methods. Compared with our baseline, PhysXGen
+achieves significant improvements, clearly demonstrating its strong performance in physics-grounded
+3D generation.
+
+5.3
+
+Quantitative Results
+
+As shown in Table 2, we implement the quantitative evaluations on two types of metrics: 1) geometry
+and appearance evaluation; and 2) physical properties evaluation. Note that TRELLIS+PhysPre
+is our baseline that adopts the independent structure to predict the properties. Compared with the
+separate physical property predictor, our PhysXNet utilizes the correlation between physical and
+pre-defined 3D structural space, achieving significant improvement in physical property generation
+while enhancing the aesthetic quality.
+Ablation studies. The core design of our framework is to integrate both geometry and physics
+in 3D modeling. Therefore, we conduct ablation studies to validate its effectiveness (reported in
+Table 3). By introducing geometry and appearance features in the diffusion model, the generative
+model can gain improvement in physics generation compared with the independent models, PhysPre.
+Additionally, the correlation between geometry and physics in VAE can enhance the geometry of
+generated assets. Finally, relying on the dual-architecture and joint training, our PhysXGen obtains
+impressive performance in all physical property generation.
+9
+
+5.4
+
+Qualitative Results
+
+Figure 5 showcases the physical-grounded 3D assets generated by our PhysXGen. By learning the
+interdependencies between physical and structural space, PhysXGen achieves impressive performance
+in generating physical properties. Besides, we perform qualitative comparisons with our baseline
+shown in Figure 6. As we mentioned above, for absolute scaling, we use the Euclidean distance while
+we adopt PSNR to evaluate the material maps, affordance maps, function description similarity
+score maps. By utilizing the interdependencies between physical properties and structural information,
+especially geometry, our PhysXNet obtains higher overall scores. Furthermore, our PhysXGen can
+distinguish the properties of different parts and achieve more stable and robust performance in
+physical property generation of neighboring structures, especially in function description, material ,
+and affordance. More experimental results are shown in the supplementary.
+
+6
+
+Conclusion
+
+In this paper, to fill the gap between existing synthesized 3D assets and real-world applications, we
+propose an end-to-end generative paradigm for physical-grounded 3D asset generation, including the
+first physical-grounded 3D dataset and the novel physical property generator. Specifically, we develop
+a human-in-the-loop annotation pipeline that transforms current 3D repositories into physics-enabled
+datasets. Meanwhile, the novel end-to-end generative framework, PhysXGen, can integrate physical
+priors into structural-focused architectures to achieve robust generation performance. Through
+comprehensive experiments on PhysXNet, we reveal the fundamental challenges and direction in
+physical 3D generation. We believe that our dataset will attract research attention from different
+communities, including but not limited to embedded AI, robotics, and 3D vision.
+Limitations and Future works. Despite impressive performance, our method exhibits limitations in
+learning fine-grained properties and suffers from artifacts. In our future work, we will try to handle it.
+Besides, we will include more 3D data from synthetic to real to improve the diversity of our dataset
+and integrate additional physical properties and kinematic types to better simulate material behavior
+and movement.
+
+Acknowledgment
+This study is supported by the National Key R&D Program of China (2022ZD0160201), and
+Shanghai Artificial Intelligence Laboratory. This study is also supported by the Ministry of Education,
+Singapore, under its MOE AcRF Tier 2 (MOET2EP20221-0012, MOE-T2EP20223-0002). This
+research is also supported by cash and in-kind funding from NTU S-Lab and industry partner(s).
+
+References
+[1] Angel X Chang, Thomas Funkhouser, Leonidas Guibas, Pat Hanrahan, Qixing Huang, Zimo Li, Silvio
+Savarese, Manolis Savva, Shuran Song, Hao Su, et al. Shapenet: An information-rich 3d model repository.
+arXiv preprint arXiv:1512.03012, 2015.
+[2] Matt Deitke, Dustin Schwenk, Jordi Salvador, Luca Weihs, Oscar Michel, Eli VanderBilt, Ludwig Schmidt,
+Kiana Ehsani, Aniruddha Kembhavi, and Ali Farhadi. Objaverse: A universe of annotated 3d objects. In
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages 13142–13153,
+2023.
+[3] Matt Deitke, Ruoshi Liu, Matthew Wallingford, Huong Ngo, Oscar Michel, Aditya Kusupati, Alan Fan,
+Christian Laforte, Vikram Voleti, Samir Yitzhak Gadre, et al. Objaverse-xl: A universe of 10m+ 3d objects.
+Advances in Neural Information Processing Systems, 36:35799–35813, 2023.
+[4] Tong Wu, Jiarui Zhang, Xiao Fu, Yuxin Wang, Jiawei Ren, Liang Pan, Wayne Wu, Lei Yang, Jiaqi Wang,
+Chen Qian, et al. Omniobject3d: Large-vocabulary 3d object dataset for realistic perception, reconstruction
+and generation. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition,
+pages 803–814, 2023.
+[5] Fanbo Xiang, Yuzhe Qin, Kaichun Mo, Yikuan Xia, Hao Zhu, Fangchen Liu, Minghua Liu, Hanxiao Jiang,
+Yifu Yuan, He Wang, et al. Sapien: A simulated part-based interactive environment. In Proceedings of the
+IEEE/CVF conference on computer vision and pattern recognition, pages 11097–11107, 2020.
+
+10
+
+[6] Kaichun Mo, Shilin Zhu, Angel X Chang, Li Yi, Subarna Tripathi, Leonidas J Guibas, and Hao Su.
+Partnet: A large-scale benchmark for fine-grained and hierarchical part-level 3d object understanding. In
+Proceedings of the IEEE/CVF conference on computer vision and pattern recognition, pages 909–918,
+2019.
+[7] Jasmine Collins, Shubham Goel, Kenan Deng, Achleshwar Luthra, Leon Xu, Erhan Gundogdu, Xi Zhang,
+Tomas F Yago Vicente, Thomas Dideriksen, Himanshu Arora, et al. Abo: Dataset and benchmarks for
+real-world 3d object understanding. In Proceedings of the IEEE/CVF conference on computer vision and
+pattern recognition, pages 21126–21136, 2022.
+[8] Haoran Geng, Helin Xu, Chengyang Zhao, Chao Xu, Li Yi, Siyuan Huang, and He Wang. Gapartnet:
+Cross-category domain-generalizable object perception and manipulation via generalizable and actionable
+parts. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages
+7081–7091, 2023.
+[9] Ben Poole, Ajay Jain, Jonathan T Barron, and Ben Mildenhall. Dreamfusion: Text-to-3d using 2d diffusion.
+arXiv preprint arXiv:2209.14988, 2022.
+[10] Jianfeng Xiang, Zelong Lv, Sicheng Xu, Yu Deng, Ruicheng Wang, Bowen Zhang, Dong Chen, Xin
+Tong, and Jiaolong Yang. Structured 3d latents for scalable and versatile 3d generation. arXiv preprint
+arXiv:2412.01506, 2024.
+[11] Jiaxiang Tang, Zhaoxi Chen, Xiaokang Chen, Tengfei Wang, Gang Zeng, and Ziwei Liu. Lgm: Large
+multi-view gaussian model for high-resolution 3d content creation. In European Conference on Computer
+Vision, pages 1–18. Springer, 2024.
+[12] Jiale Xu, Weihao Cheng, Yiming Gao, Xintao Wang, Shenghua Gao, and Ying Shan. Instantmesh: Efficient
+3d mesh generation from a single image with sparse-view large reconstruction models. arXiv preprint
+arXiv:2404.07191, 2024.
+[13] Ziang Cao, Zhaoxi Chen, Liang Pan, and Ziwei Liu. Collaborative multi-modal coding for high-quality 3d
+generation. arXiv preprint arXiv:2508.15228, 2025.
+[14] Fangzhou Hong, Jiaxiang Tang, Ziang Cao, Min Shi, Tong Wu, Zhaoxi Chen, Shuai Yang, Tengfei Wang,
+Liang Pan, Dahua Lin, et al. 3dtopia: Large text-to-3d generation model with hybrid diffusion priors. arXiv
+preprint arXiv:2403.02234, 2024.
+[15] Zhaoxi Chen, Jiaxiang Tang, Yuhao Dong, Ziang Cao, Fangzhou Hong, Yushi Lan, Tengfei Wang, Haozhe
+Xie, Tong Wu, Shunsuke Saito, et al. 3dtopia-xl: Scaling high-quality 3d asset generation via primitive
+diffusion. arXiv preprint arXiv:2409.12957, 2024.
+[16] Ziang Cao, Fangzhou Hong, Tong Wu, Liang Pan, and Ziwei Liu. Large-vocabulary 3d diffusion model
+with transformer. arXiv preprint arXiv:2309.07920, 2023.
+[17] Ziang Cao, Fangzhou Hong, Tong Wu, Liang Pan, and Ziwei Liu. Difftf++: 3d-aware diffusion transformer
+for large-vocabulary 3d generation. IEEE Transactions on Pattern Analysis and Machine Intelligence,
+2025.
+[18] Liu Liu, Han Xue, Wenqiang Xu, Haoyuan Fu, and Cewu Lu. Toward real-world category-level articulation
+pose estimation. IEEE Transactions on Image Processing, 31:1072–1083, 2022.
+[19] Vicky Zeng, Tabitha Edith Lee, Jacky Liang, and Oliver Kroemer. Visual identification of articulated
+object parts. in 2021 ieee. In RSJ International Conference on Intelligent Robots and Systems (IROS),
+pages 2443–2450.
+[20] Xiaohao Sun, Hanxiao Jiang, Manolis Savva, and Angel Chang. Opdmulti: Openable part detection for
+multiple objects. In 2024 International Conference on 3D Vision (3DV), pages 169–178. IEEE, 2024.
+[21] Zoey Chen, Aaron Walsman, Marius Memmel, Kaichun Mo, Alex Fang, Karthikeya Vemuri, Alan
+Wu, Dieter Fox, and Abhishek Gupta. Urdformer: A pipeline for constructing articulated simulation
+environments from real-world images. arXiv preprint arXiv:2405.11656, 2024.
+[22] Yijia Weng, Bowen Wen, Jonathan Tremblay, Valts Blukis, Dieter Fox, Leonidas Guibas, and Stan
+Birchfield. Neural implicit representation for building digital twins of unknown articulated objects. In
+Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 3141–3150,
+2024.
+
+11
+
+[23] Cheng-Chun Hsu, Zhenyu Jiang, and Yuke Zhu. Ditto in the house: Building articulation models of indoor
+scenes through interactive perception. In 2023 IEEE International Conference on Robotics and Automation
+(ICRA), pages 3933–3939. IEEE, 2023.
+[24] Long Le, Jason Xie, William Liang, Hung-Ju Wang, Yue Yang, Yecheng Jason Ma, Kyle Vedder, Arjun
+Krishna, Dinesh Jayaraman, and Eric Eaton. Articulate-anything: Automatic modeling of articulated
+objects via a vision-language foundation model. arXiv preprint arXiv:2410.13882, 2024.
+[25] Ziang Cao, Fangzhou Hong, Zhaoxi Chen, Liang Pan, and Ziwei Liu. Physx-anything: Simulation-ready
+physical 3d assets from single image. arXiv preprint arXiv:2511.13648, 2025.
+[26] Xiaowen Qiu, Jincheng Yang, Yian Wang, Zhehuan Chen, Yufei Wang, Tsun-Hsuan Wang, Zhou Xian,
+and Chuang Gan. Articulate anymesh: Open-vocabulary 3d articulated objects modeling. arXiv preprint
+arXiv:2502.02590, 2025.
+[27] Licheng Zhong, Hong-Xing Yu, Jiajun Wu, and Yunzhu Li. Reconstruction and simulation of elastic
+objects with spring-mass 3d gaussians. In European Conference on Computer Vision, pages 407–423.
+Springer, 2024.
+[28] Albert J Zhai, Yuan Shen, Emily Y Chen, Gloria X Wang, Xinlei Wang, Sheng Wang, Kaiyu Guan, and
+Shenlong Wang. Physical property understanding from language-embedded feature fields. In Proceedings
+of the IEEE/CVF Conference on Computer Vision and Pattern Recognition, pages 28296–28305, 2024.
+[29] Mariem Mezghanni, Théo Bodrito, Malika Boulkenafed, and Maks Ovsjanikov. Physical simulation layer
+for accurate 3d modeling. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pages 13514–13523, 2022.
+[30] Tianyi Xie, Zeshun Zong, Yuxing Qiu, Xuan Li, Yutao Feng, Yin Yang, and Chenfanfu Jiang. Physgaussian:
+Physics-integrated 3d gaussians for generative dynamics. In Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition, pages 4389–4398, 2024.
+[31] Minghao Guo, Bohan Wang, Pingchuan Ma, Tianyuan Zhang, Crystal Owens, Chuang Gan, Josh Tenenbaum, Kaiming He, and Wojciech Matusik. Physically compatible 3d object modeling from a single image.
+Advances in Neural Information Processing Systems, 37:119260–119282, 2024.
+[32] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish
+Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from
+natural language supervision. In International conference on machine learning, pages 8748–8763. PmLR,
+2021.
+[33] Jiahui Lei, Congyue Deng, Bokui Shen, Leonidas Guibas, and Kostas Daniilidis. Nap: Neural 3d
+articulation prior. arXiv preprint arXiv:2305.16315, 2023.
+[34] Minghua Liu, Mikaela Angelina Uy, Donglai Xiang, Hao Su, Sanja Fidler, Nicholas Sharp, and Jun Gao.
+Partfield: Learning 3d feature fields for part segmentation and beyond. arXiv preprint arXiv:2504.11451,
+2025.
+[35] Colin Raffel, Noam Shazeer, Adam Roberts, Katherine Lee, Sharan Narang, Michael Matena, Yanqi Zhou,
+Wei Li, and Peter J Liu. Exploring the limits of transfer learning with a unified text-to-text transformer.
+Journal of machine learning research, 21(140):1–67, 2020.
+
+7
+
+Implementation details
+
+Structure of PhysXGen. In this section, we present the architectural details and implementation
+specifics of PhysXGen. To maintain consistency with the established pre-trained geometry space,
+our geometrical decoder preserves the original hyperparameter configuration from [10], ensuring
+effective utilization of pre-trained weights. For the physical processing components, we implement
+structurally symmetric encoder-decoder pairs (as detailed in Table 4). Notably, our physical generator
+employs a streamlined transformer architecture with 14 processing blocks rather than the conventional
+24-block configuration to achieve satisfactory performance with lower computational overhead.
+Texture retrieval for PhysXGen training. While the 3D objects in PartNet [6] inherently lack
+surface texturing data, we retrieve compatible UV texture coordinates from ShapeNet [1]. For
+instances where no corresponding texture exists in ShapeNet, we employ the grey color as their
+texture information.
+12
+
+Image prompts
+
+Segmentation-based annotation
+
+Image prompts
+
+{
+
+Part-based annotation (Ours)
+{
+
+10
+
+"label": 10,
+……
+"priority_rank": 2,
+"neighbors": [{
+"labels_of_movement_group": "10-5",
+"movement_type": "B",
+"parent_label": 5,
+"child_label": 10
+}],
+
+"label": 2,
+……
+“priority_rank ": 6,
+"neighbors": [{
+"labels_of_movement_group": "2-9",
+"movement_type": "E"
+5
+} ],
+},
+},
+{
+{
+
+……
+
+……
+
+"label": 6,
+……
+" priority_rank": 4,
+"neighbors": [ {
+12
+"labels_of_movement_group": "6-9",
+"movement_type": "B",
+"parent_label": 9,
+11
+"child_label": 6
+} ],
+
+"label": 5,
+……
+"priority_rank": 7,
+"neighbors": [{
+"labels_of_movement_group": "5-1",
+"movement_type": "E"
+}, ……
+]
+
+1
+
+13
+
+},
+
+},
+
+Figure 7: Qualitative comparison of different annotation setting.
+Table 4: Hyper-parameters of main modules.
+Model
+Geometry decoder
+Physics decoder
+Physical encoder
+
+8
+
+resolution model channel latent channels num_blocks num_heads mlp_ratio window_size
+64
+64
+64
+
+768
+2048
+768
+
+8
+8
+8
+
+12
+4
+4
+
+12
+16
+12
+
+4
+4
+4
+
+8
+8
+8
+
+Details of human-in-the-loop annotation pipeline
+
+In this section, we detail the technical configuration of our 3D annotation pipeline. For part-aware
+geometric annotation, two distinct methodologies were evaluated: segmentation-based and part-based
+approaches. The segmentation-based method employs multi-view projective rendering to establish
+inter-part spatial relationships in 2D projections. To avoid the occlusion caused by the number label
+in the rendered images, we input the index image for reference. While effective for macro-structural
+analysis, this approach demonstrates limitations in capturing occluded components and accurately
+resolving fine geometric details that fall below the effective pixel resolution threshold. Conversely,
+the part-based paradigm demonstrates superior robustness in occluded and micro-part annotations.
+However, this methodology introduces scalability challenges when processing complex assemblies
+with high part counts, as it requires rendering a separate image for each individual component - a
+process that incurs increasing expense with increasing part number.
+To avoid the expensive annotation of part-based annotation and build a robust and efficient annotation
+framework, we implement the following preprocessing pipeline: First, we normalize the 3D object’s
+spatial coordinates to the [-1, 1] range through proportional scaling and translation. Subsequently,
+we perform geometric simplification by filtering and merging insignificant components based on
+dual criteria: surface fragments with area ≤ 0.2, or those simultaneously satisfying face count ≤
+100 and area ≤ 0.06, are systematically merged with their topologically adjacent regions. After
+removing the unnecessary parts, we perform the part-based annotation. Figure 7 shows the qualitative
+comparison of two annotation paradigms. The segmentation-based annotation pipeline exhibits
+a higher propensity for generating inconsistent structural interpretations. A representative case
+involves Part 9, which demonstrates translational movement relative to Part 2 (annotation B) instead
+of maintaining the expected rigid connection (annotation E). Besides, Part 6 can move relative to
+the base of the drawer (Part 2, Part 10, Part 13, or Part 14) rather than Part 9. Finally, we adopt
+the part-based annotation pipeline due to its robustness. Furthermore, we show the system prompt
+13
+
+Table 5: Quantitative comparison against GPT-based method.
+Methods
+
+Geometry
+Kinematic parameters
+Absolute scale ↓ Material ↑ Affordance ↑
+Description ↑
+PSNR ↑ CD ↓ F-Score ↑
+COV ↑
+MMD ↓
+
+TRE [10] + PartField [34] + GPT
+PhysXGen
+
+24.31
+24.53
+
+13.2
+12.7
+
+76.9
+77.3
+
+8.81
+7.24
+
+6.73
+11.30
+
+0.09
+0.33
+
+0.24
+0.08
+
+Replace
+
+Procedurally generated
+3D assets
+
+Resize
+
+……
+Source parts
+
+7.95
+13.01
+
+Calculate Connected Region
+Calculate Connected Region
+
+Target part
+
+Base structure
+
+Figure 8: Workflow of our procedural generation method. Leveraging procedural generation
+within PhysXNet, we automatically generate over 6 million physically plausible 3D assets, forming
+an extended dataset denoted as PhysXNet-XL.
+
+for part-based annotation (see Listing 1). By annotating from global to local, we can get better
+annotations.
+
+9
+
+Procedural generation in PhysXNet-XL
+
+To facilitate robust and diverse physical 3D generation, we devise a set of procedural generation rules
+aimed at synthesizing a broad spectrum of physically plausible 3D assets. These rules are categorized
+into two types: a) intra-category procedural generation and b) cross-category procedural generation.
+To ensure the performance of procedural generation, we choose the parts that typically exhibit
+similar physical properties. For a), we target object classes with structural variability, including
+cabinets, tables, bottles, faucets, chairs, ovens, showers, knives, and laptops. For b), we identify
+drawers and doors as modular components that can be flexibly integrated into different object types
+to enhance compositional diversity. Figure 8 shows the workflow of our procedural generation
+method. Specifically, we identify the connected regions between the original object and the target
+part. To ensure structural and physical consistency, we adapt the scale of the new component to
+align it appropriately with the geometry of the base structure. Finally, there are more than 6 million
+physical 3D objects in our PhysXNet-XL. We will try to extend more categories in our future work.
+
+10
+
+More experimental results
+
+10.1
+
+Comparison with GPT-based baseline
+
+To evaluate the capabilities of our proposed method, PhysXGen, in generating physically-grounded
+3D assets, we conduct comprehensive qualitative and quantitative comparisons against a GPTbased baseline pipeline comprising Trellis [10], PartField [34], and GPT-4o. Under this benchmark
+framework, given an input image prompt, Trellis first generates textured 3D meshes with complete
+geometric and appearance representations. These assets are subsequently processed by PartField
+to perform fine-grained part segmentation, followed by a GPT-based physical property assignment
+module that predicts material parameters and dynamic attributes for each identified part. As shown
+in Table 5, our method exceeds the GPT-based method in geometry and most physics metrics.
+Across the four evaluation dimensions of absolute scale, material, kinematics, and affordance,
+PhysXGen demonstrates significant performance gains over the GPT-based baseline, achieving
+relative improvements of 24%, 64%, 28%, and 72%, respectively. In function description, our
+PhysXGen performs reduced robustness compared to GPT-4o, primarily attributable to its training on
+a relatively smaller dataset, i.e., PhysXNet. Furthermore, we visualize the generated results of the
+14
+
+14.31
+10.11
+
+Image prompts
+
+Trellis+PartField+GPT-4o
+Material
+
+Affordance
+
+Absolute Scale
+
+1
+
+Physical
+dimension:
+20×15×12 cm
+
+𝜌 ≈ 7.8 𝑔/𝑐𝑚3
+
+0.5
+
+PhysXGen
+Affordance
+
+Absolute Scale
+
+1
+
+0.5
+
+0
+
+Function Description
+
+Affordance
+
+Function Description
+
+1
+
+Find the part that
+delivers water
+from the valve
+system to the sink
+
+Find the part that
+delivers water
+from the valve
+system to the sink
+
+0.5
+
+0
+
+0
+
+Kinematics
+Kinematic type: rotation
+Range: [-180,180]
+
+𝜌 ≈ 7.8 𝑔/𝑐𝑚3
+
+0.5
+
+0
+
+Affordance
+
+Material
+1
+
+Physical
+dimension:
+24.31×18.19×14.7
+cm
+
+Child part
+
+Kinematics
+Parent part
+
+Dir: [1,0,0]
+
+Kinematic type: rotation
+Range: [-87.3,10.2]
+Dir: [-0.01,0.941,0.05]
+
+Pos: [0,0,0]
+
+Pos: [-0.011,0.013,0.001]
+
+Child part
+
+Parent part
+
+Screw
+
+Figure 9: Qualitative comparison of different methods. Compared with the existing method, our
+method achieves robust performance in generating physical 3D assets.
+
+GPT-based baseline and our PhysXGen in Fig. 9. The qualitative evaluations prove the impressive
+performance in physical-grounded 3D asset generation, especially in kinematics and affordance.
+10.2
+
+Qualitative comparison among different architectures
+
+Additionally, we implement the qualitative evaluations of the different architectures in ablation
+studies (see Figure 10). By integrating the correlation between geometry and physics in VAE and
+diffusion model, the generative performance of physical properties is improved gradually. In material,
+kinematics, and affordance, our PhysXGen is more stable and accurate in determining the target
+region with fewer artifacts.
+
+11
+
+Further analysis on challenges in physical-grounded 3D generation
+
+In this section, we analyze the new challenges in physical-grounded 3D asset generation. For
+clarification, we summarize the special challenges in physical property generation.
+Absolute scale: Our experimental results with PhysXGen reveal a constraint in absolute scale prediction: conventional normalization strategies prove inadequate for handling the inherent challenges of
+dimensional distribution. The absolute scale measurements exhibit a long-tailed distribution spanning
+three orders of magnitude (1-1000 cm), with a concentration of most samples below 300 cm. This
+long-tailed distribution makes linear normalization suboptimal due to its poor preservation of relative
+scale differences in the predominant sub-300 cm range. While logarithmic normalization presents a
+compelling alternative for handling its span, direct implementation would disproportionately compress the feature space where most of the objects reside (1-300 cm range), potentially diminishing
+discriminative power within this critical operational regime. Figure 11 shows the error distribution in
+Absolute scale. Our PhysXGen is hard to maintain robustness in generating extremely large objects.
+Material and Affordance: Our analysis further identifies analogous normalization challenges in
+material density prediction (0-10 g/cm³ range), though with diminished urgency compared to absolute
+scaling due to the constrained parameter space. However, a more critical limitation emerges in
+physical property coherence: both affordance estimation and material prediction exhibit spatial
+inconsistency artifacts as shown in Fig. 10. Besides, we report the error distribution in the two metrics
+in Fig. 11. As evidenced by the distribution figure, artifact-induced perturbations manifest as spatially
+scattered data points in the distribution. Furthermore, although morphological post-processing can
+enhance the generated results, the inconsistency in the physics space of neighboring regions may
+obstruct further improvement in physical-grounded 3D asset generation.
+15
+
+Image prompts
+
+Baseline
+Absolute Scale
+
+Affordance
+
+Physical
+dimension:
+73.6×69.4×55.7
+cm
+
+Baseline+Dep-VAE
+1
+
+Material
+𝜌 ≈ 3.0 𝑔/𝑐𝑚3
+
+0.5
+
+Absolute Scale
+
+Affordance
+
+Physical
+dimension:
+68.5×64.5×51.9
+cm
+
+1
+
+0.5
+
+0
+
+0
+
+PhysXGen
+
+Baseline+Dep-diff
+Absolute Scale
+
+Affordance
+
+Physical
+dimension:
+72.1×64.7×53.0
+cm
+
+1
+
+Material
+𝜌 ≈ 3.0 𝑔/𝑐𝑚3
+
+0.5
+
+Absolute Scale
+
+Affordance
+
+Physical
+dimension:
+71.9×63.1×50.6
+cm
+
+1
+
+0
+
+Baseline+Dep-VAE
+
+Kinematics
+Child part
+
+Material
+𝜌 ≈ 3.0 𝑔/𝑐𝑚3
+
+0.5
+
+0
+
+Baseline
+Kinematic type: rotation
+
+Material
+𝜌 ≈ 3.0 𝑔/𝑐𝑚3
+
+Kinematics
+Parent part
+
+Range: [-132.1,37.1]
+
+Kinematic type: rotation
+
+Child part
+
+Parent part
+
+Range: [-126.3,32.1]
+
+Dir: [-0.83,-0.06,0.04]
+
+Dir: [-0.86,0.06,0.01]
+
+Pos: [-0.56,-0.04,-0.173]
+
+Pos: [-0.53,-0.03,-0.13]
+
+Baseline+Dep-diff
+
+PhysXGen
+
+Kinematics
+
+Kinematics
+
+Kinematic type: rotation
+
+Child part
+
+Parent part
+
+Range: [-120.4,53.7]
+
+Child part
+Kinematic type: rotation
+
+Parent part
+
+Range: [-136.9,44.1]
+
+Dir: [-0.89,0.07,-0.02]
+
+Dir: [-0.93,0.04,-0.02]
+
+Pos: [-0.46,-0.07,-0.181]
+
+Pos: [-0.45,-0.03,-0.179]
+
+Baseline
+Affordance
+
+Baseline+Dep-VAE
+
+Function Description
+1
+0.5
+
+0
+
+Affordance
+
+Function Description
+1
+
+Find the part that
+delivers audio to
+the right ear and
+provides comfort
+during use.
+
+0.5
+
+0
+
+PhysXGen
+
+Baseline+Dep-diff
+Affordance
+
+Function Description
+1
+0.5
+
+0
+
+Find the part that
+delivers audio to
+the right ear and
+provides comfort
+during use.
+
+Affordance
+
+Function Description
+1
+
+Find the part that
+delivers audio to
+the right ear and
+provides comfort
+during use.
+
+0.5
+
+0
+
+Find the part that
+delivers audio to
+the right ear and
+provides comfort
+during use.
+
+Figure 10: Qualitative comparison of different architectures.
+
+Kinematics: As the fine-grained physical properties, we split the kinematics into several parameters:
+1) child part; 2) parent part; 3) movement type: A. No movement constraints (like water in a
+bottle), B. Prismatic joints (like a drawer), C. Revolute joints (like a laptop), D. Hinge joint (like a
+hose in a shower system), or E. Rigid joint; 4) kinematic parameters including rotation/movement
+direction, location of rotation axis, rotation/movement range. For challenges 1) and 2), the inherent
+difficulty in determining the number of parts during generation precludes effective implementation of
+classification-based loss. Consequently, in our method, our adoption of regression-based prediction
+inadvertently introduces artifacts in hierarchical part determination (parent-child relationships). More
+critically, the absence of explicit mapping between 3D coordinate systems and geometric structural
+features increases the difficulty in building kinematics space and inserting the correlation between
+physics and geometry shown in Fig 11.
+Function description: Our framework leverages CLIP [32] for text embedding extraction, subsequently performing dimensionality reduction through 3D VAE to establish a compressed latent
+space. This architecture enables joint learning of all physical properties. However, the non-invertible
+nature of CLIP’s encoder-only architecture fundamentally restricts embedding-to-prompt disentanglement, thereby constraining interpretability in downstream 3D semantic reasoning tasks. Meanwhile,
+compared with other physical properties, text embedding is more complex to learn and generate.
+As shown in Fig 11, the error in normalized function descriptions is larger than other properties.
+16
+
+Absolute scale error distribution
+
+Affordance error distribution
+
+Material error distribution
+
+Kinematics error distribution
+
+Function Descriptions error distribution
+
+Figure 11: Error distribution of different physical properties.
+
+Furthermore, while encoder-decoder foundation models like T5 [35] theoretically permit decoding,
+their high-dimensional embedding spaces impose prohibitively expensive computational overhead for
+cross-domain alignment with physical properties.
+
+12
+
+Ethics statement
+
+Human Annotator Ethical Concerns: All annotations used in this study were performed by the
+authors. No external participants were involved, and no personal or sensitive data were collected.
+According to our institution’s ethical guidelines, this study does not constitute human subjects
+research and therefore did not require IRB approval.
+Clarification of dataset license: Since 3D data in PhysXNet and PhysXNet-XL are derived and
+modified from PartNet and ShapeNet, users are required to comply with the ShapeNet license terms2 .
+Potential biases: While our dataset, PhysXNet, offers a new collection of 3D objects annotated
+with rich physical properties, we acknowledge that the dataset may contain representational biases,
+which we plan to address in future work. Moreover, we caution against the direct application of our
+methods in safety-critical domains (e.g., autonomous robotics or medical devices) without rigorous
+validation, as errors or inaccuracies in physical property predictions could result in adverse outcomes.
+Finally, since part of the annotation process involves vision-language models (VLMs), specifically
+GPT-4o (costs over $1k), the dataset annotations may reflect biases inherent in these models despite
+subsequent human verification.
+Listing 1: System prompt for part-based annotation (GPT)
+You have a good understanding of the structure of an articulated
+object. Your job is to assist the user in analyzing the
+properties of it. Specifically, the user will give you
+2
+
+https://shapenet.org/terms
+
+17
+
+images of parts, and your task is to recognize the
+articulated object and analyze the parts of that object.
+You should find a similar physical 3D object in the real
+world. Based on human knowledge of it, you should give
+your answer about the information as follows:
+Object-level:
+(1) name, category, and dimension (length*width*height, in cm) of
+the articulated object.
+Part-level:
+Part_1 (image_1):
+(1) Label, name, material, density (g/cm^3) of the part.
+(2) priority rank of being touched when using this object based
+on human preference.
+(3) labels of all neighboring parts.
+(3.1) assign a movement type for each group between Part_1 and
+its neighboring parts (A. merely touch and no movement
+constraints, B. relative translationally move, C. rotation
+about an axis, D. rotation about a point, or E. rigid
+constraint). If the movement type is B, C, or D, output
+the parent and child parts.
+(3.2) assign a movement type for each group between Part_1 and
+its neighboring parts (A. merely touch and no movement
+constraints, B. relative translationally move, C. rotation
+about an axis, D. rotation about a point, or E. rigid
+constraint). If the movement type is B, C, or D, output
+the parent and child parts.
+...
+(4) summarize the basic information (including material, physical
+dimension, category, and name), functional, movement
+description, and priority of being grasped description.
+Part_2 (image_2):
+(1) Label, name, material, density (g/cm^3) of the part.
+(2) priority rank of being touched when using this object based
+on human preference.
+(3) labels of all neighboring parts.
+(3.1) assign a movement type for each group between Part_2 and
+its neighboring parts (A. merely touch and no movement
+constraints, B. relative translationally move, C. rotation
+about an axis, D. rotation about a point, or E. rigid
+constraint). If the movement type is B, C, or D, output
+the parent and child parts.
+(3.2) assign a movement type for each group between Part_2 and
+its neighboring parts (A. merely touch and no movement
+constraints, B. relative translationally move, C. rotation
+about an axis, D. rotation about a point, or E. rigid
+constraint). If the movement type is B, C, or D, output
+the parent and child parts.
+...
+(4) summarize the basic information (including material, physical
+dimension, category, and name), functional, movement
+description, and priority of being grasped description.
+For example:
+{
+"object_name": "Rifle",
+"category": "ToyGun",
+"dimension": "80*10*25",
+"parts": [
+{
+"label": 1,
+"material": "Plastic",
+"density": "1.2 g/cm^3",
+"name": "Foregrip",
+
+18
+
+"priority_rank": 2,
+"neighbors": [
+{
+"labels_of_movement_group": "1-8",
+"movement_type": "E",
+}
+"Basic_description": "It’s a foregrip of a Rifle made of
+plastic.",
+"Functional_description": "It can control the ...",
+"Movement_description": "It cannot move normally...",
+"Grasped_description": "Most likely to be grasped or handled.",
+]
+},
+{
+"label": 2,
+"material": "Plastic",
+"density": "1.2 g/cm^3",
+"name": "Stock",
+"priority_rank": 5,
+"neighbors": [
+{
+"labels_of_movement_group": "2-8",
+"movement_type": "B",
+"parent_label": 8,
+"child_label": 2
+}
+"Basic_description": "It’s a foregrip of a Rifle classified as
+a gun. It is a big part of the object made of plastic.",
+"Functional_description": "It can be grasped to control the
+object...",
+"Movement_description": "It cannot move normally...",
+"Grasped_description": "Less likely to be grasped.",
+]
+},
+...
+}
+Remember:
+(1) Do not answer anything not asked.
+(2) You should base on the physical 3D object in the real world
+to analyze the properties and movement of the object.
+(3) You should purely based on its function to detremine the
+movement type of parts.
+(4) You should prefer to analyze the rendered object as a real 3D
+object rather than a toy model.
+(5) You should assign the priority rank of being grasped from 1
+to 10. The most likely part to be touched is 1.
+(6) You should consider the function rather than the area or name
+of the target part to determine the priority rank of being
+grasped.
+(7) The target part uses red color while the other parts use grey
+color.
+(8) You should output full JSON including all parts.
+
+19
+
+

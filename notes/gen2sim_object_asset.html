@@ -1,0 +1,64 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Gen2Sim: Scaling up Robot Learning in Simulation with Generative Models</title><style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.65;max-width:1120px;margin:32px auto;padding:0 24px;color:#17202a;background:#fbfbf8}
+h1{font-size:30px;margin-bottom:8px}h2{font-size:22px;margin-top:30px;border-bottom:1px solid #ddd;padding-bottom:4px}h3{font-size:18px;margin-top:22px}
+p,li{font-size:15px}.meta{color:#555}.card{border:1px solid #ddd;border-radius:8px;padding:14px 16px;background:#fff;margin:14px 0}
+.table-line{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;background:#fff;padding:2px 6px;margin:0;border-left:1px solid #ddd;border-right:1px solid #ddd}
+pre{background:#111827;color:#f9fafb;padding:14px;border-radius:8px;overflow:auto}
+</style></head><body><h1>Gen2Sim: Scaling up Robot Learning in Simulation with Generative Models</h1>
+
+<h2>定位</h2>
+<p>概念上支持生成式资产库，但与真实指定物体 fidelity 不匹配。</p>
+
+<p class="table-line">| 字段 | 内容 |</p>
+<p class="table-line">| --- | --- |</p>
+<p class="table-line">| priority / score | P2 / 2.49/5 |</p>
+<p class="table-line">| family | generative simulation asset/data scaling |</p>
+<p class="table-line">| sources | https://arxiv.org/abs/2310.18308 |</p>
+<p class="table-line">| local_pdf | ref/gen2sim_2310_18308.pdf |</p>
+<p class="table-line">| local_supplementary_pdfs | 无 |</p>
+<p class="table-line">| local_repo | 无 |</p>
+<p class="table-line">| commit / license | n/a / n/a (no-repo) |</p>
+
+<h2>Inputs / Outputs</h2>
+<ul>
+<li>Inputs: generative model-created objects/scenes/tasks.</li>
+<li>Outputs: simulation assets/tasks for robot learning.</li>
+</ul>
+
+<h2>Full Method Pipeline</h2>
+<ul>
+<li>Use generative models to create diverse simulation objects/scenes.</li>
+<li>Train robot policies in generated simulation.</li>
+<li>Evaluate sim-to-real/task generalization.</li>
+<li>Iterate generation/evaluation.</li>
+</ul>
+
+<h2>Losses / Objectives</h2>
+<p>policy learning objectives; generative losses outside focus.</p>
+
+<h2>Assumptions</h2>
+<p>目标是 diversity 而非 real2sim accuracy。</p>
+
+<h2>Failure Modes</h2>
+<p>不保证 Isaac-ready object/collision。</p>
+
+<h2>对 Directional View Gap 的关系</h2>
+<p>无直接关系。</p>
+
+<h2>Isaac Sim Transfer</h2>
+<p>indirect。</p>
+
+<h2>可迁移模块</h2>
+<ul>
+<li>scene/object representation: generative simulation asset/data scaling</li>
+<li>view/object completion: 无直接关系。</li>
+<li>geometry/collision: simulation assets/tasks for robot learning.</li>
+<li>simulator integration: indirect。</li>
+<li>evaluation metrics: mesh watertightness, collision proxy validity, object-level novel-view consistency, task success / collision rate.</li>
+</ul>
+
+<h2>Recommended Role</h2>
+<p>P2 背景参考。</p>
+
+<h2>Next Experiment</h2>
+<p>不投入短期复现。</p></body></html>

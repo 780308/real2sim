@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ReaDy-Go 阅读笔记</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #1d2630;
+      --muted: #607080;
+      --line: #d7dee8;
+      --soft: #f6f8fb;
+      --accent: #1767aa;
+      --green: #28724f;
+      --amber: #8a5a12;
+      --red: #a23a3a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      color: var(--ink);
+      background: #fff;
+      line-height: 1.62;
+    }
+    main {
+      width: min(1180px, calc(100vw - 40px));
+      margin: 0 auto;
+      padding: 40px 0 68px;
+    }
+    header {
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 22px;
+      margin-bottom: 28px;
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: 32px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+    h2 {
+      margin: 34px 0 12px;
+      font-size: 23px;
+      line-height: 1.32;
+      letter-spacing: 0;
+    }
+    h3 {
+      margin: 22px 0 8px;
+      font-size: 18px;
+      letter-spacing: 0;
+    }
+    p { margin: 8px 0; }
+    a { color: var(--accent); }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      font-size: 0.94em;
+      background: #eef3f8;
+      padding: 0.08em 0.3em;
+      border-radius: 4px;
+    }
+    ul, ol { padding-left: 1.25rem; }
+    li { margin: 5px 0; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 12px 0 24px;
+      font-size: 14px;
+      vertical-align: top;
+    }
+    th, td {
+      border: 1px solid var(--line);
+      padding: 9px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #edf2f7; }
+    .meta {
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .callout {
+      border-left: 4px solid var(--accent);
+      background: var(--soft);
+      padding: 12px 14px;
+      margin: 14px 0;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+      gap: 12px;
+      margin: 12px 0 20px;
+    }
+    .box {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px 14px;
+      background: #fff;
+    }
+    .tag {
+      display: inline-block;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 1px 8px;
+      margin: 2px 4px 2px 0;
+      font-size: 12px;
+      color: var(--muted);
+      background: #fff;
+    }
+    .good { color: var(--green); font-weight: 650; }
+    .warn { color: var(--amber); font-weight: 650; }
+    .bad { color: var(--red); font-weight: 650; }
+    .small { color: var(--muted); font-size: 13px; }
+    .nowrap { white-space: nowrap; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>ReaDy-Go: 动态 3D Gaussian Splatting real-to-sim 数据工厂</h1>
+    <p class="meta">
+      论文: <em>ReaDy-Go: Real-to-Sim Dynamic 3D Gaussian Splatting Simulation for Environment-Specific Visual Navigation with Moving Obstacles</em><br>
+      作者: Seungyeon Yoo, Youngseok Jang, Dabin Kim, Youngsoo Han, Seungwoo Jung, H. Jin Kim。arXiv:2602.11575v2, 2026-02-14。<br>
+      本地 PDF: <code>ref/ReaDy-Go.pdf</code>。阅读视角: collaborative real2sim simulation platform, unseen / partially observed scenes, open-world / world-model-style completion。
+    </p>
+  </header>
+
+  <section>
+    <h2>先把摘要翻成我们关心的问题</h2>
+    <div class="callout">
+      ReaDy-Go 的主张是: 只用目标环境的一段静态 monocular video，重建 static GS scene，再插入可动画化的 human GS avatars，生成带 moving obstacles 的 photorealistic navigation datasets，用 imitation learning 训练 environment-specific RGB-only visual navigation policy，从而缩小 sim-to-real gap。
+    </div>
+    <p>
+      它不是一个通用 scene completion 或 open-world world model 论文。更准确地说，它是一个 <strong>real-to-sim 数据生成 pipeline</strong>: 让真实环境变成可渲染、可规划、可批量采样的动态仿真场。对我们的平台最有价值的是中间层接口: <code>GS scene</code>、<code>voxel/occupancy map</code>、<code>human GS actor</code>、<code>2D trajectory</code>、<code>expert action</code>、<code>RGB observation</code>。
+    </p>
+  </section>
+
+  <section>
+    <h2>完整方法 Pipeline</h2>
+    <p class="small">
+      原论文 Fig. 2 在 PDF 第 3 页。本环境的 skill 脚本缺少可用的 Ghostscript/PyMuPDF renderer，因此 HTML 未嵌入截图；下面是按论文方法重构的工程链路。
+    </p>
+
+    <h3>0. 任务定义</h3>
+    <table>
+      <tr><th>项目</th><th>内容</th></tr>
+      <tr><td>目标任务</td><td>Goal navigation。机器人从 start 到 goal，避开 static obstacles 和 1 到 2 个 dynamic human obstacles。</td></tr>
+      <tr><td>部署形态</td><td>RGB-only visual navigation policy。真实部署时 policy 不访问 GS map，只输入 RGB、previous action 和 relative goal。</td></tr>
+      <tr><td>核心思路</td><td>GS map 主要用于 simulation / data generation / expert supervision，不作为最终 policy 的显式在线地图。</td></tr>
+    </table>
+
+    <h3>1. 环境采集与尺度恢复</h3>
+    <table>
+      <tr><th>输入</th><th>处理</th><th>输出</th><th>关键假设</th></tr>
+      <tr>
+        <td>目标部署环境的一段 static monocular video</td>
+        <td>用 <code>COLMAP</code> 估计 camera poses；初始帧中放 <code>ArUco marker</code> 得到 metric scale。</td>
+        <td>带 metric camera poses 的图像序列。</td>
+        <td>采集时场景基本静态；视频覆盖导航区域；尺度标定可靠。</td>
+      </tr>
+    </table>
+
+    <h3>2. Static GS Scene Reconstruction</h3>
+    <p>
+      背景环境用 <code>PGSR</code> 重建。GS primitive 的状态包括 position、rotation、scale、opacity、color。PGSR 相比 vanilla GS 更强调 surface reconstruction: 它把 3D Gaussians 压成近似平面，并在 photometric loss 之外使用 geometric regularization，目的是减少漂浮噪声、提高 multi-view consistency。
+    </p>
+    <table>
+      <tr><th>输入</th><th>中间表示</th><th>损失 / 目标</th><th>输出</th></tr>
+      <tr>
+        <td>posed RGB frames</td>
+        <td><code>3D Gaussians</code>: mean, covariance/scale/rotation, opacity, color</td>
+        <td><code>photometric loss</code> + <code>geometric regularization</code></td>
+        <td>可 novel-view rendering、可 voxelization 的 static GS scene</td>
+      </tr>
+    </table>
+
+    <h3>3. Human GS Avatar 与 Motion Generation</h3>
+    <p>
+      动态障碍物不是 Unity mesh，而是可动画化的 <code>human GS</code>。作者从 <code>NeuMan</code> 数据集中用 <code>HUGS</code> 提取 human GS avatars。HUGS 将 dynamic human 和 static scene 解耦，在 canonical space 中用 <code>SMPL</code> 初始化，并结合 triplane features；fully connected layers 估计 human Gaussian attributes 和 <code>LBS</code> weights，使 human GS 能在 novel SMPL poses 下动画化。
+    </p>
+    <p>
+      对运动生成，输入是 human planner 给出的 2D trajectory。系统把它转换成 body root linear / rotation velocities，归一化到 <code>HumanML3D</code> 表示，送入 <code>PriorMDM</code>。PriorMDM 输出 3D body joint positions，再通过 <code>SMPLify</code> 拟合成 SMPL parameters，最后变换到目标环境 world coordinate。
+    </p>
+    <table>
+      <tr><th>输入</th><th>模型</th><th>输出</th><th>我们要注意的地方</th></tr>
+      <tr>
+        <td>desired 2D human trajectory</td>
+        <td><code>PriorMDM</code> + <code>SMPLify</code> + <code>HUGS human GS</code></td>
+        <td>逐帧 human root pose、joint configuration、可渲染 human GS</td>
+        <td>这解决的是“视觉上真实的动态人”，不是物理接触、碰撞响应或真实人群行为。</td>
+      </tr>
+    </table>
+
+    <h3>4. 从 GS 到 Planning Maps</h3>
+    <p>
+      为了给 robot planner 和 human planner 使用，ReaDy-Go 将 static GS scene 转成 occupancy maps。它先做 voxelization: 若一个 voxel 与某个 Gaussian 的 <code>1 sigma ellipsoid</code> 相交，则记为 occupied。由于 GS 重建在地面附近会有 spurious Gaussians，作者用 voxel 内 accumulated opacity 做过滤: opacity sum 低于阈值就当作 free space。
+    </p>
+    <table>
+      <tr><th>步骤</th><th>表示</th><th>用途</th></tr>
+      <tr><td>GS voxelization</td><td>3D voxel occupancy</td><td>把连续 GS primitive 转成可规划几何。</td></tr>
+      <tr><td>Opacity filtering</td><td>filtered voxel map</td><td>清掉地面附近低置信漂浮点，减少 free space 被误占用。</td></tr>
+      <tr><td>Height projection</td><td>robot navigable map, human walkable map</td><td>按不同高度范围投影到 2D occupancy。robot map 用近地面到 robot height；human map 用近地面到 human height。</td></tr>
+      <tr><td>Inflation</td><td>inflated occupied grids</td><td>按 robot radius / human radius 加 safety margin。</td></tr>
+    </table>
+
+    <h3>5. Human Planner</h3>
+    <p>
+      Human planner 的目标不是复现真实人类意图，而是生成 interaction-rich scenarios。它在 human walkable map 上采样 human start / goal，使 human path 与 robot start-goal line 交叉或平行；先用 <code>A*</code> 生成 seed path，再用 <code>spline-based optimization</code> 平滑成 2D trajectory，最后交给 human animation module 生成 SMPL motion。
+    </p>
+
+    <h3>6. Robot Expert Planner</h3>
+    <p>
+      Expert planner 用 <code>Hybrid A*</code> 加 motion primitive library，适合 non-holonomic ground vehicle / unicycle model。动态人只有在出现在 camera FOV 且接近 robot trajectory 的安全范围时，才会被加入 robot navigable map。
+    </p>
+    <table>
+      <tr><th>模块</th><th>细节</th></tr>
+      <tr><td>Human occupancy extraction</td><td>过滤 covariance trace 超过 75th percentile 的高不确定 Gaussian ellipsoids，再用 voxel-grid downsampling 得到更干净的 human points。</td></tr>
+      <tr><td>Dynamic safety buffer</td><td>把 human points 投影到 2D robot map，并按 constant velocity prediction over 2 s horizon 膨胀。</td></tr>
+      <tr><td>Motion primitives</td><td>3 个 velocity scales: 1/3、2/3、1 倍最大速度；3 个 steering commands: left、straight、right。</td></tr>
+      <tr><td>Search cost</td><td>primitive arc length、steering penalty、heuristic cost-to-go 的 weighted sum。</td></tr>
+      <tr><td>Reactive replanning</td><td>到达 replanning period，或 dynamic obstacle 与当前 look-ahead trajectory segment 的距离低于 safety margin 时触发。</td></tr>
+    </table>
+
+    <h3>7. Dataset Generation</h3>
+    <p>
+      在动态 GS simulator 中跑足够多 trials，记录训练样本:
+    </p>
+    <table>
+      <tr><th>样本字段</th><th>含义</th></tr>
+      <tr><td><code>RGB observation</code></td><td>由 static GS scene + animated human GS 从 robot viewpoint 渲染。</td></tr>
+      <tr><td><code>expert action</code></td><td>Hybrid A* expert 输出的 linear velocity <code>v</code> 和 angular velocity <code>w</code>。</td></tr>
+      <tr><td><code>relative goal</code></td><td>机器人 local coordinate frame 中的 <code>Delta x</code>、<code>Delta y</code>。</td></tr>
+    </table>
+    <p>
+      实验设置中，三个环境 Outside / Lobby / Library 分别用约 6 分钟 monocular video 重建，每个环境 1,000 到 1,500 张图；使用 6 个 human GS avatars；每个环境生成 400 training episodes，约 80k 到 120k samples；validation 为每环境 50 episodes。
+    </p>
+
+    <h3>8. Policy Training</h3>
+    <table>
+      <tr><th>项目</th><th>内容</th></tr>
+      <tr><td>输入</td><td>连续 3 帧 RGB images、previous action <code>(v_{t-1}, w_{t-1})</code>、relative goal <code>(Delta x_t, Delta y_t)</code>。</td></tr>
+      <tr><td>视觉编码器</td><td>10 个 convolutional layers with residual connections，单帧输出 20-D encoded vector。</td></tr>
+      <tr><td>融合向量</td><td>3 个 encoded vectors + previous action + relative goal，论文称为 64-D concatenated vector。</td></tr>
+      <tr><td>控制头</td><td>3 层 MLP，输出 action <code>(v_t, w_t)</code>。</td></tr>
+      <tr><td>训练目标</td><td><code>imitation learning</code>，用 <code>mean squared error</code> 监督 policy action 匹配 expert action。</td></tr>
+      <tr><td>优化设置</td><td><code>Adam</code>，learning rate <code>1e-4</code>；RGB resolution <code>144 x 256</code>；帧间隔 <code>0.5 s</code>。</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>Inputs, Outputs, Intermediate Representations</h2>
+    <table>
+      <tr><th>阶段</th><th>Inputs</th><th>Intermediate Representations</th><th>Outputs</th></tr>
+      <tr><td>环境重建</td><td>static monocular video, ArUco marker</td><td>posed images, metric camera poses</td><td>PGSR static GS scene</td></tr>
+      <tr><td>动态人资产</td><td>NeuMan video-derived humans</td><td>canonical human GS, SMPL, triplane features, LBS weights</td><td>animatable human GS avatars</td></tr>
+      <tr><td>运动生成</td><td>2D human trajectory</td><td>root velocities, HumanML3D-style input, 3D joints, SMPL params</td><td>time-indexed human animation in world coordinates</td></tr>
+      <tr><td>可规划地图</td><td>static GS, human GS at current time</td><td>voxel occupancy, opacity-filtered voxels, 2D robot/human maps</td><td>inflated navigable / walkable maps</td></tr>
+      <tr><td>专家规划</td><td>robot start/goal, dynamic human state, robot map</td><td>Hybrid A* nodes, motion primitives, look-ahead segment</td><td>robot trajectory, expert action <code>(v,w)</code></td></tr>
+      <tr><td>数据集</td><td>simulator state, expert action, relative goal</td><td>rendered RGB sequence</td><td><code>(RGB, action, relative goal)</code> tuples</td></tr>
+      <tr><td>policy</td><td>3 RGB frames, previous action, relative goal</td><td>20-D image embeddings, 64-D fused vector</td><td>control action <code>(v,w)</code></td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>Losses 与 Objectives</h2>
+    <table>
+      <tr><th>位置</th><th>Objective</th><th>备注</th></tr>
+      <tr><td><code>PGSR</code></td><td>photometric reconstruction + geometric regularization</td><td>论文强调几何一致性，因为后续要从 GS 提取 voxel / occupancy map。</td></tr>
+      <tr><td><code>HUGS</code> / <code>PriorMDM</code></td><td>作为已有模型使用</td><td>ReaDy-Go 没有展开其训练损失；在本 pipeline 中它们是 human avatar 和 motion prior。</td></tr>
+      <tr><td>Human planner</td><td>interaction-rich scenario generation</td><td>采样 cross / parallel path，再用 A* seed 和 spline optimization 平滑。</td></tr>
+      <tr><td>Robot expert planner</td><td>find feasible and safe non-holonomic path</td><td>Hybrid A* cost = arc length + steering penalty + heuristic cost-to-go 的加权和，并带 reactive replanning。</td></tr>
+      <tr><td>Policy training</td><td>behavior cloning / imitation learning</td><td>用 MSE 让 predicted <code>(v,w)</code> 拟合 expert <code>(v,w)</code>。</td></tr>
+      <tr><td>Evaluation objective</td><td>high Success Rate, low Average Reaching Time</td><td>成功定义: 50 s 内到达 goal 1 m 范围内。</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>实验读法: 结果说明了什么</h2>
+    <div class="grid">
+      <div class="box">
+        <h3>Simulation</h3>
+        <p>ReaDy-Go 与 Vid2Sim 在 static 场景接近，但在 dynamic 场景差距明显。模拟中 ReaDy-Go dynamic SR: Outside 78%、Lobby 78%、Library 80%；Vid2Sim 分别为 57%、70%、68%。</p>
+      </div>
+      <div class="box">
+        <h3>Real World</h3>
+        <p>真实世界中 ReaDy-Go dynamic SR: Outside 90%、Lobby 70%、Library 80%；Vid2Sim 为 60%、40%、60%；ViNT 为 30%、20%、40%。这支持“photorealistic dynamic GS obstacles 比非 photorealistic mesh assets 更利于 dynamic sim-to-real”。</p>
+      </div>
+      <div class="box">
+        <h3>Unseen Environment</h3>
+        <p>把三个环境数据合并训练后，在 unseen env zero-shot 部署，Static SR 70%、Dynamic SR 50%，ART 分别为 30.60 s 和 35.45 s。它有泛化信号，但还不是强 open-world generalization。</p>
+      </div>
+    </div>
+    <p>
+      对我们最重要的结论: environment-specific real-to-sim 数据在小模型上可以压过大规模 general navigation model；但 unseen environment 性能仍明显下降，说明需要更强的 scene completion、semantic/world priors 和跨环境数据规模。
+    </p>
+  </section>
+
+  <section>
+    <h2>Assumptions 与 Failure Modes</h2>
+    <table>
+      <tr><th>类型</th><th>假设 / 风险</th><th>对我们平台的启发</th></tr>
+      <tr><td>Scene acquisition</td><td>目标环境视频采集时基本静态，且 monocular reconstruction + ArUco scale 足够可靠。</td><td>对 partially observed scenes，需要显式记录 coverage map 和 uncertainty，而不是默认 GS 完整。</td></tr>
+      <tr><td>GS geometry</td><td>弱纹理、反光、透明、细长物体可能导致 spurious / missing Gaussians；opacity threshold 会引入 free/occupied 误判。</td><td>需要把 occupancy 的置信度暴露给 planner 和 completion module。</td></tr>
+      <tr><td>Dynamic humans</td><td>动态物体只建模为 human GS；运动由 2D trajectory + motion prior 生成，缺少真实物理交互。</td><td>我们的 asset system 应扩展到 carts、doors、chairs、vehicles、pets 等多类型动态对象，并区分 visual realism 与 physical realism。</td></tr>
+      <tr><td>Prediction</td><td>Human safety buffer 依赖 2 s constant velocity prediction，复杂人群行为会失效。</td><td>可替换为 learned trajectory predictor 或 world-model rollout。</td></tr>
+      <tr><td>Policy input</td><td>policy 需要 relative goal，由 wheel odometry 估计；真实部署会有 drift。</td><td>平台评估应加入 localization / odometry noise。</td></tr>
+      <tr><td>Generalization</td><td>unseen env 只有 50% dynamic SR，说明环境外泛化有限。</td><td>open-world 方向应把 ReaDy-Go 当作 data generator，而非最终 generalist policy。</td></tr>
+      <tr><td>Simulation interface</td><td>论文刻意避免 mesh extraction 和 physics engine integration。</td><td>这让视觉数据生成变轻，但限制了 contact-rich、object manipulation、物理参数估计。</td></tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>对 Collaborative Real2Sim 平台的可移植模块</h2>
+    <h3>我会优先移植的 5 个接口</h3>
+    <ol>
+      <li><strong><code>GSScene.to_occupancy()</code></strong>: 从 GS primitive 生成 3D voxel occupancy，并保留 opacity / uncertainty，而不是只输出 hard grid。</li>
+      <li><strong><code>DynamicActorGS</code></strong>: 把人、车辆、可移动物体都抽象成可渲染 dynamic GS actor，接口包含 visual asset、collision proxy、motion prior。</li>
+      <li><strong><code>TrajectoryConditionedAnimator</code></strong>: 输入 2D / 3D trajectory，输出时序 pose / joints / GS transform。ReaDy-Go 的 HUGS + PriorMDM 是 human-specific 实例。</li>
+      <li><strong><code>PlannerSupervisor</code></strong>: 用 Hybrid A* / MPC / sampling-based planner 在 GS-derived occupancy 上生成 expert demonstrations。</li>
+      <li><strong><code>ScenarioFactory</code></strong>: 自动采样 start-goal、人/物路径、视角、遮挡、动态事件，输出统一数据格式 <code>(obs, state, action, goal, metadata)</code>。</li>
+    </ol>
+
+    <h3>与 open-world / partially observed scene completion 的连接</h3>
+    <p>
+      ReaDy-Go 不会补全 unseen geometry。我们的改造点可以放在 <code>static GS scene reconstruction</code> 之后、<code>planning map extraction</code> 之前: 增加一个 <code>Scene Completion Layer</code>，对未观测区域、低置信区域、遮挡背后结构生成 hypothesis，并把每个 hypothesis 的 uncertainty 传给 planner / simulator / evaluation。
+    </p>
+    <p>
+      一个可行的 world-model-style loop 是: real video 重建 partial GS，抽取 coverage / occupancy uncertainty；用 semantic priors 或 generative world model 补全候选 layout / object assets；在 simulator 中 rollout 多个 plausible worlds；用 planner 和 policy 在这些 worlds 上训练，最终用 real-world validation 反向筛选最可信的 scene hypotheses。
+    </p>
+  </section>
+
+  <section>
+    <h2>迁移矩阵</h2>
+    <table>
+      <tr>
+        <th>平台模块</th>
+        <th>ReaDy-Go 中的对应做法</th>
+        <th>可直接拿走的接口 / 表示</th>
+        <th>需要补的能力</th>
+        <th>优先级</th>
+        <th>主要风险</th>
+        <th>建议评估指标</th>
+      </tr>
+      <tr>
+        <td>Scene representation</td>
+        <td>PGSR static GS scene，强调 surface consistency。</td>
+        <td><code>3D Gaussians</code> + metric pose + opacity / covariance。</td>
+        <td>coverage map、semantic labels、uncertainty-aware occupancy、scene graph binding。</td>
+        <td><span class="good">高</span></td>
+        <td>GS 视觉好但几何不一定可规划。</td>
+        <td>render PSNR/SSIM，occupancy IoU，free-space precision/recall，coverage ratio。</td>
+      </tr>
+      <tr>
+        <td>Object completion</td>
+        <td>基本没有。只通过 opacity filtering 减少噪声。</td>
+        <td>GS-to-voxel 后的 uncertain / missing regions 可作为 completion trigger。</td>
+        <td>open-world object proposal、amodal completion、layout hypothesis、multi-hypothesis simulation。</td>
+        <td><span class="good">高</span></td>
+        <td>补全错误会误导 planner 和 policy。</td>
+        <td>completion IoU，collision proxy correctness，downstream SR/ART delta，多假设一致性。</td>
+      </tr>
+      <tr>
+        <td>Asset generation</td>
+        <td>HUGS 提取 animatable human GS avatars；PriorMDM 按 2D trajectory 生成人体运动。</td>
+        <td><code>DynamicActorGS</code>、<code>SMPL motion</code>、trajectory-conditioned rendering。</td>
+        <td>非人类动态资产、可交互物体、appearance variation、asset registry。</td>
+        <td><span class="good">高</span></td>
+        <td>视觉真实不等于物理真实，人与环境接触可能不可信。</td>
+        <td>human realism user score，motion smoothness，trajectory adherence，occlusion consistency。</td>
+      </tr>
+      <tr>
+        <td>Physical parameter estimation</td>
+        <td>几乎未覆盖；只显式使用 metric scale、robot/human radius、velocity、safety margin。</td>
+        <td>可把 safety radius、velocity profile、collision proxy 作为初始参数。</td>
+        <td>mass/friction/restitution、door joint、object affordance、robot dynamics calibration。</td>
+        <td><span class="warn">中</span></td>
+        <td>ReaDy-Go 绕开 physics engine，无法支持 contact-rich tasks。</td>
+        <td>trajectory prediction error，contact event accuracy，sim-real dynamics gap。</td>
+      </tr>
+      <tr>
+        <td>Simulator integration</td>
+        <td>GS renderer + planner，不需要 mesh extraction / physics engine。</td>
+        <td>photorealistic observation renderer，scenario metadata，expert action dataset。</td>
+        <td>与 physics engine / scene graph / ROS bridge / multi-agent simulator 的状态同步。</td>
+        <td><span class="good">高</span></td>
+        <td>状态真实、渲染真实、物理真实三者可能脱节。</td>
+        <td>render latency，state sync error，collision rate，sim-real policy transfer gap。</td>
+      </tr>
+      <tr>
+        <td>Planner supervision</td>
+        <td>Hybrid A* + motion primitives + reactive replanning。</td>
+        <td><code>PlannerSupervisor.plan(state, occupancy, goal)</code> 输出 <code>(v,w)</code> expert action。</td>
+        <td>learned human predictor、MPC/social navigation、多机器人协同规划。</td>
+        <td><span class="good">高</span></td>
+        <td>constant velocity buffer 对复杂动态场景不足。</td>
+        <td>expert success rate，near-collision count，time-to-collision，replanning frequency。</td>
+      </tr>
+      <tr>
+        <td>Policy / world model training</td>
+        <td>RGB-only behavior cloning，MSE 模仿 expert action。</td>
+        <td><code>(RGB_{t-2:t}, a_{t-1}, goal_rel) -> (v,w)</code>。</td>
+        <td>uncertainty-conditioned policy、latent world model、RL fine-tuning、multi-task heads。</td>
+        <td><span class="warn">中</span></td>
+        <td>policy 容易 environment-specific overfit，unseen env dynamic SR 仍低。</td>
+        <td>SR、ART、dynamic degradation、unseen env SR、OOD obstacle robustness。</td>
+      </tr>
+      <tr>
+        <td>Evaluation metrics</td>
+        <td>SR 和 ART；Static / Dynamic；simulation / real world；unseen env。</td>
+        <td>任务级 sim-to-real benchmark protocol。</td>
+        <td>completion-aware metrics、safety metrics、collaboration metrics、human preference。</td>
+        <td><span class="good">高</span></td>
+        <td>SR/ART 看不到危险擦边、局部碰撞风险和补全质量。</td>
+        <td>SR，ART，collision/near-miss，minimum distance，TTC，coverage，hypothesis regret。</td>
+      </tr>
+    </table>
+  </section>
+
+  <section>
+    <h2>一句话结论</h2>
+    <p>
+      ReaDy-Go 给我们的不是“自动补全开放世界”的答案，而是一个很实用的底座: 用 GS 把真实场景变成可渲染、可规划、可批量采样的数据工厂。把它接到我们的平台时，应把 <code>GS-to-occupancy</code>、<code>dynamic actor injection</code>、<code>planner-generated supervision</code> 先落地，再在低覆盖和高不确定区域接入 scene completion / world model。
+    </p>
+  </section>
+</main>
+</body>
+</html>

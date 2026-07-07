@@ -1,0 +1,1834 @@
+Novel Demonstration Generation with Gaussian
+Splatting Enables Robust One-Shot Manipulation
+
+arXiv:2504.13175v1 [cs.RO] 17 Apr 2025
+
+Sizhe Yang˚,1,2 Wenye Yu˚,1,3 Jia Zeng1 Jun Lv3 Kerui Ren1,3
+Cewu Lu3 Dahua Lin1,2 Jiangmiao Pang1,:
+1 Shanghai AI Laboratory
+2 The Chinese University of Hong Kong
+3 Shanghai Jiao Tong University
+˚ Equal contributions
+: Corresponding author
+Project page: https://yangsizhe.github.io/robosplat/
+Generalization
+
+Collected Data
+
+87.3%
+
+94.7%
+
+80.6%
+40.6%
+6.1%
+
+A Single Demonstration 𝒕
+
+Multi-View Images
+
+Novel Demonstration Generation
+
+Augmentation Type
+84.4%
+
+76.7%
+
+57.8%
+
+60.0%
+23.3%
+
+12.2%
+
+Object Pose
+
+Lighting
+
+Appearance
+98.4%
+
+92.2%
+72.2%
+25.0%
+3.3%
+
+Camera View
+
+Object Type
+
+Embodiment
+
+Training Data Source:
+
+0.0%
+
+Manually Collected + Previous 2D Augmentation
+Manually Collected
+Ours (Generated)
+
+Fig. 1: Starting from a single expert demonstration and multi-view images, our method generates diverse and visually
+realistic data for policy learning, enabling robust performance across six types of generalization in the real world.
+Compared to previous 2D data augmentation methods, our approach achieves significantly better results across various
+generalization types. Notably, we achieve this within a unified framework.
+Abstract—Visuomotor policies learned from teleoperated
+demonstrations face challenges such as lengthy data collection,
+high costs, and limited data diversity. Existing approaches address these issues by augmenting image observations in RGB
+space or employing Real-to-Sim-to-Real pipelines based on physical simulators. However, the former is constrained to 2D data
+augmentation, while the latter suffers from imprecise physical
+simulation caused by inaccurate geometric reconstruction. This
+paper introduces RoboSplat, a novel method that generates
+diverse, visually realistic demonstrations by directly manipulating
+3D Gaussians. Specifically, we reconstruct the scene through
+3D Gaussian Splatting (3DGS), directly edit the reconstructed
+scene, and augment data across six types of generalization with
+five techniques: 3D Gaussian replacement for varying object
+types, scene appearance, and robot embodiments; equivariant
+transformations for different object poses; visual attribute editing
+for various lighting conditions; novel view synthesis for new
+camera perspectives; and 3D content generation for diverse object
+types. Comprehensive real-world experiments demonstrate that
+RoboSplat significantly enhances the generalization of visuomotor policies under diverse disturbances. Notably, while policies
+trained on hundreds of real-world demonstrations with additional
+
+2D data augmentation achieve an average success rate of 57.2%,
+RoboSplat attains 87.8% in one-shot settings across six types of
+generalization in the real world.
+
+I. I NTRODUCTION
+Imitation learning for visuomotor policies has emerged as a
+promising paradigm in robot manipulation. However, policies
+learned through imitation often display limited robustness
+in deployment scenarios that differ substantially from expert
+demonstrations, primarily due to insufficient coverage of visual
+domains in the training data. Increasing the volume and
+diversity of real-world data is an effective strategy for enhancing robustness [12]; however, acquiring human-collected
+demonstrations is prohibitively time-consuming and laborintensive. Consequently, substantial efforts have been devoted
+to generating diverse expert data without engaging with realworld environments [68, 69, 49, 8, 10, 67, 9, 35, 50, 59].
+Simulated environments offer a low-cost platform for data
+synthesis [49, 69]. However, the Sim-to-Real gap presents
+
+significant challenges that hinder policy performance in realworld scenarios. Although Real-to-Sim-to-Real pipelines can
+narrow this gap considerably, replicating real-world manipulation scenes in simulation remains complex and labor-intensive.
+In particular, inaccuracies in geometric reconstructions often
+lead to imprecise physical simulations. Moreover, existing
+Real-to-Sim-to-Real approaches primarily generate data within
+monotonously reconstructed scenes, resulting in policies that
+are tailored only to those specific environments. Another line
+of work sheds light on augmenting image observations for
+better visual generalization. By editing different semantic parts
+of the image, these approaches generate novel scene configurations, in terms of background appearances [68, 9, 67, 10], embodiment types [8], object types [67], and camera views [50].
+While these image augmentation methods are convenient,
+their limited consideration of 3D spatial information results
+in spatially inaccurate data generation. For more effective
+data augmentation, explicit 3D representations that retain
+accurate spatial information and are realistically renderable
+are required.
+Recently, 3D Gaussian Splatting (3DGS) [25] has become a
+burgeoning approach to superior reconstruction and rendering.
+Thanks to its explicit representation of the scene, 3DGS
+enables interpretable editing of the reconstructed scene, which
+paves the way for generating novel manipulation configurations. Furthermore, as a 3D representation of the scene, 3DGS
+retains spatial information from the real world and allows for
+consistent rendering from multiple perspectives, which makes
+it the real-world counterpart of a simulator’s graphics engine
+for generating novel demonstrations.
+Based on that, we propose RoboSplat, a novel and efficacious approach to demonstration generation with Gaussian
+Splatting. Empowered by 3DGS, we achieve a high-fidelity
+reconstruction of the manipulation scene. In order to align the
+reconstructed scene with real-world counterparts, we devise a
+novel frame alignment pipeline leveraging differentiable rendering of Gaussian Splatting. 3D Gaussians of different scene
+components are segmented using off-the-shelf segmentation
+models and the robot United Robotics Description Format
+(URDF). Remarkably, as illustrated in Fig. 1, a single collected
+expert trajectory enables us to generate novel demonstrations
+across a wide range of visual domains. To be specific, RoboSplat augments data across six types of generalization with
+five techniques: 3D Gaussian replacement for varying object
+types, scene appearance, and robot embodiments; equivariant
+transformations for different object poses; visual attribute
+editing for various lighting conditions; novel view synthesis
+for new camera perspectives; and 3D content generation for
+diverse object types.
+Compared to previous Real-to-Sim-to-Real and image augmentation approaches, RoboSplat achieves more diverse and
+spatially accurate data generation. Extensive real-world experiments demonstrate that RoboSplat significantly enhances
+the robustness of visuomotor policies against multiple disturbances across tasks involving pick and place, tool use,
+functional motion, articulated object manipulation, and long-
+
+horizon skills. Specifically, compared to policies trained on
+hundreds of real-world demonstrations that are further enriched with 2D data augmentation, our method increases the
+average success rate from 57.2% to 87.8%.
+II. R ELATED WORK
+A. Generalizable Policy in Robot Manipulation
+Recent advancements in manipulation have significantly
+enhanced generalization. Some studies design the policy architecture to endow it with equivariant properties, which is helpful
+to generalizing to different object poses [60, 61, 43, 13]. Oneshot imitation learning approaches like [54, 48, 6, 53, 70]
+enable the policy to handle various object poses given only
+one demonstration. Furthermore, some other work focuses on
+generalizing the policy to different camera views [69, 46, 63],
+scene appearance [30, 51], and embodiments [12]. Some
+studies exploit the power of Large Language Models (LLMs)
+and Vision Language Models (VLMs) to endow robots with
+generalization abilities [23, 7, 39, 14]. Instead of adopting
+generalizable policy architecture, auxiliary learning objectives
+and powerful foundation models, our work is concentrated on
+generating high-quality, diverse, and realistic data to instill
+generalization abilities to the learned policy.
+B. Data Augmentation for Policy Learning
+Given limited training data, data augmentation emerges
+as a way to improve the robustness of the policy. Previous
+work adopts image augmentation techniques to improve the
+resistance of visuomotor policies to observation noises [29,
+28, 36, 37, 15, 19, 20]. However, these methods are mainly
+evaluated in simulated environments. To deploy learned policies in real-world setting, some previous work focuses on
+augmenting the appearance of the scene by incorporating
+image-inpainting models [67, 10, 9, 35]. Moreover, Tian et al.
+[50] generate augmented task demonstrations from different camera views and aim to learn a view-invariant policy.
+Ameperosa et al. [3]. Chen et al. [8] further devise a crossembodiment pipeline by inpainting different robots to image
+observations. Nonetheless, these studies mainly augment task
+demonstrations on 2D images, which lack spatial information.
+Hence, only limited augmentation can be achieved, and the
+augmented demonstrations might be unrealistic compared to
+those generated directly from 3D representations. Our work
+reconstructs the scene with 3D Gaussian Splatting and edits
+the 3D representation for data augmentation, enabling our
+policy to achieve comprehensive generalization across object
+poses, object types, camera views, lighting conditions, scene
+appearance, and various embodiments..
+C. Gaussian Splatting in Robotics
+3D Gaussian Splatting (3DGS) [25] serves as an explicit
+radiance field representation for real-time rendering of 3D
+scenes. Previous work leverages 3DGS to select proper grasp
+poses [24, 71]. Furthermore, Lu et al. [34] exploit 3DGS to
+
+One Collected Demonstration
+
+Object Pose
+
+𝒕
+
+Lighting
+Keyframe Extraction
+
+Frame Alignment
+and
+Segmentation
+
+Reconstruction
+
+Appearance
+
+Autonomous
+Editing
+
+Multi-View Images
+
+Camera View
+
+Equivariant Transformation
+
+Visual Attribute Editing
+
+Scene Replacing
+
+Scale
+Object Type
+
+Offset
+Noise
+
+Novel View Synthesis
+
+AIGC / 3D Content Generation
+“Lemon”, “Tomato”,
+“Grape”, “Maize”,
+“Banana”, “Shrimp”,
+…
+
+Embodiment Replacing
+
+Embodiment
+
+Same End-Effector Pose
+
+Grasp Annotation
+with AnyGrasp
+
+Augmented Demonstrations
+
+Fig. 2: Method overview. We start from a single manually collected demonstration and multi-view images that capture the whole
+scene. The former provides task-related keyframes, while the latter helps scene reconstruction. After aligning the reconstructed
+frame with the real-world frame and segmenting different scene components, we carry out autonomous editing of the scene in
+pursuit of six types of augmentation.
+construct dynamics of the scene for multi-task robot manipulation. In order to predict the consequence of robots’ interactions with the environment, Shorinwa et al. [47] leverage 3D
+semantic masking and infilling to visualize the motions of the
+objects that result from the interactions. Another line of work
+adopts the Real-to-Sim-to-Real pipeline, and utilizes 3DGS to
+reconstruct the real-world scene [31, 40, 56, 52]. However,
+importing reconstructed real-world objects to simulation is a
+strenuous process, and physical interactions tend to suffer from
+large sim-to-real gaps due to the flawed geometric reconstruction and lack of physical information in 3D reconstruction.
+Some recent work on 3DGS is centered around editing and
+relighting of the scene [65, 32, 17]. Our method enables
+autonomous editing of the reconstructed scene to generate
+diverse demonstrations with various configurations.
+III. P RELIMINARIES
+3D Gaussian Splatting (3DGS) [25] utilizes multi-view
+images for high-fidelity scene reconstruction. The scene is represented by a set of Gaussians tgi uN
+i“1 , where each Gaussian
+gi consists of a position vector µi P R3 , a rotation matrix
+Ri P R3ˆ3 , a scaling matrix Si “ diagpsqps P R3 q, an
+opacity factor αi P R, and spherical harmonic coefficients ci
+that encapsulate the view-dependent color appearance of the
+Gaussian. Given the scaling matrix and rotation matrix, the
+covariance matrix Σi is calculated as follows:
+Σi “ Ri Si SiJ RiJ .
+
+To derive the color C of a particular pixel during rendering procedure, 3DGS exploits a typical neural point-based
+approach, similar to Kopanas et al. [27], where the final color
+value is calculated as follows:
+
+C“
+
+N
+ÿ
+i“1
+
+ci oi
+
+j“i´1
+ź
+
+p1 ´ oj q,
+
+j“1
+
+1
+oi “ αi ¨ exp p δi⊺ Σ´1
+i,2D δi q,
+2
+where N is the number of Gaussians that overlap with the
+pixel. Besides, αi denotes the opacity of the i-th Gaussian.
+δi P R2 denotes the offset between the current pixel and the
+center of the i-th Gaussian projected to 2D image. Σi,2D P
+R2ˆ2 stands for the covariance matrix of the i-th Gaussian
+projected to 2D image.
+IV. M ETHODOLOGY
+To generate high-fidelity and diverse data from a single
+expert trajectory, we present RoboSplat, a novel demonstration
+generation approach based on 3DGS. An overview of our
+method is shown in Fig. 2. In this section, we describe
+RoboSplat in detail. We begin with the process of reconstruction and preprocessing in Sec. IV-A, which includes object
+and scene reconstruction, frame alignment with differentiable
+rendering, and novel pose generation for the robot and objects.
+With all the Gaussian models ready, we generate novel demonstrations and perform data augmentation in terms of object
+
+poses, object types, camera views, scene appearance, lighting
+conditions, and embodiments, as described in Sec. IV-B.
+Finally, a visuomotor policy is trained on the augmented
+demonstrations and directly deployed on real robots, as detailed in Sec. IV-C.
+A. Reconstruction and Preprocessing
+In pursuit of a high-fidelity reconstruction of the scene,
+we first capture a set of RGB images whose corresponding
+viewpoints should be as various as possible. During this
+process, the scene remains static and the robot is fixed at its
+default joint configuration, which we refer to as qdefault . With
+the images ready, we utilize COLMAP [45, 44] to obtain a
+sparse scene reconstruction and an estimation of the camera
+pose corresponding to each image. To further enhance the
+reconstruction precision, we gain an depth estimation for each
+image with Depth Anything [62]. The images, camera poses,
+and depth prior serve as inputs to 3DGS [25], which returns 3D
+Gaussians representing the entire scene Gscene , which contains
+3D Gaussians corresponding to the robot, dubbed Grobot .
+However, the reconstructed 3D Gaussians of the robot are
+represented in an arbitrary frame Fscene , and hence we need to
+align it with the real-world coordinate frame Freal to facilitate
+automated editing.
+The robot URDF gives us access to the robot base frame
+FURDF . The real-world robot frame Frobot , FURDF , and Freal
+are all aligned with each other. Hence, the actual problem
+turns into the frame alignment from Fscene to FURDF . We
+denote the transformation matrix as TURDF, scene . While point
+cloud registration approachs, such as Iterative Closest Point
+(ICP) [5], serve as a common solution to it, we find that there
+is still major misalignment between the two frames aligned
+with point cloud registration, as illustrated in Fig. 3. The
+reason lies in the fact that point cloud registration is based on
+point coordinates, whereas 3D Gaussians have a scale attribute,
+which causes a mismatch between point coordinates and the
+appearance. Therefore, we exploit the differentiable rendering
+of 3DGS to do further fine-grained alignment, as depicted in
+Fig. 4.
+0
+Suppose T̂URDF,
+scene is the initial transformation matrix
+0
+obtained through ICP. We first apply T̂URDF,
+scene to Grobot ,
+leading to a partially aligned robot Gaussian Ĝrobot . The aim
+of further alignment is to derive another transformation matrix
+T̂rel , such that applying T̂rel to Ĝrobot gives a better alignment
+to the pose of the robot defined in URDF. For this sake, we
+select N canonical camera views to capture the segmentation
+Gaussian N
+masks tIiURDF uN
+ui“1 (the pixel value is 1 if it
+i“1 and tIi
+belongs to the robot; otherwise, it is 0) with the robot URDF
+and Ĝrobot respectively. The pixel-wise differences between the
+images from the same canonical views are averaged to form
+the objective function of alignment:
+N
+
+Lalign “
+
+1 ÿ URDF
+pI
+´ IiGaussian q2 .
+N i“1 i
+
+Due to the differentiability of Gaussian Splatting, we can
+
+Alignment Error
+
+Fig. 3: Comparison of frame alignment results between
+ICP and fine-grained optimization with differentiable rendering. The semi-transparent orange overlay represents the
+ground truth rendered with URDF from the same camera view.
+The left shows the results of ICP, which have larger errors,
+while the right shows the results after further fine-grained
+optimization using differentiable rendering.
+Translation (T)
+Rotation (R)
+Scale (S)
+
+Mask Rendered with URDF
+Differentiable Rendering
+Loss Calculation
+Backpropagation
+& Gradient Descent
+Transformation
+
+Fig. 4: Illustration of frame alignment with differentiable
+rendering. The loss is calculated between the mask rendered
+using Gaussian Splatting and the mask rendered with URDF.
+Subsequently, backpropagation and gradient descent are used
+to optimize the translation, rotation, and scale, which are then
+applied to the 3D Gaussians.
+rewrite the objective function as Lalign pT̂rel q and optimize T̂rel
+through gradient descent. The optimized T̂rel is composed with
+0
+T̂URDF,
+scene , the result of which is applied to Gscene to form
+the scene reconstruction in Freal . We refer to the aligned 3D
+˚
+.
+Gaussians as Gscene
+In order to decompose the scene into different parts, we first
+leverage Grounded-SAM [41] to perform task-related object
+segmentation. Then, the masked images are used to reconstruct
+3D Gaussians for the objects. The 3D Gaussians corresponding
+to each link of the robot are segmented using the point cloud
+of each link in FURDF , which can be obtained with the robot’s
+URDF and the renderer. Specifically, if the position of a 3D
+Gaussian is within a threshold distance from the point cloud
+of a link, the 3D Gaussian is assigned to that link. If a 3D
+Gaussian does not belong to any object or any link of the
+robot, it is classified as background. We suppose that the
+robot has l links and there are totally k objects in the scene.
+The reconstructed robot links, objects, and background are
+˚
+˚
+˚
+˚
+˚
+denoted as Grobot
+“ tGrobot,i
+uli“1 , Gobj
+“ tGobj,j
+ukj“1 , and Gbg
+
+respectively.
+Similar to our frame alignment strategy, we utilize differentiable rendering to estimate the deployed camera poses in
+order to narrow the gap between the generated data and the
+deployment environment. The camera extrinsics are optimized
+through gradient descent, with the optimization objective:
+2
+
+Lcamera “ SSIM pIExpert , IGaussian q ,
+where IExpert denotes the image obtained from the collected expert demonstration, IGaussian represents the rendered
+image with reconstructed 3D Gaussians, and SSIM refers to
+Structural Similarity, which measures the perceptual similarity
+between two images.
+Nonetheless, before moving on to novel demonstration generation, we need to figure out how to generate 3D Gaussians
+for the robot under novel joint configurations. To achieve
+˚
+that, we leverage the link-wise Gaussians tGrobot,i
+uli“1 and the
+default joint configuration qdefault . For each link 1 ď i ď l, we
+access its relative pose to robot base frame under arbitrary joint
+configuration q through forward kinematics, denoted as Tfki pqq.
+Hence, by transforming each link i with Tfki pqqTfki pqdefault q´1 ,
+we derive the corresponding 3D Gaussians under configuration
+q. The entire 3D Gaussians are thereby derived by composing
+Gaussians of all l links. As for the manipulated objects,
+we apply transformations in a similar manner. The way 3D
+Gaussians are transformed is detailed in Appendix A.
+B. Novel Demonstration Generation
+Utilizing 3D Gaussians in Freal , we implement our demonstration augmentation process, which systematically enhances
+the expert demonstration Dexpert across six aspects: object
+poses, object types, camera views, embodiment types, scene
+appearance, and lighting conditions.
+1) Object Pose
+To perform object pose augmentation, we first extract
+keyframes from the expert demonstration using a heuristic
+approach. Whenever the gripper action toggles or joint velocities approach zero, we consider the current time step as
+a keyframe and record the end-effector pose with respect to
+robot base frame. After that, we apply rigid transformations
+to the target objects that are involved in the expert demonstration. The end-effector poses at keyframes are transformed
+equivariantly according to the target object. Eventually, we
+generate trajectories between consecutive keyframe poses with
+motion planning, the combination of which makes a complete
+augmented demonstration with novel object poses.
+2) Object Type
+The object types can be augmented with 3D Content Generation. We first prompt GPT-4 [2] to generate approximately
+50 names of objects that can be grasped. Then, we use these
+object names as prompts to generate corresponding 3D Gaussians with a 3D content generation model [57]. We utilize an
+off-the-shelf grasping algorithm [16] to generate grasp poses
+with respect to the object frame. As we generate different
+object poses for augmentation, we obtain the corresponding
+
+end-effector poses by composing object pose and the grasp
+pose relative to the object, which turn into the keyframe poses
+in new demonstrations. The entire augmented trajectory is
+generated in the same manner as IV-B1.
+3) Camera View
+One merit of 3DGS lies in its ability to perform novel view
+synthesis. Thereby, we are able to choose different camera
+poses from Dexpert and obtain novel-view demonstrations. Although we can render novel-view observations from arbitrary
+camera pose, we need to ensure that the augmented camera
+view does not deviate so much from the expert that it loses
+sight of the manipulation scene. Hence, we first designate
+a target point Oc “ pxc , yc , zc q in Freal , towards which the
+camera should face during the entire episode. We then define
+a coordinate frame Fc , whose origin is Oc and orientation
+is the same as Freal . The position of camera is represented
+by spherical coordinates pr, θ, φq in Fc . Thus, by limiting the
+target point within the manipulation scene and randomizing the
+spherical coordinates, we are able to generate camera poses
+that produce meaningful observations yet possess diversity.
+The hyperparameters of randomization for the target point and
+the spherical coordinates are detailed in Appendix B.
+4) Embodiment Type
+To generalize the expert demonstration to different types
+˚
+of robots, we replace Grobot
+with the 3D Gaussians of annew
+other embodiment, dubbed Grobot
+, which is attained from
+the corresponding URDF file or real-world reconstruction.
+The keyframe end-effector poses are reused because they are
+embodiment-agnostic action representations. Hence, through
+motion planning, we can easily derive the end-effector poses
+and joint positions of the new embodiment for all time steps
+in augmented demonstrations. The 3D Gaussians of the new
+embodiment under novel joint configurations is obtained from
+new
+as mentioned in Sec. IV-A. The policy trained on
+Grobot
+these augmented demonstrations is directly deployed on novel
+embodiments.
+5) Scene Appearance
+Inconsistency between scene appearance accounts for a
+large visual gap between training and deployment environments. To resolve this issue, we propose to exploit reconstructed diverse 3D scenes and also large-scale image datasets
+to augment the scene appearance. We adopt COCO [33]
+as the image dataset, and attach images to the table top
+and background 3D Gaussian planes that surround the entire
+manipulation scene. Moreover, we gather datasets for 3D
+reconstruction [22, 66, 26, 4], and derive corresponding 3D
+Gaussians by 3DGS training. The resulting 3D Gaussian
+˚
+scenes substitute for Gbg
+, forming novel scene appearance
+for data augmentation. The edge of utilizing reconstructed
+3D scenes is their consistent and diverse geometry across
+multiple camera views, which helps produce more realistic
+demonstrations. Nevertheless, due to the expense of 3DGS
+training on large-scale reconstruction datasets, we complement
+them with 2D images for greater appearance diversity.
+
+6) Lighting Condition
+Discrepancy in lighting conditions is another barrier to
+deploying trained policy in unseen scenarios. To compensate
+for that, we augment the diffuse color of each Gaussian in
+the reconstructed scene through random scaling, offset, and
+noise. Concretely, for a Gaussian with original diffuse color
+pr, g, bq, the augmented diffuse color values can be expressed
+as psr r ` or ` ∆r , sg g ` og ` ∆g , sb b ` ob ` ∆b q, where
+psr , sg , sb q stand for scaling factors, por , og , ob q stand for
+offsets, and p∆r , ∆g , ∆b q stand for random Gaussian noise.
+The scaling factors and offsets simulate changes in color
+contrast and scene brightness. Thus, they are shared among
+all the Gaussians in the scene. On the other hand, the random
+Gaussian noise is sampled independently for each Gaussian to
+simulate noise in images captured by cameras. The details of
+scaling factors, offsets, and Gaussian noise are elaborated in
+Appendix B.
+An illustration of augmented demonstrations with six types
+of generalizations can be found in Appendix B.
+C. Policy Training
+We employ a modern, widely adopted transformer-based
+architecture [18, 51, 38, 55] to serve as the policy network,
+which is detailed in Appendix C. We process RGB images
+with ResNet-18 [21], and encode joint state using a multilayer perceptron (MLP). The latent of images and robot state
+is fed into a transformer encoder. Finally, an action decoder
+utilizes an MLP to convert the action latent into the action
+vector at . The policy is trained with Behavioural Cloning (BC)
+in an end-to-end manner, aiming to maximize the likelihood
+of expert actions in demonstrations. We denote ok fi pIk , qk q
+as the observation at the k-th frame of demonstrations D, and
+π as our policy. The loss function can then be expressed as
+LBC “ Epok ,ak q„D }ak ´ πpok q}2 .
+Specifically, Ik consists of two images from different eyeon-base cameras. We adopt relative end-effector pose as the
+action representation, which depicts the relative transformation
+between two consecutive end-effector poses under robot base
+frame. Further details of the training process can be found in
+Appendix D.
+V. E XPERIMENTS
+We conduct comprehensive experiments in the real world
+to verify the effectiveness of our demonstration generation
+pipeline. Specifically, we aim to answer: given a single expert
+demonstration and multi-view images of the scene,
+1) How efficient is data generation compared to manually
+collecting data?
+2) How does the policy trained on generated demonstrations
+perform across various tasks compared to that trained on
+manually collected data?
+3) How does the policy perform as the generated data scale
+up?
+4) Can generated demonstrations enhance the robustness
+of the policy when facing various deployment settings, such
+
+Franka Research 3 Robot
+
+RealSense D435i cameras
+
+Fig. 5: Real-world experiment setup. We employ a Franka
+Research 3 Robot and two eye-on-base RealSense D435i
+cameras.
+as changes in object types, camera views, scene appearance,
+lighting conditions, and embodiment types?
+A. Experimental Setup
+The real-world experiment setup is presented in Fig. 5.
+Concretely, we collect the expert demonstration on Franka Research 3 (FR3) Robot. Two Intel Realsense D435i eye-on-base
+cameras are mounted on the table top, capturing RGB image
+observations for the policy. We employ a 3D SpaceMouse to
+collect teleoperated demonstrations at a frequency of 10 Hz.
+Policy inference is carried out on an NVIDIA RTX4090 GPU,
+with a latency of 0.1s imposed.
+In order to manifest the generalization ability of our pipeline
+to different task settings, we select five tasks for evaluation:
+Pick Object, Close Drawer, Pick-Place-Close, Dual PickPlace, and Sweep.
+In Pick Object task, the policy picks up a target object
+which is placed at different poses within a 30cmˆ40cm
+workspace. In Close Drawer task, the policy closes a drawer
+whose position is constrained to a 15cmˆ40cm workspace,
+while its rotation about the z-axis is restricted to r´ π8 , π8 s.
+In Pick-Place-Close task, the policy is expected to grasp an
+object, place it in the drawer, and then close the drawer. The
+drawer is placed in a 5cmˆ5cm workspace, with a fixed
+orientation. The target object is located in a 10cmˆ10cm
+workspace, whose rotation falls into range r´ π8 , π8 s. In Dual
+Pick-Place task, the policy attempts to pick two target objects
+in a row and place them in a fixed drawer. Both of the
+objects are located in 10cmˆ10cm workspaces, with yaw
+angles between ´ π8 and π8 . In Sweep task, the robot should
+first pick up a broom and then sweeps the chocolate beans
+into a dustpan. The broom is randomly placed within a 10cm
+× 10cm area, and the chocolate beans are randomly placed on
+the chopping board. Task setups are illustrated in Fig. 6. These
+five tasks require proficiency in executing basic pick-and-place
+actions, manipulating articulated objects, performing longhorizon tasks, and demonstrating skills involving tool use and
+
+2
+
+2
+1
+
+1
+
+2
+
+1
+
+1
+
+1
+3
+
+3
+
+Pick Object
+
+Close Drawer
+
+3
+2
+
+4
+
+Pick-Place-Close
+
+Dual Pick-Place
+
+Sweep
+
+Fig. 6: Task illustration. We design five manipulation tasks for real-world evaluation: Pick Object, Close Drawer, Pick-PlaceClose, Dual Pick-Place and Sweep, whose details are elaborated in Sec. V-A.
+functional motion. Together, they provide a comprehensive
+evaluation across various task settings.
+We also conduct extensive real-world experiments to prove
+the effectiveness of our data generation pipeline in terms of
+different types of generalization. Notably, the evaluation of
+object pose generalization is incorporated into all experiments,
+including those focused on the other five types of generalization (object types, camera views, embodiment types, lighting
+conditions, and scene appearance). This is because object
+pose generalization is a fundamental requirement for task
+completion ability. For the other five types of generalization,
+the details are provided in Sec. V-D. Success rate (SR) is
+chosen as the evaluation metric in all experiments. Each policy
+is evaluated with 30 trials for a certain evaluation setting.
+
+visuomotor policies trained on 800 generated demonstrations
+achieve comparable performance to those trained on 200 manually collected demonstrations. Moreover, training with 1800
+generated demonstrations raises the success rate to an average
+of 94.7%, significantly surpassing the success rate achieved
+with 200 manually collected demonstrations. It is also worth
+mentioning that the policy achieves a 96.7% success rate on
+Dual Pick-Place task with our generated data, which is nearly
+20% higher than the baseline (manually collected). These
+findings testify the effectiveness of our method in generating
+novel object poses for better generalization of visuomotor
+policies, and indicate promising scaling property as generated
+data scales up.
+D. Robustness when Facing Various Deployment Settings
+
+B. Efficiency of Augmenting Demonstrations
+To answer Question 1, we need to justify that our pipeline
+is economical with both labor and time when generating data.
+The labor-saving property is obvious because demonstrations
+are generated automatically in our pipeline. We compare the
+average time consumption of manually collecting a real-world
+demonstration to that of generating a demonstration through
+our pipeline. Specifically, we adopt eight processes on an
+NVIDIA RTX 4090 GPU for paralleled data generation to
+efficiently utilize computational resources.
+The comparison study is conducted on all five tasks, and
+the result is shown in Table I. Our data generation pipeline
+that executed on a single GPU is more than 29 times faster
+than collecting data in the real world, with an average time
+consumption of 0.64s across all five tasks. With no human
+interference, our demonstration generation approach is able
+to generate visually diverse training data with little time
+expenditure.
+C. Performance of the Policy Trained on Augmented Data
+To answer Question 2 and 3, we compare the policies
+trained on generated demonstrations and manually collected
+demonstrations in terms of their success rates when facing
+various object poses. Moreover, we explore the performance
+of policies as generated data gradually scale up.
+The main results of the experiment are illustrated in Fig. 7.
+While policies trained on real-world demonstrations still have
+an edge over those trained on the same number of generated
+ones, our method manifests salient improvement in success
+rate as the generated demonstrations scale up. Concretely,
+
+To answer Question 4, we augment the expert demonstration
+in five different dimensions: lighting conditions, scene appearance, camera views, object types, and embodiment types.
+We compare policies trained on real-world data, real-world
+data augmented using 2D augmentation approaches, and data
+generated via our pipeline. An illustration of the experiments
+for different generalization types is shown in Fig. 8.
+1) Lighting Condition
+To demonstrate the effectiveness of lighting augmentation
+in our approach, we adopt five different scenarios for policy
+deployment, which are shown in Appendix E. We compare the
+performance of four policies that are trained respectively on:
+1) 200 real-world demonstrations (Collected);
+2) 1800 generated demonstrations with only object pose
+augmentation, which are the same as data used in V-C
+(Ours Pose-Only);
+3) real-world demonstrations augmented with color jitter
+(Color Jitter);
+4) 3200 demonstrations generated by our pipeline with both
+lighting condition and object pose augmentation (Ours).
+As shown in Fig. 9, policies trained on augmented lighting
+conditions achieve an average of over 80% success rate across
+Pick Object, Close Drawer, and Pick-Place-Close tasks, with
+an overall improvement over those trained on real-world data
+without augmentation by 70%. Furthermore, our policies show
+a significant edge over those trained on generated demonstrations with augmented object poses and real-world demonstrations augmented with color jitter, justifying the validity of
+lighting augmentation in our pipeline.
+
+TABLE I: Comparison of demonstration collection time (s). We calculate the average time cost of data collection of a single
+demonstration over 100 demonstrations. Our method achieves more than 29 times the speed compared to the baseline.
+Task Type
+
+Pick Object
+
+Close Drawer
+
+Pick-Place-Close
+
+Dual Pick-Place
+
+Sweep
+
+Average
+
+Real-world
+Ours
+
+13.2
+0.43
+
+10.1
+0.34
+
+24.7
+0.86
+
+27.0
+1.0
+
+20.4
+0.58
+
+19.1
+0.64
+
+Average across Five Tasks
+
+Success Rate (%)
+
+100
+
+75
+
+50
+
+25
+
+87.3
+
+60.0
+
+84.6
+
+93.3
+
+100
+
+65.3
+
+100
+
+Manually Collected
+Generated (Ours)
+200
+
+800
+
+Number of Demonstrations
+
+50
+
+1800
+
+100
+
+200
+
+800
+
+1800
+
+100
+
+Pick-Place-Close
+93.3
+
+86.7
+
+100
+
+76.7
+
+73.3
+
+50
+
+100.0
+
+100.0
+
+800
+
+1800
+
+93.3
+
+73.3
+
+200
+
+Dual Pick-Place
+83.3
+
+80.0
+
+96.7
+
+83.3
+
+63.3
+
+50
+
+20.0
+
+100.0
+
+100
+
+56.7
+
+53.3
+
+100
+
+96.7
+90.0
+
+66.7
+
+0
+
+93.3
+
+60.0
+50.0
+
+Sweep
+
+100
+
+Close Drawer
+100.0
+
+80.0
+
+34.7
+100
+
+Pick Object
+
+94.7
+
+43.3
+
+50
+
+13.3
+200
+
+800
+
+1800
+
+0
+
+100
+
+200
+
+800
+
+1800
+
+0
+
+0.0
+100
+
+200
+
+800
+
+1800
+
+Fig. 7: Main results. Top left: We present the average success rate across five tasks. Our method shows promising scalability as
+the number of demonstration grows. The other five subfigures: For each task, we evaluate the success rate of policies trained
+from manually collected data and those generated by our method over 30 trials, using different number of demonstrations.
+2) Scene Appearance
+Similar to the experiment on lighting conditions, we select
+five different scenarios for evaluation on scene appearance
+augmentation, which is illustrated in Appendix E. The four
+policies for comparison are trained in a similar manner as
+described in Sec. V-D1, with the key difference being that we
+employ image inpainting methods [68, 9, 67, 10] as more
+robust and suitable 2D augmentation baselines for appearance
+generalization. The results are shown in Fig. 9. The policy
+trained on data generated through our pipeline, incorporating
+both appearance and object pose augmentations, achieves
+superior performance compared to all baselines. Notably, it
+demonstrates over a 70% increase in success rates across all
+three tasks when compared to policies trained on data without
+appearance augmentation. In particular, our policy achieves
+100% success rate on the Pick Object task, showcasing strong
+robustness against various background appearance.
+3) Camera View
+We employ two different settings for camera view generalization: novel view and moving view. In novel view experiments, we select 30 poses for each camera, which are different
+from the training perspective. On the other hand, cameras are
+kept moving in moving view experiments. Similar to Sec. V-D1
+and Sec. V-D2, we compare the performance of four policies
+that are trained respectively on:
+1) 200 real-world demonstrations (Collected);
+2) 1800 generated demonstrations with only object pose
+augmentation (Ours Pose-Only);
+3) 3200 demonstrations stemmed from 200 real-world
+
+demonstrations, augmented using VISTA [50], which
+leverages novel view synthesis models to augment data
+from different views;
+4) 3200 generated demonstrations with camera view augmentation (Ours).
+We present the results in Table II. Our policy is able to perform Pick Object task and Pick-Place-Close task with success
+rates of over 80% and 50% respectively, while the policies
+trained on data without augmentation can barely accomplish
+the task. Our approach also outperforms VISTA by a large
+margin. Notably, our policy achieves nearly 100% success rate
+on Close Drawer task, manifesting strong robustness against
+novel camera views and moving cameras.
+4) Object Type
+In order to demonstrate the effectiveness of our method in
+augmenting object types, we compare the performance of three
+different policies that are respectively trained on:
+1) 400 real-world demonstrations with 5 real-world objects
+(Collected);
+2) 6400 demonstrations stemmed from 200 real-world
+demonstrations, augmented using ROSIE [67], which
+utilizes image inpainting models to generate data with
+unseen objects;
+3) 6400 demonstrations generated by our pipeline with object type augmentation (Ours).
+During deployment, we select five real-word objects that are
+different from all the objects covered in training process. We
+report the result in Fig. 10. The policy trained on 50 object
+
+Generalization Illustration
+
+Original Setting
+
+Object Pose
+
+Lighting
+
+Appearance
+
+Object Type
+
+Cross Embodiment
+
+Camera
+
+Camera
+
+Camera View
+
+Fig. 8: Illustration of real-world experiments for different generalization types. The data is collected in the original setting.
+When deploying the trained policy, we modify object poses, lighting conditions, scene appearance, camera views, object types,
+and embodiments to evaluate the robustness in different scenarios.
+
+Lighting
+100
+
+93.3
+80.0
+
+80
+
+Success Rate (%)
+
+Appearance
+100.0
+
+60
+
+83.3
+
+80.0
+
+73.3
+
+66.7
+
+60.0
+50.0
+
+93.3 93.3
+
+50.0
+
+46.7
+
+40
+
+20
+
+0
+
+10.0
+
+16.7
+
+16.7
+
+10.0 10.0
+
+10.0
+
+16.7
+
+13.3
+
+10.0
+
+0.0
+Pick Object
+Collected
+
+Close Drawer
+Ours Pose-Only
+
+Pick-Place-Close
+Close Drawer
+Pick Object
+2D Augmentation (Color Jitter for lighting, Image Inpainting for appearance)
+
+0.0
+Pick-Place-Close
+Ours
+
+Fig. 9: Performance when changing lighting conditions and appearance. We report the success rate of different policies
+under various lighting conditions and appearance. The policies trained with generated demonstrations with corresponding
+augmentations manifest remarkable advance compared to baseline policies.
+types showcases better adaptability to novel object types, improving the success rate of baseline models by over 40%. This
+demonstrates the effectiveness of our data generation pipeline
+in utilizing off-the-shelf 3D Content Generation models to
+generalize policy to novel objects.
+
+Success Rate (%)
+
+100
+
+76.7
+
+80
+
+60.0
+
+60
+40
+20
+0
+
+23.3
+Collected
+
+ROSIE
+
+Ours
+
+Fig. 10: Performance on novel object types. The policy
+trained on data generated by RoboSplat shows a salient edge
+over baseline policies.
+
+5) Embodiment Type
+Our method supports generating demonstrations across different embodiment types as mentioned in Sec. IV-B4. To prove
+that, based on one demonstration collected with the Franka
+Research 3, we generate novel demonstrations for a UR5e
+robot equipped with a Robotiq 2F-85 gripper and deploy the
+learned policy directly in the real world. It is worth noting that
+policies trained on Franka Research 3 robot demonstrations
+fail to be deployed on UR5e robot due to frequent safety
+violations. We compare the performance of policies trained
+on embodiment-augmented demonstrations with those trained
+on data augmented using RoVi-Aug [8]. RoVi-Aug modifies
+real-world demonstrations by replacing the appearance of the
+embodiment through generative models.
+We present the performance of policies in Fig. 11. Policies
+trained on data generated using our pipeline achieve a success
+
+TABLE II: Performance when changing camera view. We compare the success rate of different policies under two
+circumstances: novel camera view and moving camera view. The policies trained on demonstrations augmented using our
+approach showcase significant improvement over baseline policies.
+Pick Object
+
+Data Source
+
+Close Drawer
+
+Novel View
+
+Moving View
+
+Novel View
+
+Moving View
+
+Novel View
+
+Moving View
+
+6.7
+0.0
+33.3
+90.0
+
+0.0
+0.0
+33.3
+86.7
+
+16.7
+26.7
+56.7
+100.0
+
+13.3
+30.0
+70.0
+96.7
+
+0.0
+0.0
+33.3
+53.3
+
+0.0
+0.0
+16.7
+56.7
+
+Collected
+Ours Pose-Only
+VISTA [50]
+Ours
+
+Success Rate (%)
+
+rate close to 100% on an embodiment different from the
+one used for demonstration collection. This result highlights
+its superior performance compared to the baseline in crossembodiment transfer.
+100
+
+RoVi-Aug
+Ours
+
+100.0
+
+96.7
+
+75
+
+43.3
+
+50
+25
+0
+
+Pick-Place-Close
+
+6.7
+Pick Object
+
+Close Drawer
+
+Fig. 11: Performance on cross embodiment experiments.
+We evaluate the learned policy directly on the UR5e robot
+and achieve a nearly 100% success rate that surpasses the 2D
+augmentation methods.
+
+VI. L IMITATIONS
+Due to the limitations of naive 3D Gaussian Splatting, it
+is incapable of handling deformable objects. Additionally, the
+pipeline lacks physical constraints, making it unsuitable for
+contact-rich and dynamic tasks. However, recent advancements
+in Gaussian Splatting [58, 1, 64, 42] provide promising opportunities to address these challenges. Future work could apply
+these techniques to generate data for a wider range of tasks.
+VII. C ONCLUSION
+In this work, we introduce RoboSplat, a novel demonstration generation approach that requires only a single collected
+demonstration and generates diverse and high-quality data for
+policy learning. Comprehensive real-world experiments show
+that our approach significantly enhances the robustness of
+visuomotor policies when encountering various disturbances.
+ACKNOWLEDGMENTS
+We sincerely thank Yang Tian and Xiao Chen for their
+fruitful discussions. This work is supported by the National
+Key R&D Program of China (2022ZD0160201), Shanghai
+Artificial Intelligence Laboratory, and China Postdoctoral Science Foundation (2023M741848).
+
+Average
+6.1
+9.5
+40.6
+80.6
+
+R EFERENCES
+[1] Jad Abou-Chakra, Krishan Rana, Feras Dayoub, and
+Niko Suenderhauf. Physically embodied gaussian splatting: A visually learnt and physically grounded 3d representation for robotics. In 8th Annual Conference on
+Robot Learning, 2024.
+[2] Josh Achiam, Steven Adler, Sandhini Agarwal, Lama
+Ahmad, Ilge Akkaya, Florencia Leoni Aleman, Diogo
+Almeida, Janko Altenschmidt, Sam Altman, Shyamal
+Anadkat, et al. Gpt-4 technical report. arXiv preprint
+arXiv:2303.08774, 2023.
+[3] Ezra Ameperosa, Jeremy A Collins, Mrinal Jain, and
+Animesh Garg. Rocoda: Counterfactual data augmentation for data-efficient robot learning from demonstrations. arXiv preprint arXiv:2411.16959, 2024.
+[4] Jonathan T Barron, Ben Mildenhall, Dor Verbin, Pratul P
+Srinivasan, and Peter Hedman. Mip-nerf 360: Unbounded
+anti-aliased neural radiance fields. In Proceedings of the
+IEEE/CVF conference on computer vision and pattern
+recognition, pages 5470–5479, 2022.
+[5] Paul J Besl and Neil D McKay. Method for registration
+of 3-d shapes. In Sensor fusion IV: control paradigms
+and data structures, volume 1611, pages 586–606. Spie,
+1992.
+[6] Ondrej Biza, Skye Thompson, Kishore Reddy Pagidi,
+Abhinav Kumar, Elise van der Pol, Robin Walters,
+Thomas Kipf, Jan-Willem van de Meent, Lawson LS
+Wong, and Robert Platt. One-shot imitation learning via
+interaction warping. arXiv preprint arXiv:2306.12392,
+2023.
+[7] Anthony Brohan, Noah Brown, Justice Carbajal, Yevgen
+Chebotar, Xi Chen, Krzysztof Choromanski, Tianli Ding,
+Danny Driess, Avinava Dubey, Chelsea Finn, et al. Rt-2:
+Vision-language-action models transfer web knowledge
+to robotic control. arXiv preprint arXiv:2307.15818,
+2023.
+[8] Lawrence Yunliang Chen, Chenfeng Xu, Karthik Dharmarajan, Muhammad Zubair Irshad, Richard Cheng, Kurt
+Keutzer, Masayoshi Tomizuka, Quan Vuong, and Ken
+Goldberg. Rovi-aug: Robot and viewpoint augmentation
+for cross-embodiment robot learning. arXiv preprint
+arXiv:2409.03403, 2024.
+[9] Zoey Chen, Sho Kiami, Abhishek Gupta, and Vikash
+
+Kumar. Genaug: Retargeting behaviors to unseen situations via generative augmentation. arXiv preprint
+arXiv:2302.06671, 2023.
+[10] Zoey Chen, Zhao Mandi, Homanga Bharadhwaj, Mohit
+Sharma, Shuran Song, Abhishek Gupta, and Vikash
+Kumar. Semantically controllable augmentations for
+generalizable robot learning. The International Journal
+of Robotics Research, page 02783649241273686, 2024.
+[11] Cheng Chi, Zhenjia Xu, Siyuan Feng, Eric Cousineau,
+Yilun Du, Benjamin Burchfiel, Russ Tedrake, and Shuran
+Song. Diffusion policy: Visuomotor policy learning via
+action diffusion. The International Journal of Robotics
+Research, page 02783649241273668, 2023.
+[12] Cheng Chi, Zhenjia Xu, Chuer Pan, Eric Cousineau,
+Benjamin Burchfiel, Siyuan Feng, Russ Tedrake, and
+Shuran Song. Universal manipulation interface: In-thewild robot teaching without in-the-wild robots. arXiv
+preprint arXiv:2402.10329, 2024.
+[13] Ethan Chun, Yilun Du, Anthony Simeonov, Tomas
+Lozano-Perez, and Leslie Kaelbling. Local neural descriptor fields: Locally conditioned object representations
+for manipulation. In 2023 IEEE International Conference
+on Robotics and Automation (ICRA), pages 1830–1836.
+IEEE, 2023.
+[14] Murtaza Dalal, Min Liu, Walter Talbott, Chen Chen,
+Deepak Pathak, Jian Zhang, and Ruslan Salakhutdinov.
+Local policies enable zero-shot long-horizon manipulation. arXiv preprint arXiv:2410.22332, 2024.
+[15] Linxi Fan, Guanzhi Wang, De-An Huang, Zhiding Yu,
+Li Fei-Fei, Yuke Zhu, and Anima Anandkumar. Secant:
+Self-expert cloning for zero-shot generalization of visual
+policies. arXiv preprint arXiv:2106.09678, 2021.
+[16] Hao-Shu Fang, Chenxi Wang, Hongjie Fang, Minghao
+Gou, Jirong Liu, Hengxu Yan, Wenhai Liu, Yichen
+Xie, and Cewu Lu. Anygrasp: Robust and efficient
+grasp perception in spatial and temporal domains. IEEE
+Transactions on Robotics, 2023.
+[17] Jian Gao, Chun Gu, Youtian Lin, Zhihao Li, Hao Zhu,
+Xun Cao, Li Zhang, and Yao Yao. Relightable 3d
+gaussians: Realistic point cloud relighting with brdf
+decomposition and ray tracing. In European Conference
+on Computer Vision, pages 73–89. Springer, 2025.
+[18] Siddhant Haldar, Zhuoran Peng, and Lerrel Pinto. Baku:
+An efficient transformer for multi-task policy learning.
+arXiv preprint arXiv:2406.07539, 2024.
+[19] Nicklas Hansen and Xiaolong Wang. Generalization in
+reinforcement learning by soft data augmentation. In
+2021 IEEE International Conference on Robotics and
+Automation (ICRA), pages 13611–13617. IEEE, 2021.
+[20] Nicklas Hansen, Hao Su, and Xiaolong Wang. Stabilizing
+deep q-learning with convnets and vision transformers
+under data augmentation. Advances in neural information
+processing systems, 34:3680–3693, 2021.
+[21] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian
+Sun. Deep residual learning for image recognition. In
+Proceedings of the IEEE conference on computer vision
+
+and pattern recognition, pages 770–778, 2016.
+[22] Peter Hedman, Julien Philip, True Price, Jan-Michael
+Frahm, George Drettakis, and Gabriel Brostow. Deep
+blending for free-viewpoint image-based rendering.
+ACM Transactions on Graphics (ToG), 37(6):1–15, 2018.
+[23] Alex Irpan, Alexander Herzog, Alexander Toshkov Toshev, Andy Zeng, Anthony Brohan, Brian Andrew Ichter,
+Byron David, Carolina Parada, Chelsea Finn, Clayton
+Tan, et al. Do as i can, not as i say: Grounding language
+in robotic affordances. In Conference on Robot Learning,
+number 2022, 2022.
+[24] Mazeyu Ji, Ri-Zhao Qiu, Xueyan Zou, and Xiaolong
+Wang. Graspsplats: Efficient manipulation with 3d feature splatting. arXiv preprint arXiv:2409.02084, 2024.
+[25] Bernhard Kerbl, Georgios Kopanas, Thomas Leimkühler,
+and George Drettakis. 3d gaussian splatting for real-time
+radiance field rendering. ACM Trans. Graph., 42(4):139–
+1, 2023.
+[26] Arno Knapitsch, Jaesik Park, Qian-Yi Zhou, and Vladlen
+Koltun. Tanks and temples: Benchmarking large-scale
+scene reconstruction. ACM Transactions on Graphics,
+36(4), 2017.
+[27] Georgios Kopanas, Thomas Leimkühler, Gilles Rainer,
+Clément Jambon, and George Drettakis. Neural point
+catacaustics for novel-view synthesis of reflections. ACM
+Transactions on Graphics (TOG), 41(6):1–15, 2022.
+[28] Ilya Kostrikov, Denis Yarats, and Rob Fergus. Image augmentation is all you need: Regularizing deep
+reinforcement learning from pixels. arXiv preprint
+arXiv:2004.13649, 2020.
+[29] Misha Laskin, Kimin Lee, Adam Stooke, Lerrel Pinto,
+Pieter Abbeel, and Aravind Srinivas. Reinforcement
+learning with augmented data. Advances in neural
+information processing systems, 33:19884–19895, 2020.
+[30] Mara Levy, Siddhant Haldar, Lerrel Pinto, and Abhinav
+Shirivastava. P3-po: Prescriptive point priors for visuospatial generalization of robot policies. arXiv preprint
+arXiv:2412.06784, 2024.
+[31] Xinhai Li, Jialin Li, Ziheng Zhang, Rui Zhang, Fan Jia,
+Tiancai Wang, Haoqiang Fan, Kuo-Kun Tseng, and Ruiping Wang. Robogsim: A real2sim2real robotic gaussian
+splatting simulator. arXiv preprint arXiv:2411.11839,
+2024.
+[32] Zhihao Liang, Qi Zhang, Ying Feng, Ying Shan, and Kui
+Jia. Gs-ir: 3d gaussian splatting for inverse rendering. In
+Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition, pages 21644–21653,
+2024.
+[33] Tsung-Yi Lin, Michael Maire, Serge Belongie, James
+Hays, Pietro Perona, Deva Ramanan, Piotr Dollár, and
+C Lawrence Zitnick. Microsoft coco: Common objects
+in context. In Computer Vision–ECCV 2014: 13th
+European Conference, Zurich, Switzerland, September
+6-12, 2014, Proceedings, Part V 13, pages 740–755.
+Springer, 2014.
+[34] Guanxing Lu, Shiyi Zhang, Ziwei Wang, Changliu Liu,
+
+Jiwen Lu, and Yansong Tang. Manigaussian: Dynamic
+gaussian splatting for multi-task robotic manipulation. In
+European Conference on Computer Vision, pages 349–
+366. Springer, 2025.
+[35] Zhao Mandi, Homanga Bharadhwaj, Vincent Moens,
+Shuran Song, Aravind Rajeswaran, and Vikash Kumar.
+Cacti: A framework for scalable multi-task
+multi-scene visual imitation learning. arXiv preprint
+arXiv:2212.05711, 2022.
+[36] Ajay Mandlekar, Danfei Xu, Josiah Wong, Soroush
+Nasiriany, Chen Wang, Rohun Kulkarni, Li Fei-Fei,
+Silvio Savarese, Yuke Zhu, and Roberto Martı́n-Martı́n.
+What matters in learning from offline human demonarXiv preprint
+strations for robot manipulation.
+arXiv:2108.03298, 2021.
+[37] Ajay Mandlekar, Soroush Nasiriany, Bowen Wen, Iretiayo Akinola, Yashraj Narang, Linxi Fan, Yuke Zhu,
+and Dieter Fox. Mimicgen: A data generation system
+for scalable robot learning using human demonstrations.
+arXiv preprint arXiv:2310.17596, 2023.
+[38] Octo Model Team, Dibya Ghosh, Homer Walke, Karl
+Pertsch, Kevin Black, Oier Mees, Sudeep Dasari, Joey
+Hejna, Charles Xu, Jianlan Luo, Tobias Kreiman, You
+Liang Tan, Lawrence Yunliang Chen, Pannag Sanketi,
+Quan Vuong, Ted Xiao, Dorsa Sadigh, Chelsea Finn, and
+Sergey Levine. Octo: An open-source generalist robot
+policy. In Proceedings of Robotics: Science and Systems,
+Delft, Netherlands, 2024.
+[39] Abby O’Neill, Abdul Rehman, Abhinav Gupta, Abhiram
+Maddukuri, Abhishek Gupta, Abhishek Padalkar, Abraham Lee, Acorn Pooley, Agrim Gupta, Ajay Mandlekar,
+et al. Open x-embodiment: Robotic learning datasets and
+rt-x models. arXiv preprint arXiv:2310.08864, 2023.
+[40] Mohammad Nomaan Qureshi, Sparsh Garg, Francisco
+Yandun, David Held, George Kantor, and Abhisesh
+Silwal. Splatsim: Zero-shot sim2real transfer of rgb
+manipulation policies using gaussian splatting. arXiv
+preprint arXiv:2409.10161, 2024.
+[41] Tianhe Ren, Shilong Liu, Ailing Zeng, Jing Lin, Kunchang Li, He Cao, Jiayu Chen, Xinyu Huang, Yukang
+Chen, Feng Yan, et al. Grounded sam: Assembling openworld models for diverse visual tasks. arXiv preprint
+arXiv:2401.14159, 2024.
+[42] Boxiang Rong, Artur Grigorev, Wenbo Wang, Michael J
+Black, Bernhard Thomaszewski, Christina Tsalicoglou,
+and Otmar Hilliges. Gaussian garments: Reconstructing
+simulation-ready clothing with photorealistic appearance
+from multi-view video. arXiv preprint arXiv:2409.08189,
+2024.
+[43] Hyunwoo Ryu, Hong-in Lee, Jeong-Hoon Lee, and
+Jongeun Choi. Equivariant descriptor fields: Se (3)equivariant energy-based models for end-to-end visual robotic manipulation learning.
+arXiv preprint
+arXiv:2206.08321, 2022.
+[44] Johannes Lutz Schönberger and Jan-Michael Frahm.
+Structure-from-motion revisited.
+In Conference on
+
+Computer Vision and Pattern Recognition (CVPR), 2016.
+[45] Johannes Lutz Schönberger, Enliang Zheng, Marc Pollefeys, and Jan-Michael Frahm. Pixelwise view selection for unstructured multi-view stereo. In European
+Conference on Computer Vision (ECCV), 2016.
+[46] Younggyo Seo, Junsu Kim, Stephen James, Kimin Lee,
+Jinwoo Shin, and Pieter Abbeel. Multi-view masked
+world models for visual robotic manipulation.
+In
+International Conference on Machine Learning, pages
+30613–30632. PMLR, 2023.
+[47] Ola Shorinwa, Johnathan Tucker, Aliyah Smith,
+Aiden Swann, Timothy Chen, Roya Firoozi, Monroe
+Kennedy III, and Mac Schwager. Splat-mover: Multistage, open-vocabulary robotic manipulation via editable
+gaussian splatting. arXiv preprint arXiv:2405.04378,
+2024.
+[48] Anthony Simeonov, Yilun Du, Andrea Tagliasacchi, Joshua B Tenenbaum, Alberto Rodriguez, Pulkit
+Agrawal, and Vincent Sitzmann. Neural descriptor fields:
+Se (3)-equivariant object representations for manipulation. In 2022 International Conference on Robotics and
+Automation (ICRA), pages 6394–6400. IEEE, 2022.
+[49] Ritvik Singh, Arthur Allshire, Ankur Handa, Nathan
+Ratliff, and Karl Van Wyk. Dextrah-rgb: Visuomotor
+policies to grasp anything with dexterous hands. arXiv
+preprint arXiv:2412.01791, 2024.
+[50] Stephen Tian, Blake Wulfe, Kyle Sargent, Katherine
+Liu, Sergey Zakharov, Vitor Guizilini, and Jiajun Wu.
+View-invariant policy learning via zero-shot novel view
+synthesis. arXiv preprint arXiv:2409.03685, 2024.
+[51] Yang Tian, Sizhe Yang, Jia Zeng, Ping Wang, Dahua
+Lin, Hao Dong, and Jiangmiao Pang. Predictive inverse
+dynamics models are scalable learners for robotic manipulation. arXiv preprint arXiv:2412.15109, 2024.
+[52] Marcel Torne, Anthony Simeonov, Zechu Li, April Chan,
+Tao Chen, Abhishek Gupta, and Pulkit Agrawal. Reconciling reality through simulation: A real-to-sim-toreal approach for robust manipulation. arXiv preprint
+arXiv:2403.03949, 2024.
+[53] Pietro Vitiello, Kamil Dreczkowski, and Edward Johns.
+One-shot imitation learning: A pose estimation perspective. arXiv preprint arXiv:2310.12077, 2023.
+[54] Vitalis Vosylius and Edward Johns. Instant policy: Incontext imitation learning via graph diffusion. arXiv
+preprint arXiv:2411.12633, 2024.
+[55] Hongtao Wu, Ya Jing, Chilam Cheang, Guangzeng Chen,
+Jiafeng Xu, Xinghang Li, Minghuan Liu, Hang Li, and
+Tao Kong. Unleashing large-scale video generative pretraining for visual robot manipulation, 2023.
+[56] Yuxuan Wu, Lei Pan, Wenhua Wu, Guangming Wang,
+Yanzi Miao, and Hesheng Wang. Rl-gsbridge: 3d gaussian splatting based real2sim2real method for robotic
+manipulation learning. arXiv preprint arXiv:2409.20291,
+2024.
+[57] Jianfeng Xiang, Zelong Lv, Sicheng Xu, Yu Deng,
+Ruicheng Wang, Bowen Zhang, Dong Chen, Xin Tong,
+
+and Jiaolong Yang. Structured 3d latents for scalable and
+versatile 3d generation. arXiv preprint arXiv:2412.01506,
+2024.
+[58] Tianyi Xie, Zeshun Zong, Yuxing Qiu, Xuan Li, Yutao
+Feng, Yin Yang, and Chenfanfu Jiang. Physgaussian:
+Physics-integrated 3d gaussians for generative dynamics. In Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition, pages 4389–
+4398, 2024.
+[59] Zhengrong Xue, Shuying Deng, Zhenyang Chen, Yixuan
+Wang, Zhecheng Yuan, and Huazhe Xu. Demogen: Synthetic demonstration generation for data-efficient visuomotor policy learning. arXiv preprint arXiv:2502.16932,
+2025.
+[60] Jingyun Yang, Zi-ang Cao, Congyue Deng, Rika
+Antonova, Shuran Song, and Jeannette Bohg. Equibot:
+Sim (3)-equivariant diffusion policy for generalizable and
+data efficient learning. arXiv preprint arXiv:2407.01479,
+2024.
+[61] Jingyun Yang, Congyue Deng, Jimmy Wu, Rika
+Antonova, Leonidas Guibas, and Jeannette Bohg. Equivact: Sim (3)-equivariant visuomotor policies beyond
+rigid object manipulation. In 2024 IEEE International
+Conference on Robotics and Automation (ICRA), pages
+9249–9255. IEEE, 2024.
+[62] Lihe Yang, Bingyi Kang, Zilong Huang, Xiaogang Xu,
+Jiashi Feng, and Hengshuang Zhao. Depth anything:
+Unleashing the power of large-scale unlabeled data. In
+Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition, pages 10371–10381,
+2024.
+[63] Sizhe Yang, Yanjie Ze, and Huazhe Xu. Movie: Visual
+model-based policy adaptation for view generalization.
+Advances in Neural Information Processing Systems, 36,
+2024.
+[64] Ziyi Yang, Xinyu Gao, Wen Zhou, Shaohui Jiao, Yuqing
+Zhang, and Xiaogang Jin. Deformable 3d gaussians for
+high-fidelity monocular dynamic scene reconstruction. In
+Proceedings of the IEEE/CVF Conference on Computer
+Vision and Pattern Recognition, pages 20331–20341,
+2024.
+[65] Mingqiao Ye, Martin Danelljan, Fisher Yu, and Lei Ke.
+Gaussian grouping: Segment and edit anything in 3d
+scenes. In European Conference on Computer Vision,
+pages 162–179. Springer, 2025.
+[66] Chandan Yeshwanth, Yueh-Cheng Liu, Matthias Nießner,
+and Angela Dai. Scannet++: A high-fidelity dataset of
+3d indoor scenes. In Proceedings of the IEEE/CVF
+International Conference on Computer Vision, pages 12–
+22, 2023.
+[67] Tianhe Yu, Ted Xiao, Austin Stone, Jonathan Tompson,
+Anthony Brohan, Su Wang, Jaspiar Singh, Clayton Tan,
+Jodilyn Peralta, Brian Ichter, et al. Scaling robot learning
+with semantically imagined experience. arXiv preprint
+arXiv:2302.11550, 2023.
+[68] Chengbo Yuan, Suraj Joshi, Shaoting Zhu, Hang Su,
+
+Hang Zhao, and Yang Gao. Roboengine: Plug-andplay robot data augmentation with semantic robot segmentation and background generation. arXiv preprint
+arXiv:2503.18738, 2025.
+[69] Zhecheng Yuan, Tianming Wei, Shuiqi Cheng,
+Gu Zhang, Yuanpei Chen, and Huazhe Xu. Learning
+to manipulate anywhere: A visual generalizable
+framework for reinforcement learning. arXiv preprint
+arXiv:2407.15815, 2024.
+[70] Xinyu Zhang and Abdeslam Boularias. One-shot imitation learning with invariance matching for robotic
+manipulation. arXiv preprint arXiv:2405.13178, 2024.
+[71] Yuhang Zheng, Xiangyu Chen, Yupeng Zheng, Songen
+Gu, Runyi Yang, Bu Jin, Pengfei Li, Chengliang Zhong,
+Zengmao Wang, Lina Liu, et al. Gaussiangrasper: 3d
+language gaussian splatting for open-vocabulary robotic
+grasping. arXiv preprint arXiv:2403.09637, 2024.
+
+A PPENDIX
+
+TABLE III: Camera view augmentation hyperparameters
+and their range of randomization.
+
+A. Applying Transformation and Scaling to 3D Gaussians
+This section outlines how to apply transformations (translation, rotation) and scaling to 3D Gaussians.
+The Gaussian primitive typically possesses three core properties: 1) a center position in three-dimensional space; 2)
+an orientation that specifies the tilt of its principal axes,
+commonly represented as a quaternion; 3) a scale indicating its
+width or narrowness. Additionally, Gaussian primitives can be
+enhanced with Spherical Harmonics (SH) to capture complex,
+direction-dependent color features.
+When applying a transformation to the Gaussian primitive,
+the following steps should be taken: 1) update the center position by scaling, rotating, and then adding the translation offset;
+2) update the orientation by combining the existing rotation
+with the new rotation; 3) adjust the scale by multiplying by the
+scaling factor; 4) rotate the Spherical Harmonics coefficients
+by using the Wigner D matrices.
+
+Hyperparameter
+
+Value
+
+∆xc
+∆yc
+∆zc
+∆r
+∆θ
+∆φ
+
+0.1(m)
+0.1(m)
+0.1(m)
+0.2(m)
+π
+6
+π
+6
+
+Then, we stipulate that the hyperparameters are sampled from
+the following distributions:
+p∆r , ∆g , ∆b q „ N p0, 0.12 Iq,
+sr , sg , sb „ Uniformp0.3, 1.8q,
+or , og , ob „ Uniformp´0.3, 0.3q.
+
+B. Details of Demonstration Augmentation Process
+We expand on the details of the demonstration augmentation
+process in this section. An illustration of augmented demonstrations is provided in Fig. 12.
+1) Object pose
+As mentioned in Sec. IV-B1, we transform the end-effector
+poses at key frames equivariantly according to the transformation that is applied to the target object. However, considering
+the symmetry of the gripper, we perform post-processing on
+the transformed end-effector pose.
+Suppose the rotation of the transformed end-effector pose
+can be expressed as prx , ry , rz q in the format of XYZ Euler
+angles. We replace rz with rz1 , which can be calculated as:
+$
+’
+&rz
+1
+rz “ rz ` π
+’
+%
+rz ´ π
+
+´ π2 ď rz ď π2
+rz ă ´ π2
+rz ą π2 .
+
+The resulting Euler angles prx , ry , rz1 q form the final rotation
+of the end-effector, which prevents the end-effector from
+performing redundant rotation along its z-axis.
+2) Camera view
+As aforementioned in Sec. V-D3, we enumerate the hyperparameters of camera view augmentations and their range of
+randomization in Table III. Suppose the camera view in the
+expert demonstration has target point Ocexpert “ px0c , yc0 , zc0 q
+and corresponding spherical coordinates pr0 , θ0 , φ0 q. Thereby,
+the target point Oc “ pxc , yc , zc q and corresponding spherical
+coordinates pr, θ, φq are sampled from uniform distributions,
+ranging between px0c ˘∆xc , yc0 ˘∆yc , zc0 ˘∆zc , r0 ˘∆r, θ0 ˘
+∆θ, φ0 ˘ ∆φq.
+3) Lighting condition
+We present the hyperparameters of lighting condition augmentation in this section. First, we normalize the RGB values
+of each pixel with minimum value 0 and maximum value 1.
+
+C. Policy Architecture
+As illustrated in Fig. 13, the policy processes two types
+of inputs: images and robot states. We use different encoders
+to tokenize each modality accordingly. For image inputs, the
+images are first passed through a ResNet-18 vision encoder
+to generate visual embeddings. We employ a linear layer to
+extract compact visual features. For the robot state, we encode
+it into state tokens using a multi-layer perceptron (MLP).
+The multi-modal encoder in our model is based on a GPT2 style transformer architecture. Before feeding the sequential
+image and state tokens into the transformer, we append readout
+tokens rACTs to the end. These readout tokens attend to
+embeddings from different modalities, serving as action latents
+used for action prediction.
+Encoded by the multi-modal encoder, the action latents
+generated by the rACTs tokens are fed into the readout
+decoders to predict actions. The action decoder utilizes an
+MLP to transform the action latent into the action vector. We
+predict a chunk of 10 future actions. Compared to single-step
+action prediction, predicting multiple steps provides temporal
+action consistency and robustness to idle actions [11].
+D. Training Details
+During training, the input at each timestep consists of two
+images captured from two eye-on-base cameras, along with the
+robot state. The robot state includes both the arm state and the
+gripper state. The gripper state is binary, indicating whether
+the gripper is open or closed. For the Franka FR3 robot, the
+arm state is 7-dimensional, while for the UR5e robot, it is
+6-dimensional.
+The policy operates with a history length of 1, and the size
+of the action chunk is set to 10. During inference, we utilize
+temporal ensemble techniques to compute a weighted average
+of the multi-step actions.
+
+Linear
+Layer
+
+Gripper State
+
+[0.0]
+
+Gripper Action
+
+Linear Layer
+
+Transformer Backbone
+MLP
+
+Arm State
+
+[0.13, 0.02, 0.24, 0.05, 0.03, 0.59]
+
+Arm Action
+
+Linear Layer
+
+MLP
+
+Linear
+Layer
+
+E. Illustration of Real-World Experiment Settings
+We illustrate the experiment settings on lighting condition
+generalization in Fig. 14. The flashing light alternates between
+red and blue light at a frequency of 4Hz. Every lighting
+condition takes up 6 trials in a single experiment.
+Besides, we present the real-world settings on appearance
+generalization in Fig. 15. Each scenario accounts for 5 trials
+in a single experiment.
+
+Linear
+Layer
+
+The policy is trained using a single NVIDIA RTX 4090
+GPU, with a batch size of 256 and a learning rate of 1e-4.
+Depending on the number of demonstrations, the policy is
+trained for varying numbers of epochs. The hyperparameters
+used during training are detailed in Table IV.
+
+Resnet 18
+
+Fig. 12: Illustration of augmented demonstrations. Type of generalization from the top row to the bottom row: object pose,
+lighting condition, scene appearance, object type, camera view, and embodiment type.
+
+[
+
+Fig. 13: Policy architecture.
+
+]× N
+
+TABLE IV: Policy training hyperparameters.
+Batch Size
+
+256
+
+Learning Rate
+
+1e-4
+
+Training Epochs
+
+1400 (100 demonstrations)
+1000 (200 demonstrations)
+800 (400 demonstrations)
+700 (800 demonstrations)
+500 (1800 demonstrations)
+300 (3200 demonstrations)
+200 (6400 demonstrations)
+
+Image Size
+
+128*128
+
+Optimizer
+
+AdamW
+
+History Length
+
+1
+
+Action Chunk
+Length
+
+10
+
+(a) Flashing light (Red)
+
+(b) Flashing light (Blue)
+
+(c) Dark light
+
+(d) Bright light
+
+(e) Green light
+
+(f) Yellow light
+
+Fig. 14: Illustration of real-world experiment on lighting generalization.
+
+(a)
+
+(b)
+
+(c)
+
+(d)
+
+(e)
+
+(f)
+
+Fig. 15: Illustration of real-world experiment on appearance generalization.
+
+

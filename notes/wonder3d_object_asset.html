@@ -1,0 +1,64 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Wonder3D: Single Image to 3D using Cross-Domain Diffusion</title><style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.65;max-width:1120px;margin:32px auto;padding:0 24px;color:#17202a;background:#fbfbf8}
+h1{font-size:30px;margin-bottom:8px}h2{font-size:22px;margin-top:30px;border-bottom:1px solid #ddd;padding-bottom:4px}h3{font-size:18px;margin-top:22px}
+p,li{font-size:15px}.meta{color:#555}.card{border:1px solid #ddd;border-radius:8px;padding:14px 16px;background:#fff;margin:14px 0}
+.table-line{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;background:#fff;padding:2px 6px;margin:0;border-left:1px solid #ddd;border-right:1px solid #ddd}
+pre{background:#111827;color:#f9fafb;padding:14px;border-radius:8px;overflow:auto}
+</style></head><body><h1>Wonder3D: Single Image to 3D using Cross-Domain Diffusion</h1>
+
+<h2>定位</h2>
+<p>normal maps对几何补全有帮助，可作为 object mesh generation baseline。</p>
+
+<p class="table-line">| 字段 | 内容 |</p>
+<p class="table-line">| --- | --- |</p>
+<p class="table-line">| priority / score | P1 / 3.37/5 |</p>
+<p class="table-line">| family | multi-view normal/color generation + mesh reconstruction |</p>
+<p class="table-line">| sources | https://github.com/xxlong0/Wonder3D&lt;br&gt;https://arxiv.org/abs/2310.15008 |</p>
+<p class="table-line">| local_pdf | ref/wonder3d_2310_15008.pdf |</p>
+<p class="table-line">| local_supplementary_pdfs | 无 |</p>
+<p class="table-line">| local_repo | repos/Wonder3D |</p>
+<p class="table-line">| commit / license | d894f82 / LICENSE (cloned) |</p>
+
+<h2>Inputs / Outputs</h2>
+<ul>
+<li>Inputs: single object image.</li>
+<li>Outputs: consistent multi-view normal maps/color images and textured mesh.</li>
+</ul>
+
+<h2>Full Method Pipeline</h2>
+<ul>
+<li>Generate multi-view normals and colors with cross-domain diffusion.</li>
+<li>Use cross-domain attention for view/modality consistency.</li>
+<li>Fuse normals geometry-aware to extract surface.</li>
+<li>Texture reconstructed mesh.</li>
+</ul>
+
+<h2>Losses / Objectives</h2>
+<p>diffusion losses over normal/color domains; surface fusion postprocess。</p>
+
+<h2>Assumptions</h2>
+<p>single clean object image; generated normals may diverge from真实测量。</p>
+
+<h2>Failure Modes</h2>
+<p>thin/reflective objects难；scale/collision absent。</p>
+
+<h2>对 Directional View Gap 的关系</h2>
+<p>背面 normal/color prior。</p>
+
+<h2>Isaac Sim Transfer</h2>
+<p>adapter needed。</p>
+
+<h2>可迁移模块</h2>
+<ul>
+<li>scene/object representation: multi-view normal/color generation + mesh reconstruction</li>
+<li>view/object completion: 背面 normal/color prior。</li>
+<li>geometry/collision: consistent multi-view normal maps/color images and textured mesh.</li>
+<li>simulator integration: adapter needed。</li>
+<li>evaluation metrics: mesh watertightness, collision proxy validity, object-level novel-view consistency, task success / collision rate.</li>
+</ul>
+
+<h2>Recommended Role</h2>
+<p>P1 mesh generation baseline，优先级低于 Hunyuan3D/InstantMesh。</p>
+
+<h2>Next Experiment</h2>
+<p>仅在 Hunyuan3D/InstantMesh 失败时做替补测试。</p></body></html>

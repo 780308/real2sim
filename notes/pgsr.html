@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>PGSR: Planar-based Gaussian Splatting for Efficient and High-Fidelity Surface Reconstruction</title>
+<style>
+body { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; line-height:1.65; margin:0; color:#202124; background:#f7f7f5; }
+main { max-width: 980px; margin: 0 auto; padding: 32px 24px 56px; background:#fff; }
+h1 { font-size: 30px; margin:0 0 8px; }
+h2 { margin-top: 30px; border-top:1px solid #ddd; padding-top:18px; }
+.meta { color:#5f6368; }
+.badge { display:inline-block; padding:2px 8px; border:1px solid #ccc; border-radius:6px; margin-right:6px; background:#fafafa; }
+table { border-collapse: collapse; width:100%; margin: 14px 0; }
+td, th { border:1px solid #ddd; padding:8px; vertical-align:top; }
+th { background:#f1f3f4; }
+code { background:#f1f3f4; padding:2px 4px; border-radius:4px; }
+</style>
+</head>
+<body><main>
+<h1>PGSR: Planar-based Gaussian Splatting for Efficient and High-Fidelity Surface Reconstruction</h1>
+<p class="meta"><span class="badge">P0</span><span class="badge">deep</span><span class="badge">score 3.81/5</span><span class="badge">3DGS geometry regularization / mesh extraction</span></p>
+<h2>资料状态</h2>
+<table>
+<tr><th>类型</th><td>paper+repo</td></tr>
+<tr><th>本地 PDF</th><td>ref/pgsr_2406_06521.pdf</td></tr>
+<tr><th>本地 repo</th><td>repos/PGSR</td></tr>
+<tr><th>commit</th><td>de24f1a</td></tr>
+<tr><th>license 文件</th><td>LICENSE.md</td></tr>
+</table>
+<h2>Sources</h2><ul><li>https://zju3dv.github.io/pgsr/</li><li>https://github.com/zju3dv/PGSR</li><li>https://arxiv.org/abs/2406.06521</li></ul>
+<h2>对 directional view coverage gap 的定位</h2><p>P0 工程后端：SEVA/GEN3C 生成反向视角后，用 PGSR 验证重训是否减少黑洞并改善 mesh。</p>
+<h2>Inputs / Outputs</h2>
+<ul><li><strong>Inputs:</strong> multi-view RGB / SfM poses；无需预训练 depth/normal prior。</li><li><strong>Outputs:</strong> planar-constrained 3DGS and surface reconstruction / mesh。</li></ul>
+<h2>Method Pipeline</h2><ul><li>用 planar-based Gaussian 表达增强 surface alignment。</li><li>通过 multi-view constraints 提高 geometry accuracy。</li><li>用于把 pseudo views + 原始 views 重训成更适合 mesh/Isaac 的表示。</li></ul>
+<h2>Objectives / Losses</h2><p>RGB reconstruction + planar/geometric regularization；目标是高保真 surface reconstruction。</p>
+<h2>Assumptions</h2><p>不能凭空补未观测反向内容；必须与 NVS 或补采集结合。</p>
+<h2>Failure Modes</h2><p>若 pseudo views 错误，PGSR 会把错误几何固化；需要 confidence weighting。</p>
+<h2>Isaac Sim / 平台迁移判断</h2><p>adapter needed but strong；可作为 GS-to-surface bridge。</p>
+<h2>Transfer Matrix 摘要</h2>
+<table>
+<tr><th>method family</th><td>3DGS geometry regularization / mesh extraction</td></tr>
+<tr><th>camera-pose conditioning</th><td>中/弱</td></tr>
+<tr><th>large-angle support</th><td>需验证</td></tr>
+<tr><th>3D consistency</th><td>4.3/5</td></tr>
+<tr><th>Isaac Sim path</th><td>adapter needed but strong；可作为 GS-to-surface bridge。</td></tr>
+<tr><th>code/weights</th><td>4.0/5</td></tr>
+<tr><th>priority score</th><td>3.81/5</td></tr>
+</table>
+</main></body></html>

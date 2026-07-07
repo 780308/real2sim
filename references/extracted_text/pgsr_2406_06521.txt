@@ -1,0 +1,1006 @@
+                                         PGSR: Planar-based Gaussian Splatting for Efficient
+                                             and High-Fidelity Surface Reconstruction
+                                                                   Danpeng Chen, Hai Li, Weicai Ye, Yifan Wang, Weijian Xie, Shangjin Zhai,
+                                                                          Nan Wang, Haomin Liu, Hujun Bao, Guofeng Zhang
+arXiv:2406.06521v2 [cs.CV] 10 Jan 2025
+
+
+
+
+                                         Fig. 1: PGSR representation. We present a Planar-based Gaussian Splatting Reconstruction representation for efficient and high-fidelity surface reconstruction
+                                         from multi-view RGB images without any geometric prior (depth or normal from pre-trained model). The courthouse reconstructed by our method demonstrates
+                                         that PGSR can recover geometric details, such as textual details on the building. From left to right: input SfM points, planar-based Gaussian ellipsoid, rendered
+                                         view, textured mesh, surface, and normal.
+
+
+                                            Abstract—Recently, 3D Gaussian Splatting (3DGS) has at-                        and ultra-fast training and rendering speed. However, due to the
+                                         tracted widespread attention due to its high-quality rendering,                   unstructured and irregular nature of Gaussian point clouds, it
+                                                                                                                           is difficult to guarantee geometric reconstruction accuracy and
+                                                                                                                           multi-view consistency simply by relying on image reconstruction
+                                            H. Bao, G. Zhang, W. Ye are with the State Key Lab of CAD&CG, Zhejiang
+                                         University. E-mails: {baohujun, zhangguofeng}@zju.edu.cn, maikeyewe-
+                                                                                                                           loss. Although many studies on surface reconstruction based
+                                         icai@gmail.com.                                                                   on 3DGS have emerged recently, the quality of their meshes is
+                                            D. Chen and W. Xie are with the State Key Lab of CAD&CG, Zhe-                  generally unsatisfactory. To address this problem, we propose a
+                                         jiang University. W. Xie is also affiliated with SenseTime Research, and          fast planar-based Gaussian splatting reconstruction representa-
+                                         D. Chen is also affiliated with Tetras.AI. E-mails: 11921155@zju.edu.cn,          tion (PGSR) to achieve high-fidelity surface reconstruction while
+                                         xieweijian@sensetime.com.                                                         ensuring high-quality rendering. Specifically, we first introduce
+                                            H. Li is with RayNeo. E-mail: lihai@ffalcon.cn.                                an unbiased depth rendering method, which directly renders
+                                            Y. Wang is with Shanghai AI Laboratory. E-mail: wangyifan@pjlab.org.cn.        the distance from the camera origin to the Gaussian plane
+                                            S. Zhai, N. Wang and H. Liu are with SenseTime Research. E-mails:              and the corresponding normal map based on the Gaussian
+                                         {zhaishangjin, wangnan, liuhaomin}@sensetime.com.
+                                            Corresponding author: Guofeng Zhang
+                                                                                                                           distribution of the point cloud, and divides the two to obtain
+                                            Digital Object Identifier 10.1109/TVCG.2024.3494046                            the unbiased depth. We then introduce single-view geometric,
+
+
+                                                                1077-2626 © 2024 IEEE. Personal use is permitted, but republication/redistribution requires IEEE permission.
+                                                                              See https://www.ieee.org/publications/rights/index.html for more information.
+                                                                                                                                                             2
+
+
+
+
+Fig. 2: Unbiased depth rendering. (a) Illustration of the rendered depth: We take a single Gaussian, flatten it into a plane, and fit it onto the surface as an
+example. Our rendered depth is the intersection point of rays and surfaces, matching the actual surface. In contrast, the depth from previous methods [11],
+[24] corresponds to a curved surface and may deviate from the actual surface. (b) We use true depth to supervise two different depth rendering methods.
+After optimization, we map the positions of all Gaussian points. Gaussians of our method fit well onto the actual surface, while the previous method results
+in noise and poor adherence to the surface.
+
+
+
+multi-view photometric, and geometric regularization to preserve                 disorderly and irregular nature of Gaussians, which makes
+global geometric accuracy. We also propose a camera exposure                     them unable to accurately model the surfaces of real scenes.
+compensation model to cope with scenes with large illumination                   Moreover, optimizing solely based on image reconstruction
+variations. Experiments on indoor and outdoor scenes show that
+the proposed method achieves fast training and rendering while                   loss can easily lead to local optima, ultimately resulting in
+maintaining high-fidelity rendering and geometric reconstruction,                Gaussians failing to conform to actual surfaces and exhibiting
+outperforming 3DGS-based and NeRF-based methods. Our code                        poor geometric accuracy. In many practical tasks, geometric
+will be made publicly available, and more information can be                     reconstruction accuracy is a crucial metric. Therefore, to
+found on our project page (https://zju3dv.github.io/pgsr/).                      address these issues, we propose a novel framework based
+  Index Terms—Planar-Based Gaussian Splatting, Surface Re-                       on 3DGS that achieves high-fidelity geometric reconstruction
+construction, Neural Rendering, Neural Radiance Fields.                          while maintaining the high-quality rendering quality, fast train-
+                                                                                 ing, and rendering speeds characteristic of 3DGS.
+                                                                                    In this paper, we propose a novel unbiased depth render-
+                          I. I NTRODUCTION
+                                                                                 ing method based on 3DGS, facilitating the integration of
+
+N      OVEL view synthesis and geometry reconstruction are
+       challenging and crucial tasks in computer vision, widely
+used in AR/VR [13], [64], 3D content generation [10], [18],
+                                                                                 various geometric constraints to achieve precise geometric
+                                                                                 estimation. Previous methods [24] render depth by blending
+                                                                                 the accumulations of each Gaussian at the z-position of the
+[49], [54], and autonomous driving. To achieve a realistic and                   camera, resulting in two main issues as shown in Fig. 2.
+immersive experience in AR/VR, novel view synthesis needs                        The depth corresponds to a curved surface and may deviate
+to be sufficiently convincing, and 3D reconstruction [32], [36],                 from the actual surface. To address these issues, we compress
+[63], [65] needs to be finely detailed. Recently, neural radiance                3D Gaussians into flat planes and blend their accumulations
+fields [22], [42], [43], [62] have been widely used to tackle                    to obtain normal and camera-to-plane distance maps. These
+this task, achieving high-fidelity novel view synthesis [2], [3],                maps are then transformed into depth maps. This method
+[45] and 3D geometry reconstruction [33], [57]. However, due                     involves blending Gaussian plane accumulations to determine
+to the computationally intensive volume rendering methods,                       a pixel’s plane parameters. The intersection of the ray and
+neural radiance fields often require training times of several                   plane defines the depth, depending on the Gaussian’s position
+hours to even hundreds of hours, and rendering speeds are                        and rotation. By dividing the distance map by the normal
+difficult to achieve in real-time. Recently, 3D Gaussian Splat-                  map, we cancel out the ray accumulation weights, ensuring
+ting (3DGS) [27] has made groundbreaking advancements                            the depth estimation is unbiased and falls on the estimated
+in this field. By optimizing the positions, rotations, scales,                   plane. In our experiment shown in Fig. 2, we used true depth
+and appearances of the explicit 3D Gaussians and combining                       to guide two depth rendering methods. After optimization, we
+alpha-blend rendering, 3DGS has achieved training times in                       mapped the positions of all Gaussian points. Results show
+the order of minutes and rendering speeds in the millisecond                     that our method produces Gaussians that closely align with
+range.                                                                           the actual surface, while the previous method generates noisy
+   Although 3DGS achieves high-fidelity novel view render-                       Gaussians that fail to adhere precisely to the surface.
+ing and fast training and rendering speeds. As discussed in                         After rendering the plane parameters for each pixel, we
+previous methods [19], [24], Gaussians often do not conform                      apply single-view and multi-view regularization to optimize
+well to actual surfaces, resulting in poor geometric accuracy.                   these parameters. Empirically, adjacent pixels often belong to
+Fig. 3 also shows this conclusion. Extracting accurate meshes                    the same plane. Using this local plane assumption, we compute
+from millions of discrete Gaussian points is an extremely                        a normal map from neighboring pixel depth estimations and
+challenging task. The fundamental reason for this lies in the                    ensure consistency between this normal map and the rendered
+                                                                                                                                           3
+
+
+
+normal map. At geometric edges, the local plane assumption                A. Traditional Surface Reconstruction
+fails, so we detect these edges using image edges and reduce                 Traditional methods adhere to the universal multi-view
+the weight in these areas, achieving smooth geometry and                  stereo pipeline, which can be roughly categorized based on
+consistent depth and normals. However, due to the discrete and            the intermediate representation they rely on, such as point
+unordered nature of Gaussians, geometry may be inconsistent               cloud [16], [30], volume [29], depth map [4], [17], [53],
+across multiple views. To address this, we apply multi-view               etc. The commonly used method separates the overall MVS
+regularization ensuring global geometric consistency. Similar             problem into several parts, by initially extracting dense point
+to the Eikonal loss [57], we incorporate a multi-view geometric           clouds from multi-view images through block-based match-
+consistency loss to ensures smooth and consistent geometric               ing [1], followed by the construction of surface structures
+reconstruction, even in areas with noise, blur, or weak textures.         either through triangulation [6] or implicit surface fitting [25],
+   We use two photometric coefficients to compensate for                  [26]. Despite being well-established and extensively utilized in
+overall changes in image brightness, further improving re-                academia and industry, these traditional methods are suscep-
+construction quality. Finally, we validate the rendering and              tible to artifacts stemming from erroneous matching or noise
+reconstruction quality on the MipNeRF360, the DTU [23] and                introduced during the pipeline. In response, several approaches
+the Tanks and Temples(TnT) [28] dataset. Experimental results             aim to enhance reconstruction completeness and accuracy by
+demonstrate that, while maintaining the original Gaussian                 integrating deep neural networks into the matching process
+rendering quality and rendering speed, our method achieves                [51], [55].
+state-of-the-art reconstruction accuracy. Moreover, our training
+speed only requires one hour on a single GPU, while the state-
+of-the-art method based on NeRF [33] requires eight GPUs                  B. Neural Surface Reconstruction
+over two days. In summary, our method makes the following                    Numerous pioneering efforts have leveraged pure deep
+contributions:                                                            neural networks to predict surface models directly from single
+   • We propose a novel unbiased depth rendering method.                  or multiple image conditions using point clouds [14], [34],
+      Based on this rendering method, we can render the                   voxels [12], [59], and triangular meshes [32], [56] or implicit
+      reliable plane parameters for each pixel, facilitating the          fields [41], [48] in end-to-end manner. However, these methods
+      incorporation of various geometric constraints.                     often incur significant computational overhead during network
+   • We introduce single-view and multi-view regulariza-                  inference and demand extensively labeled training 3D models,
+      tions to optimize the plane parameters of each pixel,               hindering their real-time and real-world applicability.
+      achieving high-precision global geometric consistency.                 With the rapid advancement in neural surface reconstruction
+   • The exposure compensation simply and effectively en-                 tasks, a meticulously designed scene recovery method named
+      hances reconstruction accuracy.                                     NeRF [42] emerged. NeRF-based methods take 5D ray in-
+   • Our method, while maintaining the high rendering ac-                 formation as input and predict density and color sampled in
+      curacy and speed of the original GS, achieves state-of-             continuous space, yielding notably more realistic rendering
+      the-art reconstruction accuracy, and our training time              results. However, this representation falls short in capturing
+      is near 100 times faster compared to state-of-the-art               high-fidelity surfaces.
+      reconstruction methods based on NeRF [33].                             Consequently, several approaches have transformed NeRF-
+                                                                          based network architectures into surface reconstruction frame-
+                                                                          works by incorporating intermediate representations such as
+                                                                          occupancy [47] or signed distance fields [57], [61]. Despite the
+                                                                          potent surface reconstruction capabilities exhibited by NeRF-
+                                                                          based frameworks, the stacked multi-layer-perceptron (MLP)
+                                                                          layers impose constraints on inference time and representation
+                                                                          ability. To address this challenge, various following studies aim
+                                                                          to reduce dependency on MLP layers by decomposing scene
+Fig. 3: Rendered Depth. The original depth in 3DGS exhibits significant   information into separable structures, such as points [60] and
+noise, while our depth is smoother and more accurate.
+                                                                          voxels [31], [33], [35].
+
+
+                       II. R ELATED W ORK                                 C. Gaussian Splatting based Surface Reconstruction
+   Surface reconstruction is a cornerstone field in computer                  SuGaR [19] proposed a method to extract Mesh from 3DGS.
+graphics and computer vision, aimed at generating intricate               They introduced regularization terms to encourage Gaussian
+and accurate surface representations from sparse or noisy                 fitting to the scene surface. By sampling 3D point clouds from
+input data. Obtaining high-fidelity 3D models from real-world             the Gaussian using the density field, they utilized Poisson
+environments is pivotal for enabling immersive experiences in             reconstruction to extract a mesh from these sampled point
+augmented reality (AR) and virtual reality (VR). This paper               clouds. However, biased depth is used to constrain the density
+focuses exclusively on surface reconstruction under given                 field, with the aim of extracting surface points from the
+poses, which can be readily computed using SLAM [5], [7],                 density field. The final surface quality depends on the depth
+[8], [40] or SFM [44], [52], [58] methods.                                quality, and it is difficult to reconstruct smooth surfaces from a
+                                                                                                                                                     4
+
+
+
+
+Fig. 4: PGSR Overview. We compress Gaussians into flat planes and render distance and normal maps, which are then transformed into unbiased depth maps.
+Single-view and multi-view geometric regularization ensure high precision in global geometry. Exposure compensation RGB loss enhances reconstruction
+accuracy.
+
+
+discrete density field. Due to the discreteness and randomness                     III. P RELIMINARY OF 3D G AUSSIAN S PLATTING
+of Gaussian points, relying solely on image reconstruction                     3DGS [27] explicitly represents 3D scenes with a set of
+constraints without proper geometric regularization can easily               3D Gaussians {Gi }. Each Gaussian is defined by a Gaussian
+result in local optimization, making it difficult to reconstruct             function:
+high-precision surfaces. While our method shares some con-                                                            1          ⊤     −1
+
+ceptual similarities with SuGaR, such as approximating 3D                                    Gi (x|µi , Σi ) = e− 2 (x−µi ) Σi (x−µi ) ,
+Gaussian ellipsoids as planes, using the shortest axis as the                where µi ∈ R3 and Σi ∈ R3×3 are the center of a point
+plane normal representation, and aiming to represent actual                  pi ∈ P and corresponding 3D covariance matrix, respectively.
+surfaces with planes, there are significant differences in the               The covariance matrix Σi can be decomposed into a scaling
+plane rendering method and the use of planes. The concurrent                 matrix Si ∈ R3×3 and a rotation matrix Ri ∈ R3×3 :
+works that are very close in time to ours are 2DGS [21] and
+GOF [68]. 2DGS achieves consistent geometry across views                                                 Σi = Ri Si Si⊤ Ri⊤ .
+by collapsing the 3D volume into a collection of 2D oriented                    3DGS allows fast α-blending for rendering. Given a trans-
+planar Gaussian disks. GOF forms a Gaussian opacity field,                   formation matrix W and an intrinsic matrix K, µi and Σi
+facilitating geometry extraction by directly identifying its level           can be transformed to camera coordinate corresponding to W
+set. However, these Gaussian splatting-based methods still                   and then projected to 2D coordinate:
+fail to produce high-precision depth and cannot ensure multi-                            ′                                 ′
+                                                                                      µi = KW [µi , 1]⊤ ,             Σi = J W Σi W ⊤ J ⊤ ,
+view geometric consistency. 2DGS uses planes to resolve the
+3D Gaussian geometric ambiguity in multi-view scenarios. It                  where J denotes the Jacobian matrix of the projective transfor-
+uses two depth rendering methods, requiring manual selection                 mation. Rendering color C ∈ R3 of a pixel u can be obtained
+between the median and expected depth value of ray-plane                     in a manner of α-blending:
+intersections. In boundary scenarios, 2DGS recommends using                                        X                             i−1
+                                                                                                                                 Y
+median depth. However, median depth suffers from the issue                                   C=          Ti αi ci ,       Ti =         (1 − αi ),
+of ’disk-aliasing’. Additionally, there are no constraints to                                      i∈N                           j=1
+ensure multi-view consistency. To address these issues, we                                                                                  ′   ′
+                                                                             where αi is calculated by evaluating Gi (u|µi , Σi ) multiplied
+flattened the Gaussian into a planar shape, which is more
+                                                                             with a learnable opacity corresponding to Gi , and the view-
+suitable for modeling actual surfaces and facilitates rendering
+                                                                             dependent color ci ∈ R3 is represented by spherical harmonics
+parameters such as normals and distances from the plane to
+                                                                             (SH) from the Gaussian Gi . Ti is the cumulative opacity. N
+the origin. Based on these plane parameters, we proposed
+                                                                             is the number of Gaussians that the ray passes through.
+unbiased depth estimation, allowing us to extract geometric
+                                                                                The center µi of a Gaussian Gi . can be projected into the
+parameters from the Gaussian. Then, we introduced geometric
+                                                                             camera coordinate system as:
+regularization terms from single-view and multi-view to opti-                                                 ⊤
+                                                                                              xi , yi , zi , 1 = W [µi , 1]⊤ ,
+                                                                                             
+mize these geometric parameters, achieving globally consistent
+high-precision geometric reconstruction.
+                                                                             Previous Methods [11], [24] render depth under the current
+                                                                             viewpoint:                X
+                                                                                                 D=        Ti αi zi .
+                                                                                                                 i∈N
+                                                                                                                                             5
+
+
+
+
+Fig. 5: The rendering and mesh reconstruction results in various indoor and outdoor scenes that we have achieved. PGSR achieves high-precision
+geometric reconstruction from a series of RGB images without requiring any prior knowledge.
+
+
+                          IV. M ETHOD                                   shapes, it’s necessary to flatten the 3D Gaussians into 2D
+   Given multi-view RGB images of static scenes, our goal               flat Gaussians in order to accurately represent the geometry
+is to achieve efficient and high-fidelity scene geometry re-            surface of the actual scene. Achieving precise geometry re-
+construction and rendering quality. Compared to 3DGS, we                construction and high-quality rendering requires the 2D flat
+achieve global consistency in geometry reconstruction while             Gaussians to accurately conform to the scene surface. Since
+maintaining similar rendering quality. Initially, we improve            the 2D flat Gaussians approximate a local plane, we can
+the modeling of scene geometry attributes by compressing                conveniently render the depth and normals of the scene.
+                                                                                                                                  P
+3D Gaussians into a 2D flat plane representation, which                    Flattening 3D Gaussian: The covariance matrix             i =
+is used to generate plane distance and normal maps, and                 Ri Si SiT RiT of a 3D Gaussian expresses the ellipsoidal shape.
+subsequently converted into unbiased depth maps. We then                Here, Ri represents the orthonormal basis of the ellipsoid’s
+introduce single-view geometric, multi-view photometric, and            three axes, and the scale factor Si defines the size along each
+geometric consistency loss to ensure global geometry consis-            direction. By compressing the scale factor along specific axes,
+tency. Additionally, the exposure compensation model further            the Gaussian ellipsoid can be flattened into planes aligned
+improves reconstruction accuracy.                                       with those axes. We compress the Gaussian ellipsoid along the
+                                                                        direction of the minimum scale factor, effectively flattening the
+                                                                        ellipsoid into a plane closest to its original shape. According
+                                                                        to the method [9], we directly minimize the minimum scale
+                                                                        factor Si = diag(s1 , s2 , s3 ) for each Gaussian:
+
+                                                                                            Ls =∥ min(s1 , s2 , s3 ) ∥1 .                 (1)
+
+                                                                           Unbiased Depth Rendering: The direction of the minimum
+                                                                        scale factor corresponds to the normal ni of the Gaussian. Due
+                                                                        to the ambiguity of the normal direction when there are two
+                       Fig. 6: Unbiased Depth.                          directions for the shortest axis, we resolve this issue by using
+                                                                        the viewing direction to determine the normal direction. This
+                                                                        implies that the angle between the viewing direction and the
+A. Planar-based Gaussian Splatting Representation                       normal direction should be greater than 90 degrees. The final
+   In this section, we will discuss how to transform 3D                 normal map under the current viewpoint is achieved through
+Gaussians into a 2D flat plane representation. Based on this            α-blending:
+plane representation, we introduce an unbiased depth render-                                                      i−1
+ing method, which will render plane-to-camera distance and
+                                                                                                X                 Y
+                                                                                         N=           RcT ni αi         (1 − αj ),        (2)
+normal maps, and can then be converted into depth maps.                                         i∈N               j=1
+With geometric depth, distance, and normal maps available,
+it becomes easier to introduce single-view regularization and           where Rc is the rotation from the camera to the global world.
+multi-view regularization in the following sections.                    The distance from the plane to the camera center can be
+   Due to the difficulty in modeling real-world scene geometry          expressed as di = (RcT (µi − Tc ))T (RcT ni ), where Tc is the
+attributes such as depth and normals using 3D Gaussian                  camera center in the world. µi is the center of gaussian Gi .
+                                                                                                                                       6
+
+
+
+The final distance map under the current viewpoint is achieved        meaning a pixel and its neighboring pixels can be considered
+through α-blending:                                                   as an approximate plane. After rendering the depth map,
+                                      i−1                             we sample four neighboring points using a fixed template.
+                        X             Y
+                  D=          di αi         (1 − αj ).         (3)    With these known depths, we compute the plane’s normal.
+                        i∈N           j=1                             This process is repeated for the entire image, generating
+                                                                      normals from the rendered depth map. We then minimize the
+Referencing Fig. 6, after obtaining the distance and normal
+                                                                      difference between this normal map and the rendered normal
+of the plane through rendering, we can determine the corre-
+                                                                      map, ensuring geometric consistency between local depth and
+sponding depth map by intersecting rays with the plane:
+                                                                      normals.
+                                    D                                    Image Edge-Aware Single-View Loss: Neighboring pixels
+                     D(p) =                  ,                 (4)
+                                N (p)K −1 p̃                          may not necessarily fully adhere to the local planarity as-
+where p = [u, v]T indicates the 2D position on the image              sumption, especially in edge regions. To address this issue,
+plane. p̃ is the homogeneous coordinate representation of p,          We use image edges to approximate geometric edges. For a
+and K refers to the intrinsic of camera.                              pixel point p, we sample four points from the neighboring
+   As shown in Fig. 2, our method of rendering depth has              pixels, such as up, down, left, and right. We project the four
+two major advantages compared to other depth rendering tech-          sampled depth points into 3D points {Pj |j = 1, ..., 4} in the
+niques. First, Our depth shapes are consistent with flattened         camera coordinate system, then calculate the normal of the
+Gaussian shapes, which can truly reflect actual surfaces. Previ-      local plane for the pixel point p is:
+ous methods typically involve directly rendering the depth map                                 (P1 − P0 ) × (P3 − P2 )
+based on α-blending of the depth Z of Gaussians. Their depth                       Nd (p) =                             ,           (5)
+                                                                                              |(P1 − P0 ) × (P3 − P2 )|
+is curved, inconsistent with the flat Gaussian shape, causing
+geometric conflicts. In contrast, we render the normal and            Finally, we add the single-view normal loss is:
+distance maps of the plane first and then convert them into the                       1 X
+depth map. Our depth lies on the Gaussian flat plane. When               Lsvgeom =        (1 − ∇I)2 ∥ Nd (p) − N (p) ∥1 ,           (6)
+                                                                                      W
+the 3D Gaussian flat planes fit the actual surface, the rendered                         p∈W
+depth can ensure complete consistency with the actual surface.
+Second, since the accumulation weight for each ray may                where ∇I is the image gradient normalized to the range of
+be less than 1, previous rendering methods are affected by            0 to 1, N (p) is from Equation 2, and W is the set of image
+the weight accumulation, potentially resulting in depths that         pixels.
+are closer to the camera side and overall underestimated. In             2) Multi-View Regularization: Single-view geometry regu-
+contrast, our depth is obtained by dividing the distance from         larization can maintain consistency between depth and normal
+the rendering origin to the plane by the normal, effectively          geometry, providing fairly accurate initial geometric informa-
+eliminating the influence of weight accumulation coefficients.        tion. However, due to the irregular discretization of Gaussian
+                                                                      point cloud optimization, we found that the geometry structure
+                                                                      across multiple views is not entirely consistent. Therefore, it
+                                                                      is necessary to introduce multi-view geometry regularization
+                                                                      to ensure global consistency of the geometry structure.
+                                                                         Multi-View Geometric Consistency: The image loss often
+                                                                      suffers from influences such as image noise, blur, and weak
+                                                                      textures. In these cases, the geometric solution for photomet-
+                                                                      ric consistency is unreliable. Due to the discrete nature of
+                                                                      Gaussian properties, we cannot establish a spatially dense or
+                                                                      semi-dense SDF field as in SDF methods based on NeRF. We
+                                                                      are unable to use spatial smoothness constraints, such as the
+Fig. 7: Qualitative comparison on DTU dataset. PGSR produces smooth
+                                                                      Eikonal loss [57], to avoid the influence of unreliable solutions.
+and detailed surfaces.                                                To mitigate the impact of unreliable geometric solutions and
+                                                                      ensure multi-view geometric consistency, we introduce this
+                                                                      consistency prior constraint, which helps converge to the
+B. Geometric Regularization
+                                                                      correct solution position, enhancing geometric smoothness.
+   1) Single-View Regularization: The original 3DGS relying              We render the normals N and the plane distances D to
+solely on image reconstruction loss can easily fall into local        the camera for both the reference frame and the neighboring
+overfitting optimization, leading to Gaussian shapes incon-           frame. As shown in Fig. 9, for a specific pixel pr in the
+sistent with the actual surface. Based on this, we introduce          reference frame, the corresponding normal is nr and the
+geometric constraints to ensure that the 3D Gaussian fits the         distance is dr . The pixel pr in the reference frame can be
+actual surface as closely as possible.                                mapped to a pixel pn in the neighboring frame through the
+   Local Plane Assumption: Encouraged by these meth-                  homography matrix Hrn :
+ods [24], [37], [50], we adopt the assumption of local planarity
+to constrain the local consistency of depth and normals,                                       p˜n = Hrn p˜r ,                      (7)
+                                                                                                                                                  7
+
+
+
+
+Fig. 8: Qualitative comparison on Tanks and Temples dataset. We visualize surface quality using a normal map generated from the reconstructed mesh.
+PGSR outperforms other baseline approaches in capturing scene details, whereas baseline methods exhibit missing or noisy surfaces.
+
+                                       Trn nTr                             consistency regularization:
+               Hrn = Kn (Rrn −                 )Kr−1 ,              (8)
+                                         dr
+                                                                                                          1 X
+                                                                                           Lmvgeom =          w(pr )ϕ(pr ),                    (9)
+                                                                                                          V
+                                                                                                             pr ∈W
+where Rrn and Trn are the relative rotation and translation                                  (
+from the reference frame to the neighboring frame. Similarly,                                    1/exp(ϕ(pr )),      if ϕ(pr ) < 1
+for the pixel pn in the neighboring frame, we can obtain the                      w(pr ) =                                          ,         (10)
+                                                                                                 0,                  if ϕ(pr ) >= 1
+normal nn and the distance dn to compute the homography
+matrix Hnr . The pixel pr undergo forward and backward                     where ϕ(pr ) =∥ pr − Hnr Hrn pr ∥ is the forward and
+projections between the reference frame and the neighboring                backward projection error of pr . When ϕ(pr ) exceeds a certain
+frame through Hrn and Hnr . Minimizing the forward and                     threshold, it can be considered that the pixel is occluded or
+backward projection error constitutes the multi-view geometric             that there is a significant geometric error. To prevent errors
+                                                                                                                                   8
+
+
+
+                                                                     images with exposure compensation can be obtained by simply
+                                                                     computing with exposure coefficients:
+                                                                                         Iia = exp(ai )Iir + bi ,              (13)
+                                                                     where  Iir  is the rendered image and     Iia is the exposure-
+                                                                     adjusted image. We employ the following image loss:
+                                                                         Lrgb = (1 − λ)L1 (I˜ − Ii ) + λLSSIM (Iir − Ii ).     (14)
+                                                                                     (
+                                                                                       Iia , if LSSIM (Iir − Ii ) < 0.5
+                                                                               I˜ =                                            (15)
+                                                                                       Iir , if LSSIM (Iir − Ii ) >= 0.5
+                                                                     where Ii is the ground truth image. The L1 loss constraint
+                                                                     ensures that the exposure-adjusted image is consistent with the
+         Fig. 9: Multi-view photometric and geometric loss.          ground truth image, while the SSIM loss requires the rendered
+                                                                     image to have similar structures to the ground truth image. To
+caused by occlusion, these pixels will not be included in the        enhance the robustness of exposure coefficient estimation, we
+multi-view regularization term. If these pixels are mistakenly       need to ensure that the rendered image and the ground truth
+identified as occluded due to geometric errors, it does not          image have sufficient structural similarity before performing
+affect our final convergence. This is because the single-view        the estimation. After training, Iir is required to be globally
+regularization term and the use of sparse 3D Gaussians to            consistent and maintain structural similarity with the ground
+represent dense scenes will gradually propagate high-precision       truth image, while Iia can adjust the brightness of images to
+geometry, eventually leading all Gaussians to converge to the        match the ground truth image perfectly.
+correct positions. w(pr ) is a weight of geometric occlusion
+estimation, and the larger the projection error, the smaller the     D. Training
+weight. During training, the gradient of the weight will be             In summary, our final training loss L consists of the image
+detached.                                                            reconstruction loss Lrgb , the flattening 3D Gaussian loss Ls ,
+   Multi-View Photometric Consistency: Drawing inspira-              the geometric loss Lgeom :
+tion from multi-view Stereo (MVS methods) [4], [15], [52], we                        L = Lrgb + λ1 Ls + Lgeom .                (16)
+employ photometric multi-view consistency constraints based
+on plane patches. We map a 7 × 7 pixel patch Pr centered at          We set λ1 = 100. For the image reconstruction loss, we set
+pr to the neighboring frame patch Pn using the homography            λ = 0.2. For the geometric loss, we set λ2 = 0.015, λ3 =
+matrix Hrn . Focusing on geometric details, we convert color         0.15, and λ4 = 0.03.
+images into grayscale. Multi-view photometric regularization                                V. E XPERIMENTS
+requires that Pr and Pn should be as consistent as possible.
+We use the normalized cross correlation (NCC) [67] of patches           Datasets: To validate the effectiveness of our method, we
+in the reference frame and the neighboring frame to measure          conducted experiments on various real-world datasets, includ-
+the photometric consistency:                                         ing objects, and indoor and outdoor environments. We chose
+                                                                     the widely used MiP-NeRF360 dataset [2] for evaluating novel
+             1 X                                                     view synthesis performance. The large and complex scenes
+ Lmvrgb =            w(pr )(1 − N CC(Ir (pr ), In (Hrn pr ))),
+             V                                                       of the TnT [28] and 15 object-centric scenes of the DTU
+               pr ∈W
+                                                            (11)     dataset [23] were selected to assess reconstruction quality.
+                                                                        Evaluation Criterion: We chose three widely used image
+   3) Geometric Regularization Loss: Finally, the geomet-            evaluation metrics to validate novel view synthesis: peak
+ric regularization loss includes single-view geometric, multi-       signal-to-noise ratio (PSNR), structural similarity index mea-
+view geometric, and multi-view photometric consistency con-          sure (SSIM), and the learned perceptual image patch similarity
+straints:                                                            (LPIPS) [69]. For assessing surface quality, we employed the
+                                                                     F1 score and chamfer distance.
+                                                                        Implementation Details: Our training strategy and hy-
+    Lgeom = λ2 Lsvgeom + λ3 Lmvrgb + λ4 Lmvgeom .             (12)   perparameters are generally consistent with 3DGS [27]. The
+                                                                     training iterations for all scenes are set to 30,000. We adopt
+                                                                     the densification strategy of AbsGS [66]. The initial value
+C. Exposure Compensation Image Loss                                  of the exposure coefficient is 0, and the learning rate is
+   Due to changes in external lighting conditions, cameras may       0.001. We begin by rendering the depth for each training
+have different exposure times during different shooting mo-          view, followed by utilizing the TSDF Fusion algorithm [46]
+ments, leading to overall brightness variations in images. The       to generate the corresponding TSDF field. Subsequently, we
+original 3DGS does not consider brightness changes, which            extract the mesh [38] from the TSDF field. We only utilize the
+can result in floating artifacts in practical scenes. To model       exposure compensation on the Tanks and Temples dataset. All
+the overall brightness variations at different times, we assign      experiments in this paper are conducted on an Nvidia RTX
+two exposure coefficients, a and b, to each image. Ultimately,       4090 GPU.
+                                                                                                                                                                                                  9
+
+
+TABLE I: Quantitative results of rendering quality for novel view synthesis on Mip-NeRF360 dataset. ”Red”, ”Orange” and ”Yellow” denote the best,
+second-best, and third-best results. PGSR achieves results close to 3DGS and outperforms similar reconstruction method SuGaR.
+                                                                  Indoor scenes                                      Outdoor scenes                            Average on all scenes
+                                                       PSNR↑         SSIM↑           LPIPS↓            PSNR↑            SSIM↑           LPIPS↓          PSNR↑        SSIM↑         LPIPS↓
+                          NeRF [42]                     26.84         0.790           0.370             21.46            0.458           0.515           24.15        0.624          0.443
+        NeRF-based
+
+
+                      Deep Blending [20]                26.40         0.844           0.261             21.54            0.524           0.364           23.97        0.684          0.313
+                          INGP [45]                     29.15         0.880           0.216             22.90            0.566           0.371           26.03        0.723          0.294
+                       M-NeRF360 [2]                    31.72         0.917           0.180             24.47            0.691           0.283           28.10        0.804          0.232
+                          Neus [57]                     25.10         0.789           0.319             21.93            0.629           0.600           23.74        0.720          0.439
+        GS-based
+
+
+
+
+                            3DGS [27]                  30.99             0.926           0.199         24.24             0.705          0.283           27.24           0.803           0.246
+                            SuGaR [19]                 29.44             0.911           0.216         22.76             0.631          0.349           26.10           0.771           0.283
+                            2DGS [21]                  30.39             0.923           0.183         24.33             0.709          0.284           27.03           0.804           0.239
+                             GOF [68]                  30.80             0.928           0.167         24.76             0.742          0.225           27.78           0.835           0.196
+                              PGSR                     30.36             0.934           0.147         24.76             0.752          0.203           27.25           0.833           0.178
+
+TABLE II: Quantitative results of chamfer distance(mm)↓ on DTU dataset [23]. PGSR achieves the highest reconstruction accuracy and is over 100 times
+faster than the SDF method based on NeRF.
+
+                                        24       37        40     55        63      65           69   83        97      105      106     110     114      118     122           Mean      Time
+        VolSDF [61]                 1.14        1.26       0.81   0.49     1.25    0.70      0.72     1.29     1.18     0.70     0.66    1.08    0.42     0.61   0.55           0.86     > 12h
+         NeuS [57]                  1.00        1.37       0.93   0.43     1.10    0.65      0.57     1.48     1.09     0.83     0.52    1.20    0.35     0.49   0.54           0.84     > 12h
+      Neuralangelo [33]             0.37        0.72       0.35   0.35     0.87    0.54      0.53     1.29     0.97     0.73     0.47    0.74    0.32     0.41   0.43           0.61     > 128h
+         SuGaR [19]                 1.47        1.33       1.13   0.61     2.25    1.71      1.15     1.63     1.62     1.07     0.79    2.45    0.98     0.88   0.79           1.33       1h
+         2DGS [21]                  0.48        0.91       0.39   0.39     1.01    0.83      0.81     1.36     1.27     0.76     0.70    1.40    0.40     0.76   0.52           0.80      0.32h
+          GOF [68]                  0.50        0.82       0.37   0.37     1.12    0.74      0.73     1.18     1.29     0.68     0.77    0.90    0.42     0.66   0.49           0.74        2h
+           PGSR                     0.36        0.57       0.38   0.33     0.78    0.58      0.50     1.08     0.63     0.59     0.46    0.54    0.30     0.38   0.34           0.52      0.5h
+
+TABLE III: Quantitative results of F1 Score↑ for reconstruction on Tanks                                                   TABLE IV: Ablation study on the TnT dataset.
+and Temples dataset. PGSR achieves the best reconstruction accuracy and
+very fast training speed.                                                                                                         Model setting                    F1-Score↑           PSNR↑
+                     NeuS    Geo-Neus        Neurlangelo     SuGaR     2D GS      GOF      PGSR                                w/o Single-View                          0.49           27.02
+Barn                 0.29      0.33             0.70          0.14       0.45     0.51      0.66                                w/o Multi-View                          0.32           27.30
+Caterpillar          0.29      0.26             0.36          0.16       0.24     0.41      0.44
+Courthouse           0.17      0.12             0.28          0.08       0.13     0.28      0.20
+                                                                                                                          w/o Multi-View Geometric                      0.49           27.07
+Ignatius             0.83      0.72             0.89          0.33       0.50     0.68      0.81                          w/o Multi-View Photometric                    0.39           26.83
+Meetingroom          0.24      0.20             0.32          0.15       0.18     0.28      0.33                      w/o Geometric Occlusion Estimation                0.28           21.70
+Truck                0.45      0.45             0.48          0.26       0.43     0.58      0.66                            w/o Our unbiased depth                      0.38           26.47
+Mean                 0.38      0.35             0.50          0.19       0.32     0.46      0.52                          w/o Exposure Compensation                     0.49           25.33
+Time                 >24h      >24h            >128h           2h       0.57h      2h      0.75h
+                                                                                                                                   Full model                           0.52           26.73
+
+
+A. Real-time Rendering                                                                                     The TnT dataset: The F1 score of PGSR is similar to
+   For the validation of rendering quality, we follow the                                               NeuralAngelo and better compared to other current reconstruc-
+3DGS method and conduct validation on the Mip-NeRF360                                                   tion methods. Our training time is over 100 times faster than
+dataset [2]. We compare with current state-of-the-art meth-                                             NeuralAngelo. Moreover, compared to NeuralAngelo, we can
+ods for pure novel view synthesis as well as similar re-                                                reconstruct more surface details.
+construction methods to ours, including NeRF [42], Deep
+Blending [20], INGP [45], Mip-NeRF360 [2], NeuS [57],
+3DGS [27], SuGaR [19], 2DGS [21], and GOF [68]. As shown
+in Table I and Fig. 5, compared to the current state-of-the-
+art methods, our approach not only provides excellent surface
+reconstruction quality but also achieves outstanding novel view
+synthesis.
+
+B. Reconstruction                                                                                       Fig. 10: The qualitative comparison of our unbiased depth method with
+                                                                                                        the previous depth method [11], [24] is depicted in the normal map. Our
+   We compared our method, PGSR, with current state-of-the-                                             overall geometric structure appears smoother and more precise.
+art neural surface reconstruction methods including NeuS [57],
+Geo-NeuS [15], VolSDF [61], and NeuralAngelo [33]. We
+                                                                                                        C. Ablations
+also compared it with recently emerged reconstruction meth-
+ods based on 3DGS, such as SuGaR [19], 2DGS [21], and                                                      Our Unbiased Depth: From Fig 10, it can be observed that
+GOF [68]. All results are summarized in Fig. 5, Fig. 7, Fig. 8,                                         our overall geometric structure appears smoother and more
+Table II and Table III.                                                                                 precise, especially in flat regions. Table IV also demonstrates
+   The DTU dataset: Our method achieves the highest re-                                                 that our depth rendering method achieves higher reconstruction
+construction accuracy with relatively fast training speed. Our                                          and rendering accuracy.
+method significantly outperforms other 3DGS-based recon-                                                   Single-View and Multi-View Regularization: The single-
+struction methods. As shown in Fig. 7, our surfaces are                                                 view regularization term can provide a good initial geometric
+smoother and contain more details.                                                                      accuracy without relying on multi-view information. When
+                                                                                                                                                        10
+
+
+
+single-view regularization is removed, the reconstruction ac-                  Integrating with existing 3DGS work that accounts for reflec-
+curacy decreases. Multi-view regularization constrains the                     tive surfaces would enhance reconstruction accuracy in such
+consistency of geometry between multiple views, improving                      scenarios. Finally, we found that there are some floating points
+overall reconstruction accuracy. Both multi-view photometric                   in the scene, which affect the rendering and reconstruction
+and geometric consistency contribute to improving recon-                       quality. Integrating more advanced 3DGS baselines [39] would
+struction accuracy. From Table IV, it is evident that multi-                   help further enhance the overall quality.
+view regularization is crucial for reconstruction accuracy.
+However, without incorporating potential occlusion estimation,                                          VII. C ONCLUSION
+the multi-view regularization term will have a negative effect,                   In this paper, we propose a novel unbiased depth rendering
+leading to poor surface reconstruction and rendering accuracy.                 method based on 3DGS. With this method, we render the
+   The ablation results also reflect another issue: geometric                  plane geometry parameters for each pixel, including nor-
+constraints slightly degrade rendering quality. We speculate                   mal, distance, and depth maps. We then incorporate single-
+that this is due to an incomplete image rendering model,                       view and multi-view geometric regularization, and exposure
+which forces the system to strike a balance between image                      compensation model to achieve precise global consistency
+and geometry losses. Further exploration may be needed to                      in geometry. We validate our rendering and reconstruction
+achieve synchronized improvements in geometry and novel                        quality on the MipNeRF360, DTU, and TnT datasets. The
+view synthesis.                                                                experimental results show that our method achieves the highest
+   Exposure Compensation: As shown in Table IV, exposure                       geometric reconstruction accuracy and competitive rendering
+compensation enhances reconstruction and rendering quality.                    quality compared to state-of-the-art methods.
+
+                                                                                                            R EFERENCES
+                                                                                [1] Connelly Barnes, Eli Shechtman, Adam Finkelstein, and Dan B Gold-
+                                                                                    man. PatchMatch: A randomized correspondence algorithm for struc-
+                                                                                    tural image editing. ACM Trans. Graph., 28(3):24, 2009.
+                                                                                [2] Jonathan T Barron, Ben Mildenhall, Matthew Tancik, Peter Hedman, Ri-
+                                                                                    cardo Martin-Brualla, and Pratul P Srinivasan. Mip-NeRF: A multiscale
+                                                                                    representation for anti-aliasing neural radiance fields. In Proceedings
+                                                                                    of the IEEE/CVF International Conference on Computer Vision, pages
+                                                                                    5855–5864, 2021.
+                                                                                [3] Jonathan T Barron, Ben Mildenhall, Dor Verbin, Pratul P Srinivasan,
+                                                                                    and Peter Hedman. Zip-NeRF: Anti-aliased grid-based neural radiance
+                                                                                    fields. In Proceedings of the IEEE/CVF International Conference on
+                                                                                    Computer Vision, pages 19697–19705, 2023.
+                                                                                [4] Neill DF Campbell, George Vogiatzis, Carlos Hernández, and Roberto
+                                                                                    Cipolla. Using multiple hypotheses to improve depth-maps for multi-
+                                                                                    view stereo. In Computer Vision–ECCV 2008: 10th European Con-
+                                                                                    ference on Computer Vision, Marseille, France, October 12-18, 2008,
+Fig. 11: Virtual Reality Application. (a) Original materials, including             Proceedings, Part I 10, pages 766–779. Springer, 2008.
+garden scene, excavator, and Ignatius. (b) A Virtual Reality effect showcase    [5] Carlos Campos, Richard Elvira, Juan J Gómez Rodrı́guez, José MM
+synthesized from these original materials.                                          Montiel, and Juan D Tardós. ORB-SLAM3: An accurate open-source
+                                                                                    library for visual, visual–inertial, and multimap SLAM. IEEE Transac-
+                                                                                    tions on Robotics, 37(6):1874–1890, 2021.
+                                                                                [6] Frédéric Cazals and Joachim Giesen. Delaunay triangulation based
+D. Virtual Reality Application                                                      surface reconstruction. In Effective Computational Geometry for Curves
+   As shown in Fig. 11, we used our method to separately                            and Surfaces, pages 231–276. Springer, 2006.
+                                                                                [7] Danpeng Chen, Nan Wang, Runsen Xu, Weijian Xie, Hujun Bao,
+reconstruct the original materials. We then extracted the exca-                     and Guofeng Zhang. RNIN-VIO: Robust neural inertial navigation
+vator and Ignatius using masks and placed them in the garden                        aided visual-inertial odometry in challenging scenes. In 2021 IEEE
+scene. By rendering the scene and objects separately and using                      International Symposium on Mixed and Augmented Reality (ISMAR),
+                                                                                    pages 275–283. IEEE, 2021.
+our rendered depth to determine occlusion relationships, we                     [8] Danpeng Chen, Shuai Wang, Weijian Xie, Shangjin Zhai, Nan Wang,
+achieved immersive, high-fidelity virtual reality effects with                      Hujun Bao, and Guofeng Zhang. VIP-SLAM: An efficient tightly-
+high-precision depth estimation.                                                    coupled rgb-d visual inertial planar SLAM. In 2022 International
+                                                                                    Conference on Robotics and Automation (ICRA), pages 5615–5621.
+                                                                                    IEEE, 2022.
+             VI. L IMITATIONS AND F UTURE W ORK                                 [9] Hanlin Chen, Chen Li, and Gim Hee Lee. Neusg: Neural implicit surface
+                                                                                    reconstruction with 3d gaussian splatting guidance. arXiv preprint
+  Although our PGSR efficiently and faithfully performs geo-                        arXiv:2312.00846, 2023.
+                                                                               [10] Yiwen Chen, Tong He, Di Huang, Weicai Ye, Sijin Chen, Jiaxiang
+metric reconstruction, it also faces several challenges. Firstly,                   Tang, Xin Chen, Zhongang Cai, Lei Yang, Gang Yu, et al. MeshAny-
+we cannot perform geometric reconstruction in regions with                          thing: Artist-Created Mesh Generation with Autoregressive Transform-
+missing or limited viewpoints, leading to incomplete or less ac-                    ers. arXiv preprint arXiv:2406.10163, 2024.
+                                                                               [11] Kai Cheng, Xiaoxiao Long, Kaizhi Yang, Yao Yao, Wei Yin, Yuexin Ma,
+curate geometry. Exploring methods to improve reconstruction                        Wenping Wang, and Xuejin Chen. GaussianPro: 3D Gaussian Splatting
+quality under insufficient constraints using priors is another                      with Progressive Propagation. arXiv preprint arXiv:2402.14650, 2024.
+avenue for further investigation. Secondly, our method does                    [12] Christopher B. Choy, Danfei Xu, JunYoung Gwak, Kevin Chen, and
+                                                                                    Silvio Savarese. 3D-R2N2: A unified approach for single and multi-
+not consider scenarios involving reflective surfaces or mirrors,                    view 3D object reconstruction. In European Conference on Computer
+so reconstruction in these environments will pose challenges.                       Vision, volume 9912, pages 628–644, 2016.
+                                                                                                                                                             11
+
+
+
+[13] Nianchen Deng, Zhenyi He, Jiannan Ye, Budmonde Duinkharjav, Pra-              [34] Chen-Hsuan Lin, Chen Kong, and Simon Lucey. Learning Efficient Point
+     neeth Chakravarthula, Xubo Yang, and Qi Sun. Fov-NeRF:oveated neu-                 Cloud Generation for Dense 3D Object Reconstruction. In Conference
+     ral radiance fields for virtual reality. IEEE Transactions on Visualization        on Artificial Intelligence, pages 7114–7121, 2018.
+     and Computer Graphics, 28(11):3854–3864, 2022.                                [35] Lingjie Liu, Jiatao Gu, Kyaw Zaw Lin, Tat-Seng Chua, and Christian
+[14] Haoqiang Fan, Hao Su, and Leonidas J. Guibas. A Point Set Generation               Theobalt. Neural Sparse Voxel Fields. In Advances in Neural Informa-
+     Network for 3D Object Reconstruction from a Single Image. In IEEE                  tion Processing Systems, pages 15651–15663, 2020.
+     Conference on Computer Vision and Pattern Recognition, pages 2463–            [36] Xiangyu Liu, Weicai Ye, Chaoran Tian, Zhaopeng Cui, Hujun Bao,
+     2471, 2017.                                                                        and Guofeng Zhang. Coxgraph: multi-robot collaborative, globally
+[15] Qiancheng Fu, Qingshan Xu, Yew Soon Ong, and Wenbing Tao. Geo-                     consistent, online dense reconstruction system. In 2021 IEEE/RSJ
+     neus: Geometry-consistent neural implicit surfaces learning for multi-             International Conference on Intelligent Robots and Systems (IROS),
+     view reconstruction. Advances in Neural Information Processing Sys-                pages 8722–8728. IEEE, 2021.
+     tems, 35:3403–3416, 2022.                                                     [37] Xiaoxiao Long, Yuhang Zheng, Yupeng Zheng, Beiwen Tian, Cheng
+[16] Yasutaka Furukawa and Jean Ponce. Accurate, Dense, and Robust                      Lin, Lingjie Liu, Hao Zhao, Guyue Zhou, and Wenping Wang. Adaptive
+     Multiview Stereopsis. IEEE Transactions on Pattern Analysis and                    Surface Normal Constraint for Geometric Estimation from Monocular
+     Machine Intelligence, 32(8):1362–1376, 2010.                                       Images. arXiv preprint arXiv:2402.05869, 2024.
+[17] Silvano Galliani, Katrin Lasinger, and Konrad Schindler. Massively            [38] William E Lorensen and Harvey E Cline. Marching cubes: A high
+     parallel multiview stereopsis by surface normal diffusion. In Proceedings          resolution 3d surface construction algorithm. In Seminal Graphics:
+     of the IEEE International Conference on Computer Vision, pages 873–                Pioneering Efforts that Shaped the Field, pages 347–353. 1998.
+     881, 2015.                                                                    [39] Tao Lu, Mulin Yu, Linning Xu, Yuanbo Xiangli, Limin Wang, Dahua
+[18] Peng Gao, Le Zhuo, Dongyang Liu, Ruoyi Du, Xu Luo, Longtian Qiu,                   Lin, and Bo Dai. Scaffold-GS: Structured 3D gaussians for view-
+     Yuhang Zhang, Chen Lin, Rongjie Huang, Shijie Geng, Renrui Zhang,                  adaptive rendering. arXiv preprint arXiv:2312.00109, 2023.
+     Junlin Xi, Wenqi Shao, Zhengkai Jiang, Tianshuo Yang, Weicai Ye,              [40] Hidenobu Matsuki, Riku Murai, Paul HJ Kelly, and Andrew J Davison.
+     He Tong, Jingwen He, Yu Qiao, and Hongsheng Li. Lumina-T2X: Trans-                 Gaussian Splatting SLAM. arXiv preprint arXiv:2312.06741, 2023.
+     forming Text into Any Modality, Resolution, and Duration via Flow-            [41] Lars M. Mescheder, Michael Oechsle, Michael Niemeyer, Sebastian
+     based Large Diffusion Transformers. arXiv preprint arxiv:2405.05945,               Nowozin, and Andreas Geiger. Occupancy Networks: Learning 3D
+     2024.                                                                              Reconstruction in Function Space. In IEEE Conference on Computer
+[19] Antoine Guédon and Vincent Lepetit. Sugar: Surface-aligned gaussian               Vision and Pattern Recognition, pages 4460–4470, 2019.
+     splatting for efficient 3d mesh reconstruction and high-quality mesh          [42] Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik, Jonathan T
+     rendering. arXiv preprint arXiv:2311.12775, 2023.                                  Barron, Ravi Ramamoorthi, and Ren Ng. NeRF: Representing scenes as
+[20] Peter Hedman, Julien Philip, True Price, Jan-Michael Frahm, George                 neural radiance fields for view synthesis. Communications of the ACM,
+     Drettakis, and Gabriel Brostow. Deep blending for free-viewpoint image-            65(1):99–106, 2021.
+     based rendering. ACM Transactions on Graphics (ToG), 37(6):1–15,              [43] Yuhang Ming, Weicai Ye, and Andrew Calway. IDF-SLAM: End-to-end
+     2018.                                                                              rgb-d SLAM with neural implicit mapping and deep feature tracking.
+[21] Binbin Huang, Zehao Yu, Anpei Chen, Andreas Geiger, and Shenghua                   arXiv preprint arXiv:2209.07919, 2022.
+     Gao. 2D Gaussian Splatting for Geometrically Accurate Radiance Fields.        [44] Pierre Moulon, Pascal Monasse, and Renaud Marlet. Adaptive Structure
+     In ACM SIGGRAPH 2024 conference papers, pages 1–11, 2024.                          from Motion with a Contrario Model Estimation. In Proceedings of
+                                                                                        the Asian Computer Vision Conference (ACCV 2012), pages 257–270.
+[22] Chenxi Huang, Yuenan Hou, Weicai Ye, Di Huang, Xiaoshui Huang,
+                                                                                        Springer Berlin Heidelberg, 2012.
+     Binbin Lin, Deng Cai, and Wanli Ouyang. NeRF-Det++: Incorporating
+                                                                                   [45] Thomas Müller, Alex Evans, Christoph Schied, and Alexander Keller.
+     Semantic Cues and Perspective-aware Depth Supervision for Indoor
+                                                                                        Instant neural graphics primitives with a multiresolution hash encoding.
+     Multi-View 3D Detection. arXiv preprint arXiv:2402.14464, 2024.
+                                                                                        ACM transactions on graphics (TOG), 41(4):1–15, 2022.
+[23] Rasmus Jensen, Anders Dahl, George Vogiatzis, Engin Tola, and Henrik
+                                                                                   [46] Richard A Newcombe, Shahram Izadi, Otmar Hilliges, David
+     Aanæs. Large scale multi-view stereopsis evaluation. In Proceedings
+                                                                                        Molyneaux, David Kim, Andrew J Davison, Pushmeet Kohi, Jamie
+     of the IEEE Conference on Computer Vision and Pattern Recognition,
+                                                                                        Shotton, Steve Hodges, and Andrew Fitzgibbon. KinectFusion: Real-
+     pages 406–413, 2014.
+                                                                                        time dense surface mapping and tracking. In 2011 10th IEEE Inter-
+[24] Yingwenqi Jiang, Jiadong Tu, Yuan Liu, Xifeng Gao, Xiaoxiao Long,
+                                                                                        national Symposium on Mixed and Augmented Reality, pages 127–136.
+     Wenping Wang, and Yuexin Ma. GaussianShader: 3D Gaussian Splat-
+                                                                                        Ieee, 2011.
+     ting with Shading Functions for Reflective Surfaces. arXiv preprint
+                                                                                   [47] Michael Niemeyer, Lars M. Mescheder, Michael Oechsle, and Andreas
+     arXiv:2311.17977, 2023.
+                                                                                        Geiger. Differentiable Volumetric Rendering: Learning Implicit 3D
+[25] Michael Kazhdan, Matthew Bolitho, and Hugues Hoppe. Poisson surface                Representations Without 3D Supervision. In IEEE Conference on
+     reconstruction. In Proceedings of the fourth Eurographics Symposium                Computer Vision and Pattern Recognition, pages 3501–3512, 2020.
+     on Geometry Processing, volume 7, 2006.                                       [48] Jeong Joon Park, Peter Florence, Julian Straub, Richard A. Newcombe,
+[26] Michael Kazhdan and Hugues Hoppe. Screened poisson surface recon-                  and Steven Lovegrove. DeepSDF: Learning Continuous Signed Distance
+     struction. ACM Transactions on Graphics (ToG), 32(3):1–13, 2013.                   Functions for Shape Representation. In IEEE Conference on Computer
+[27] Bernhard Kerbl, Georgios Kopanas, Thomas Leimkühler, and George                   Vision and Pattern Recognition, pages 165–174, 2019.
+     Drettakis. 3D Gaussian Splatting for Real-time Radiance Field Render-         [49] Ben Poole, Ajay Jain, Jonathan T Barron, and Ben Mildenhall. Dream-
+     ing. ACM Transactions on Graphics, 42(4):1–14, 2023.                               fusion: Text-to-3d using 2d diffusion. arXiv preprint arXiv:2209.14988,
+[28] Arno Knapitsch, Jaesik Park, Qian-Yi Zhou, and Vladlen Koltun. Tanks               2022.
+     and temples: Benchmarking large-scale scene reconstruction. ACM               [50] Xiaojuan Qi, Renjie Liao, Zhengzhe Liu, Raquel Urtasun, and Jiaya Jia.
+     Transactions on Graphics (ToG), 36(4):1–13, 2017.                                  Geonet: Geometric neural network for joint depth and surface normal
+[29] Kiriakos N Kutulakos and Steven M Seitz. A theory of shape by space                estimation. In Proceedings of the IEEE Conference on Computer Vision
+     carving. International Journal of Computer Vision, 38:199–218, 2000.               and Pattern Recognition, pages 283–291, 2018.
+[30] Maxime Lhuillier and Long Quan. A quasi-dense approach to surface             [51] Paul-Edouard Sarlin, Cesar Cadena, Roland Siegwart, and Marcin Dym-
+     reconstruction from uncalibrated images. IEEE Transactions on Pattern              czyk. From Coarse to Fine: Robust Hierarchical Localization at Large
+     Analysis and Machine Intelligence, 27(3):418–433, 2005.                            Scale. In Proceedings of the IEEE/CVF Conference on Computer Vision
+[31] Hai Li, Xingrui Yang, Hongjia Zhai, Yuqian Liu, Hujun Bao, and                     and Pattern Recognition, pages 12716–12725, 2019.
+     Guofeng Zhang. Vox-surf: Voxel-based implicit surface representation.         [52] Johannes L Schonberger and Jan-Michael Frahm. Structure-from-motion
+     IEEE Transactions on Visualization and Computer Graphics, 2022.                    revisited. In Proceedings of the IEEE Conference on Computer Vision
+[32] Hai Li, Weicai Ye, Guofeng Zhang, Sanyuan Zhang, and Hujun Bao.                    and Pattern Recognition, pages 4104–4113, 2016.
+     Saliency guided subdivision for single-view mesh reconstruction. In           [53] Johannes Lutz Schönberger, Enliang Zheng, Marc Pollefeys, and Jan-
+     2020 International Conference on 3D Vision (3DV), pages 1098–1107.                 Michael Frahm. Pixelwise View Selection for Unstructured Multi-View
+     IEEE, 2020.                                                                        Stereo. In European Conference on Computer Vision (ECCV), 2016.
+[33] Zhaoshuo Li, Thomas Müller, Alex Evans, Russell H Taylor, Mathias            [54] Jiaxiang Tang, Jiawei Ren, Hang Zhou, Ziwei Liu, and Gang Zeng.
+     Unberath, Ming-Yu Liu, and Chen-Hsuan Lin. Neuralangelo: High-                     DreamGaussian: Generative Gaussian Splatting for Efficient 3D Content
+     fidelity neural surface reconstruction. In Proceedings of the IEEE/CVF             Creation. arXiv preprint arXiv:2309.16653, 2023.
+     Conference on Computer Vision and Pattern Recognition, pages 8456–            [55] Fangjinhua Wang, Silvano Galliani, Christoph Vogel, Pablo Speciale,
+     8465, 2023.                                                                        and Marc Pollefeys. PatchMatchNet: Learned multi-view patchmatch
+                                                                                12
+
+
+
+     stereo. In Proceedings of the IEEE/CVF Conference on Computer Vision
+     and Pattern Recognition, pages 14194–14203, 2021.
+[56] Nanyang Wang, Yinda Zhang, Zhuwen Li, Yanwei Fu, Wei Liu, and
+     Yu-Gang Jiang. Pixel2Mesh: Generating 3D Mesh Models from Single
+     RGB Images. In European Conference on Computer Vision, volume
+     11215, pages 55–71, 2018.
+[57] Peng Wang, Lingjie Liu, Yuan Liu, Christian Theobalt, Taku Ko-
+     mura, and Wenping Wang. Neus: Learning neural implicit surfaces
+     by volume rendering for multi-view reconstruction. arXiv preprint
+     arXiv:2106.10689, 2021.
+[58] Changchang Wu. Towards linear-time incremental structure from mo-
+     tion. In 2013 International Conference on 3D Vision-3DV 2013, pages
+     127–134. IEEE, 2013.
+[59] Haozhe Xie, Hongxun Yao, Xiaoshuai Sun, Shangchen Zhou, and
+     Shengping Zhang. Pix2Vox: Context-Aware 3D Reconstruction From
+     Single and Multi-View Images. In IEEE/CVF International Conference
+     on Computer Vision, pages 2690–2698, 2019.
+[60] Qiangeng Xu, Zexiang Xu, Julien Philip, Sai Bi, Zhixin Shu, Kalyan
+     Sunkavalli, and Ulrich Neumann. Point-NeRF: Point-based neural radi-
+     ance fields. In Proceedings of the IEEE/CVF Conference on Computer
+     Vision and Pattern Recognition, pages 5438–5448, 2022.
+[61] Lior Yariv, Jiatao Gu, Yoni Kasten, and Yaron Lipman. Volume
+     rendering of neural implicit surfaces. In Advances in Neural Information
+     Processing Systems, pages 4805–4815, 2021.
+[62] Weicai Ye, Shuo Chen, Chong Bao, Hujun Bao, Marc Pollefeys,
+     Zhaopeng Cui, and Guofeng Zhang. IntrinsicNeRF: Learning Intrinsic
+     Neural Radiance Fields for Editable Novel View Synthesis. In Proceed-
+     ings of the IEEE/CVF International Conference on Computer Vision,
+     pages 339–351, 2023.
+[63] Weicai Ye, Xinyue Lan, Shuo Chen, Yuhang Ming, Xingyuan Yu,
+     Hujun Bao, Zhaopeng Cui, and Guofeng Zhang. PVO: Panoptic Visual
+     Odometry. In Proceedings of the IEEE/CVF Conference on Computer
+     Vision and Pattern Recognition (CVPR), pages 9579–9589, June 2023.
+[64] Weicai Ye, Hai Li, Tianxiang Zhang, Xiaowei Zhou, Hujun Bao, and
+     Guofeng Zhang. SuperPlane: 3D plane detection and description from
+     a single image. In 2021 IEEE Virtual Reality and 3D User Interfaces
+     (VR), pages 207–215. IEEE, 2021.
+[65] Weicai Ye, Xingyuan Yu, Xinyue Lan, Yuhang Ming, Jinyu Li, Hujun
+     Bao, Zhaopeng Cui, and Guofeng Zhang. DeflowSLAM: Self-supervised
+     scene motion decomposition for dynamic dense SLAM. arXiv preprint
+     arXiv:2207.08794, 2022.
+[66] Zongxin Ye, Wenyu Li, Sidun Liu, Peng Qiao, and Yong Dou. AbsGS:
+     Recovering Fine Details for 3D Gaussian Splatting. arXiv preprint
+     arXiv:2404.10484, 2024.
+[67] Jae-Chern Yoo and Tae Hee Han. Fast normalized cross-correlation.
+     Circuits, Systems and Signal Processing, 28:819–843, 2009.
+[68] Zehao Yu, Torsten Sattler, and Andreas Geiger. Gaussian Opacity Fields:
+     Efficient and Compact Surface Reconstruction in Unbounded Scenes.
+     arXiv preprint arXiv:2404.10772, 2024.
+[69] Richard Zhang, Phillip Isola, Alexei A Efros, Eli Shechtman, and Oliver
+     Wang. The unreasonable effectiveness of deep features as a perceptual
+     metric. In Proceedings of the IEEE Conference on Computer Vision and
+     Pattern Recognition, pages 586–595, 2018.
+                                                                                                                                    13
+
+
+
+     PGSR: Planar-based Gaussian Splatting for Efficient and High-Fidelity Surface
+                                  Reconstruction
+                                               Supplementary Document
+
+           I. A DDITIONAL I MPLEMENT D ETAILS                          Image Edge-Aware Single-View: From Table I1 and I2,
+A. Details of the Multi-View Regularization                         it can be observed that single-view constraints help improve
+                                                                    surface reconstruction accuracy but slightly reduce rendering
+   Building the image graph: We use the camera poses from
+                                                                    quality. Edge awareness offers only a slight improvement in
+the training data to calculate the relative angles and positions
+                                                                    surface reconstruction, but as seen in the comparison between
+between all training frames, sorting the frame distances first
+                                                                    (c) and (b) in Fig I1, edge awareness is beneficial for preserv-
+by relative angle and then by position distance. Based on the
+                                                                    ing more details.
+specific characteristics of the dataset, we set the corresponding
+                                                                       Multi-View Geometric Consistency: The qualitative effect
+maximum number of neighboring frames, maximum relative
+                                                                    of multi-view geometric consistency is shown in Fig I2. By
+angle, minimum relative position, and maximum relative posi-
+                                                                    enforcing multi-view geometric consistency, surface smooth-
+tion. For any given reference frame in the training data, other
+                                                                    ness is improved. For highly specular metallic objects, it is
+training frames that meet the set conditions are grouped into
+                                                                    difficult to ensure geometric consistency relying on images and
+the neighboring frame set of that reference frame. For the
+                                                                    single-view constraints. By imposing multi-view geometric
+DTU [23], TnT [28], and Mip360 [2] datasets, we uniformly
+                                                                    consistency, the reconstructed surface becomes more complete
+set a maximum of 8 neighboring frames, a maximum relative
+                                                                    and smooth. Table I1 also shows that multi-view geometric
+angle of 30 degrees, a minimum relative position of 0.01, and
+                                                                    consistency improves surface reconstruction accuracy across
+a maximum relative position of 1.5.
+                                                                    various scenes, though it slightly reduces rendering quality, as
+   Select Neighboring Frames During Training: During each
+                                                                    demonstrated in Table I2.
+training iteration, we randomly select one frame from the
+neighboring frame set of the reference frame to be used as             Multi-View Photometric Consistency: The qualitative re-
+the neighboring frame.                                              sults of multi-view photometric consistency are shown in
+                                                                    Figs I2 and I3. Fig I2 demonstrates that the proposed multi-
+                                                                    view photometric consistency significantly improves surface
+B. Depth Filtering
+                                                                    reconstruction quality, producing smooth and detail-rich sur-
+  There are often erroneous noise points near the edges of the      faces, especially in highly specular scenes. Fig I3 illustrates
+depth map. We filter out these noise points using the angle         the benefits of using NCC (Normalized Cross-Correlation) to
+between the rays and the normals estimated from the depth           compute photometric consistency. In highly specular scenes,
+map:                                                                directly measuring photometric consistency with the absolute
+                          | Nd (p) · V (p) |                        difference between two pixel patches is sensitive to pixel inten-
+                θ = acos(                    ),           (I1)
+                           |Nd (p)| |V (p)|                         sity variations, resulting in poor surface reconstruction quality.
+                         (P1 − P0 ) × (P3 − P2 )                    In contrast, NCC calculates similarity based on correlation
+             Nd (p) =                             ,          (I2)   coefficients, making it less sensitive to brightness changes and
+                        |(P1 − P0 ) × (P3 − P2 )|
+                                                                    more suitable for image matching, thereby achieving better
+For a pixel point p, we sample four points from the neighbor-       surface quality. Table I1 and I2 shows that in various scenes,
+ing pixels and project sampled depth points into 3D points          the multi-view photometric consistency constraint plays a
+{Pj |j = 1, ..., 4} in the camera coordinate system, then           crucial role in improving reconstruction quality, though it
+calculate the normal Nd (p) for the pixel point p. V (p) is         slightly reduces rendering quality.
+the ray.
+                                                                       Unbiased Depth: Unbiased depth rendering is crucial for
+    When θ is greater than 80◦ , we consider the depth point
+                                                                    producing high-quality surface reconstructions. As shown in
+to be noise. After completing the training for each scene,
+                                                                    Table I1, unbiased depth rendering is essential for improving
+we apply depth filtering as post-processing to the rendered
+                                                                    surface reconstruction quality across all scenes. Table I2
+depth maps and then perform surface reconstruction using the
+                                                                    also demonstrates that unbiased depth rendering can slightly
+TSDF algorithm. Fig I5 shows that noise at the edges can be
+                                                                    enhance rendering quality.
+filtered out. We only applied depth filtering on the TnT dataset,
+                                                                       Exposure Compensation: We assign two exposure coeffi-
+and according to the ablation experiment results, normal-
+                                                                    cients to each frame to model the exposure variation across
+based depth filtering slightly improves surface reconstruction
+                                                                    frames. The qualitative results of the Ignatius sequence from
+accuracy.
+                                                                    the Tanks and Temples dataset are shown in Fig I4. Most
+                                                                    frames of the Ignatius sequence are relatively bright, with a
+                  II. A DDITIONAL R ESULTS
+                                                                    few being darker. Without exposure compensation, the ren-
+A. Additional Detailed Ablation Experiments                         dered images tend to appear overly bright, whereas the images
+  Table I1 shows the ablation results for each scene in the TnT     with exposure compensation have overall brightness closer to
+dataset. It can be seen that each modification is necessary and     the ground truth. As seen from Table I1 and Table I2, exposure
+contributes to improving surface reconstruction accuracy.           compensation helps improve both surface reconstruction and
+                                                                                                                                                                 14
+
+
+
+
+                                                                         (b) Single-View without                        (c) Single-View with
+                                   (a) Baseline
+                                                                             Image Edge-Aware                             Image Edge-Aware
+
+Fig. I1: Qualitative comparison of surface normals under different single-view regularization terms. The baseline model does not include any geometric
+regularization terms. Adding the Single-View constraint without Image Edge-Aware loss on top of the baseline can produce relatively smooth surfaces, but
+some areas remain insufficiently flat. Incorporating the Image Edge-Aware Single-View constraint helps retain more details.
+
+
+
+
+                                                                                                 (c) Single-View + Multi-View
+                       (a) Image                         (b) Single-View Regularization                                                (d) Full Regularization
+                                                                                                     Geometric Regularization
+
+Fig. I2: Qualitative comparison of different geometric regularization terms. Although the single-view regularization term can produce relatively smooth
+surfaces, it tends to create holes on highly specular metallic objects. Building on this, introducing a multi-view geometric regularization term, which enforces
+multi-view geometric consistency, can further improve surface smoothness, but some holes may still remain. By incorporating the complete geometric
+regularization term, it is possible to generate surfaces that are both smooth and rich in detail.
+                         TABLE I1: Quantitative ablation results of F1 Score↑ for reconstruction on Tanks and Temples dataset.
+
+                                                                      Barn      Caterpillar   Courthouse    Ignatius     Meetingroom    Truck       Mean
+                              w/o Single-View                         0.64         0.41          0.18         0.80          0.30         0.63       0.49
+                              w/o Edge-Aware                          0.65         0.44          0.20         0.81          0.32         0.65       0.51
+                              w/o Multi-View                          0.45         0.22          0.13         0.53          0.19          0.4       0.32
+                         w/o Multi-View Geometric                     0.65         0.41          0.16          0.8          0.32         0.61       0.49
+                         w/o Multi-View Photometric                   0.55         0.28          0.16         0.60          0.21         0.54       0.39
+                     w/o Geometric Occlusion Estimation               0.48         0.03          0.17         0.44          0.18         0.40       0.28
+                          w/o Our Unbiased Depth                       0.5         0.31          0.18         0.70          0.15         0.45       0.38
+                         w/o Exposure Compensation                    0.66         0.42          0.20         0.77          0.29         0.62       0.49
+                              w/o Depth Filter                        0.66         0.43          0.20         0.80          0.33         0.60       0.50
+                                      Full model                       0.66         0.44         0.20         0.81              0.33     0.66        0.52
+
+
+
+                                                                                              maps and generate an SDF field, from which the mesh is
+                                                                                              extracted. Table I1 shows that depth filtering can slightly
+                                                                                              improve surface reconstruction quality. The ablation study
+                                                                                              Fig I5 demonstrates the effectiveness of depth filtering.
+
+         (a) Image      (b) Multi-View Photometric w/o NCC (c) Multi-View Photometric w NCC
+                                                                                                 Related to 2DGS: For TnT scene, 2DGS [21] defaults
+Fig. I3: Qualitative comparison of multi-view photometric without and                         to using median depth. 2DGS with expected depth, on the
+with NCC. Multi-view photometric consistency with NCC can reconstruct                         other hand, employs the expected depth mode. We conducted
+higher-quality surfaces.
+                                                                                              ablation comparisons between 2DGS and our multi-view reg-
+                                                                                              ularization. As shown in the Table I3, our multi-view regular-
+                                                                                              ization applies to 2DGS, significantly enhancing the surface
+rendering quality.                                                                            reconstruction accuracy of 2DGS. However, due to the ’disk-
+   Depth Filter: For the Tanks and Temples dataset, after                                     aliasing’ problem associated with median depth, the accuracy
+training each scene, depth maps for each frame are rendered.                                  improvement is relatively limited compared to expected depth.
+Depth filtering is then applied to remove depth noise, followed                               Even with the addition of multi-view constraints, the surface
+by the use of the TSDF algorithm to fuse the cleaned depth                                    accuracy of 2DGS is still inferior to that of PGSR.
+                                                                                                                                                     15
+
+
+
+
+Fig. I4: Qualitative comparison of rendered image without and with exposure compensation. Exposure compensation can effectively adjust for overall
+brightness changes in the image. After compensation, the brightness of the adjusted image is closer to the ground truth image.
+
+
+
+
+      Fig. I5: Qualitative comparison of point clouds without and with depth filtering. Depth filtering can effectively remove noise at the edges.
+
+                       TABLE I2: Quantitative ablation results of PSNR↑ for reconstruction on Tanks and Temples dataset.
+
+                                                           Barn      Caterpillar     Courthouse    Ignatius        Meetingroom    Truck   Mean
+                             w/o Single-View               29.45       27.06           23.89        26.68             28.14        26.9   27.02
+                             w/o Edge-Aware                29.14       26.80           23.43        26.49             27.67       26.58   26.69
+                             w/o Multi-View                29.82       27.11            24.3        26.89             28.51       27.14   27.30
+                        w/o Multi-View Geometric           29.55       27.05           24.14        26.63             28.16       26.90   27.07
+                        w/o Multi-View Photometric         29.33       26.91           23.62        26.61             27.75       26.76   26.83
+                    w/o Geometric Occlusion Estimation     22.44       21.20           19.95        21.95             22.52       22.51   21.70
+                         w/o Our Unbiased Depth            28.60       26.63           22.88        26.49             27.63       26.58   26.47
+                        w/o Exposure Compensation          29.21       24.27           22.47        23.17             26.19       26.67   25.33
+                                Full model                 29.2           26.81           23.48        26.48          27.72       26.66   26.73
+
+                      TABLE I3: Quantitative ablation results of F1 Score↑ for reconstruction on Tanks and Temples dataset.
+
+                                                                   Barn     Caterpillar   Courthouse    Ignatius    Meetingroom   Truck   Mean
+                                   2DGS [21]                       0.45        0.24          0.13         0.50         0.18        0.43   0.32
+                            2DGS [21] + Multi-View                 0.51        0.33          0.10         0.67         0.24        0.61   0.41
+                    2DGS with expected depth [21] + Multi-View     0.64        0.39          0.13         0.75         0.31        0.61   0.47
+
+
+
+B. More Results
+   Figs II6 to II9 present a comparison of surface reconstruc-
+tion results across various scenes between PGSR, 2DGS [21],
+and GOF [68]. We provide additional results on various scenes
+and objects, further confirming the capability of our method,
+PGSR, in achieving high-fidelity geometric reconstruction, as
+shown in Fig II10.
+                                                                                                                               16
+
+
+
+
+PGSR
+2DGS
+GOF
+
+
+
+
+                    scan24                                  scan37                                 scan40
+PGSR
+2DGS
+GOF
+
+
+
+
+                     scan55                                  scan63                                 scan65
+       Fig. II6: Qualitative comparisons in surface reconstruction between PGSR, 2DGS [21], and GOF [68] on the DTU dataset.
+                                                                                                                     17
+
+
+
+
+PGSR
+2DGS
+GOF
+
+
+
+
+                scan69                                  scan83                                scan97
+PGSR
+2DGS
+GOF
+
+
+
+
+                 scan105                                 scan106                             scan110
+       Fig. II7: Qualitative comparisons in surface reconstruction between PGSR, 2DGS, and GOF on the DTU dataset.
+                                                                                                                     18
+
+
+
+
+PGSR
+2DGS
+GOF
+
+
+
+
+               scan114                                  scan118                           scan122
+       Fig. II8: Qualitative comparisons in surface reconstruction between PGSR, 2DGS, and GOF on the DTU dataset.
+                                                                                                   19
+
+
+
+
+Input
+PGSR
+2DGS
+GOF
+
+
+
+
+        Fig. II9: Qualitative comparisons in surface reconstruction between PGSR, 2DGS, and GOF.
+                                                                                                                                                    20
+
+
+
+
+                (a) Rendered RGB                                   (b) Mesh                                  (c) Mesh Normal
+
+Fig. II10: PGSR achieves high-precision geometric reconstruction in various indoor and outdoor scenes from a series of RGB images without requiring any
+prior knowledge.
+

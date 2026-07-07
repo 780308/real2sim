@@ -1,0 +1,777 @@
+                      This CVPR paper is the Open Access version, provided by the Computer Vision Foundation.
+                                   Except for this watermark, it is identical to the accepted version;
+                             the final published version of the proceedings is available on IEEE Xplore.
+
+
+
+
+      CAT4D: Create Anything in 4D with Multi-View Video Diffusion Models
+
+                          Rundi Wu1,2 Ruiqi Gao1 Ben Poole1 Alex Trevithick1,3
+                          Changxi Zheng2 Jonathan T. Barron1 Aleksander Hołyński1
+                          1                            2                              3
+                              Google DeepMind              Columbia University            UC San Diego
+                                                                                               “A cat kneading dough”
+
+
+
+
+       Sparse dynamic capture to 4D                     Real video to 4D                          Text-to-video-to-4D
+              Figure 1. CAT4D enables 4D scene creation from any number of real or generated images or video frames.
+
+                        Abstract                                   could enable applications in robotics, film-making, video
+                                                                   games, and augmented reality.
+We present CAT4D, a method for creating 4D (dynamic                   Advances in 3D reconstruction have enabled the creation
+3D) scenes from monocular video. CAT4D leverages a                 of accurate 3D and 4D models when certain careful capture
+multi-view video diffusion model trained on a diverse com-         requirements are followed [8, 11, 14, 28, 35, 43, 46, 53, 72].
+bination of datasets to enable novel view synthesis at any         For static 3D reconstruction, this requires having a large set
+specified camera poses and timestamps. Combined with a             of multi-view consistent images of the 3D scene. This can
+novel sampling approach, this model can transform a sin-           be achieved through careful capture and restricted settings,
+gle monocular video into a multi-view video, enabling ro-          which is challenging to accomplish in most environments,
+bust 4D reconstruction via optimization of a deformable            but often feasible with enough time and practice. Recon-
+3D Gaussian representation. We demonstrate competitive             structing 4D content, however, requires synchronized multi-
+performance on novel view synthesis and dynamic scene              view video, which is nearly impossible for a typical user.
+reconstruction benchmarks, and highlight the creative ca-
+pabilities for 4D scene generation from real or generated             To reduce the dependence on these challenging capture
+videos. See our project page for results and interactive de-       requirements, several methods have turned to data-driven
+mos: cat-4d.github.io.                                             approaches leveraging learned 3D generative priors to im-
+                                                                   prove the quality of 3D reconstruction [17, 22, 58, 73]. Core
+                                                                   to the success of these methods is the availability of high-
+1. Introduction                                                    quality multi-view image datasets that enable learning gen-
+                                                                   erative priors. While this data exists in large quantities for
+While the world is a dynamic 3D environment, the images            static environments, the same cannot be said for 4D, where
+and videos we capture represent only a partial snapshot of         the complexity of building a synchronized multi-view cap-
+this reality. Transforming this limited information into an        ture setup constrains both the amount and diversity of avail-
+accurate model of the dynamically changing 3D world re-            able data, and therefore the ability to build a data-driven
+mains an open research challenge, and progress in this space       4D prior. Instead, methods have attempted to regularize
+
+
+
+                                                              26057
+                      Camera Movement
+ Time
+
+
+
+
+Figure 2. Qualitative results: CAT4D can generate high-quality dynamic 3D scenes from a single input monocular video. For each
+example, we show four rendered images, varying in time along the vertical axis, and varying in viewpoint along the horizontal axis. We
+also show a depth map (bottom right) and a frame from the input video (top right) at the same timestamp as the second column of renders.
+
+
+
+
+                                                                26058
+                                                                             Time
+4D reconstruction via geometric constraints [48, 49], esti-
+mated depth maps [15, 79], optical flow fields [37, 38], or
+
+
+
+
+                                                                    Camera
+long-term 2D tracks [33, 70]. But even with all these ad-
+ditional signals, the most effective methods still show no-
+ticeable artifacts when viewed from novel viewpoints, es-
+                                                                             Video   Multi-View    Camera Control Multi-View Video
+pecially when inputs only partially observe the target scene.
+                                                                Figure 3. What is a multi-view video model? Given one or sev-
+    In this work, we leverage a variety of real and syn-        eral input images (grey), different generative models have the abil-
+thetic data sources to learn a generative prior that en-        ity to create novel images (orange) at certain collections of cam-
+ables 4D reconstruction. Inspired by the success of gen-        era viewpoints and timestamps. Video models generate frames
+erative priors for sparse-view 3D reconstruction of static      at all timestamps, but without control over camera. Multi-view
+scenes [17, 58, 73], we train a multi-view video diffu-         models generate at controllable cameras but at a fixed timestamp.
+sion model that can transform an input monocular video          Camera-controlled video models enable the choice of camera per
+                                                                timestamp, but cannot generate multiple cameras per timestamp.
+into multi-view videos, which we then use to reconstruct
+                                                                Multi-view video models can generate all views at all timestamps.
+the dynamic 3D scene. Specifically, our model accepts
+any number of input images captured at different view-          2. Related Work
+points and times, and synthesizes as output the scene’s
+appearance at any specified novel viewpoints and novel          Dynamic 3D Reconstruction Reconstruction and novel
+times (see Fig. 3). Because very little real-world multi-       view synthesis of dynamic 3D scenes is a challenging
+view training data of dynamic scenes exists, we train our       research problem. Many existing methods require mul-
+model with a bespoke mixture of multi-view images of            tiple synchronized videos captured from different view-
+static scenes [36, 55, 82, 94], fixed-viewpoint videos con-     points as input [3, 11, 14, 30, 35, 43, 48, 49, 69, 72],
+taining dynamics, synthetic 4D data [12, 19], and additional    while some more recent works address the more practi-
+data-sources augmented by a pre-trained video model [7]         cal setting of casually captured monocular videos as in-
+and a multi-view image synthesis model [17]. Our model          put [32, 33, 37, 38, 70, 88, 93]. These works tend to use
+is trained to produce a consistent collection of frames at      radiance field models such as NeRF [46] or 3DGS [28] as
+specified viewpoints and timestamps, but due resource con-      the underlying static 3D representations, alongside a defor-
+straints, it was only trained to generate a finite number of    mation field that models the scene motion. Most recently,
+frames at once (16). Since high-quality 4D reconstruction       Shape-of-Motion [70] and MoSca [33] greatly improved re-
+requires many frames at many novel viewpoints, we ad-           construction quality by utilizing extra supervision signals
+ditionally propose a sampling strategy to generate an un-       estimated from large vision models, such as segmentation
+bounded collection of consistent multi-view videos beyond       masks [29, 74], depth maps [50, 75] and long-term 2D
+the diffusion model’s native output length. Finally, we use     tracks [13, 27]. However, these methods are not fully au-
+these generated multi-view videos to reconstruct a dynamic      tomatic (e.g., requiring user clicks for the object mask) and
+3D model by optimizing a deformable 3D Gaussian repre-          cannot reconstruct regions that are never observed in any
+sentation [72] with a photometric reconstruction loss.          input frames. In contrast, we use a diffusion model to trans-
+    We evaluate our system, CAT4D, on a variety of tasks:       form an input monocular video to multi-view videos, and
+We first showcase our model’s ability to generate images at     directly optimize a deformable 3D Gaussians representa-
+novel viewpoints and times with disentangled camera and         tion [72] without the need of additional supervision signals.
+time control, given sparse-view input images at different       4D Generation Early work for 4D generation used Score
+timestamps. We then demonstrate our model’s ability to          Distillation Sampling (SDS) [52] to distill a 4D representa-
+perform sparse-view static 3D reconstruction in the pres-       tion from image and video diffusion models [63]. Follow up
+ence of scene motion, which is a common failure mode for        work [4, 5, 26, 40, 56, 78, 80, 83, 89, 92] improved genera-
+prior sparse-view reconstruction methods. We then evalu-        tion quality by performing SDS with a combination of video
+ate on the task of 4D reconstruction from monocular videos      diffusion models [9, 44, 62] and multi-view image diffu-
+with moving cameras, and show that our results are com-         sion models [41, 42, 61]. Recent work sidestepped costly
+parable to those from existing state-of-the-art models that     SDS optimization by crafting a sampling scheme of diffu-
+critically depend on multiple priors and external sources of    sion models that generate multi-view videos [34, 47, 77],
+information — all of which our model does not need or use.      fine-tuning a video model for 360 spins [39] or training
+Lastly, we show that our model is able to produce com-          a feed-forward 4D reconstruction model [57]. However,
+pelling 4D generation results from fixed-viewpoint videos       most prior work focuses on generating a single dynamic ob-
+that are scene-scale (e.g., multiple dynamic objects within     ject. Concurrent work DimensionX [64] achieved 4D scene
+dynamic environments, see Fig. 2), whereas most previous        generation by leveraging multiple LoRAs [24] trained on a
+works focus on generating singular objects.                     video model, each tailored to a specific type of camera mo-
+
+
+
+                                                            26059
+tion, to generate multi-view videos, which were then used                                 Observed input images (a monocular video)
+
+to reconstruct a 4D scene. However, it is constrained to a                            e
+                                                                                 ac
+fixed set of predefined camera trajectories and only limited                   Sp
+
+results are shown. In contrast, we train a single multi-view
+
+
+
+
+                                                                                          Ti
+video diffusion model that transforms a monocular video
+
+
+
+
+                                                                                          m
+                                                                                           e
+into multi-view videos at controllable novel viewpoints.                                       Sample from diﬀusion model
+Video Generation Models with Camera Control Our
+work also relates to video generation models with control-
+                                                                        Generated images from observed and novel views at all moments in time
+lable camera trajectories [6, 20, 21, 23, 31, 64, 67, 76, 81,
+84, 87, 90]. However, these models cannot be used to gen-
+erate multi-view videos that are consistent with each other.
+4DiM[71] trained a diffusion model for synthesizing images
+under novel views and timestamps, but it’s unclear whether
+their model can produce consistent multi-view videos. Our
+system is not intended to be a video generation model, but
+is instead a dynamic 3D reconstruction and generation sys-
+tem built around a multi-view video diffusion model. As
+such, our system has several capabilities that video models
+lack: exact control over camera location and time by render-
+ing the 4D model, real-time rendering, and enabling various
+visual effects such as object insertion, 3D editing, etc.                                           Dynamic 3D Gaussians
+
+                                                                   Figure 4. Illustration of the method: Given a monocular video
+3. Method                                                          (top), we generate the missing frames (orange frames) of virtual
+                                                                   stationary video cameras positioned at all input poses (gray cir-
+CAT4D is a two-stage approach for creating a dynamic 3D
+                                                                   cles) and novel poses (blue circles) using our multi-view video
+scene from a monocular input video (see Fig. 4). First,            diffusion model. These frames are then used to reconstruct the dy-
+we transform the monocular video into a multi-view video           namic 3D scene as deforming 3D Gaussians. Note that although
+using a multi-view video diffusion model. Then, we re-             the input trajectory is visualized with changing viewpoints, our
+construct a dynamic 3D scene by optimizing a deformable            method also works for fixed-viewpoint videos.
+3D Gaussian representation from these generated multi-
+view videos. We first describe our multi-view video dif-           an identical architecture while injecting our additional time
+fusion model (Sec. 3.1) and our carefully curated train-           conditioning into the model. Specifically, we encode each
+ing datasets (Sec. 3.2). We then describe how our model            time condition t ∈ Tcond ∪ Ttgt via a sinusoidal positional
+can be used to perform few-view “bullet-time” 3D re-               embedding [68] followed by a two-layer MLP, and add that
+construction (Sec. 3.3). Lastly, we describe our sam-              encoding to the diffusion timestep embedding, which is then
+pling strategy for generating nearly-consistent multi-view         projected and added to each residual block in the U-Net.
+videos (Sec. 3.4), and our reconstruction method that yields          To enable separate guidance for camera and time, we
+exactly-consistent dynamic Gaussian models (Sec. 3.5).             randomly drop out either cT = (Tcond , Ttgt ) or both cT and
+3.1. Multi-view Video Diffusion Model                              cI = (Pcond , Icond ) during training, with a probability 7.5%
+                                                                   for each case. We sample from the model using classifier-
+We train a diffusion model that takes in a set of views of         free guidance as in [71]:
+a dynamic 3D scene (where a “view” is an image and its
+                                                                            ϵθ z tgt (i), Ptgt , ∅, ∅
+                                                                                                        
+corresponding camera parameters and time) and generates
+target frames at specified viewpoints and times. Given M
+                                                                      + sI · ϵθ z tgt (i), Ptgt , cI , ∅ − ϵθ z tgt (i), Ptgt , ∅, ∅
+                                                                                                                                   
+input conditional views with a corresponding set of images
+                                                                     + sT · ϵθ z tgt (i), Ptgt , cI , cT − ϵθ z tgt (i), Ptgt , cI , ∅ ,
+                                                                                                                                    
+Icond , camera parameters Pcond and times Tcond , the model
+is trained to learn the joint distribution of N target images
+Itgt given their camera parameters Ptgt and times Ttgt ,              where ϵθ is the denoising network, z tgt (i) are the latents of
+                                                                      all target images at diffusion timestep i, and sI and sT are
+             p Itgt | Icond , Pcond , Tcond , Ptgt , Ttgt .           two guidance scale hyperparameters. Intuitively, sT is to
+                                                         
+                                                            (1)
+                                                                      enhance the time alignment of the generated samples, while
+This model is built on top of CAT3D’s diffusion model [17],           sI is to encourage consistency with the other conditioning
+which is a multi-view latent diffusion model that applies             information besides time. We initialize the model with the
+3D self-attention to connect all image latents. We adopt              checkpoints from CAT3D, and train with M = 3 input
+
+
+
+                                                              26060
+views and N = 13 target views. For all of our experiments,                  Input views Target views
+                                                                           Camera Scene Camera Scene              Real data          Synthetic data
+we set sI = 3.0 and sT = 4.5. Please refer to the supple-
+                                                                           motion motion motion motion
+mentary materials for more model and training details.                                                   CO3D [55], MVImgNet [82]
+                                                                             ✔      ✘      ✔      ✘
+                                                                                                           Re10K [94], MC4K [36]
+3.2. Dataset Curation                                                        ✘      ✔      ✘      ✔           static-view videos
+                                                                                                                                      Kubric [19],
+                                                             tgt             ✔      ✔      ✔      ✔                     -
+To fully disentangle camera and time controls (such that P                                                                           Objaverse [12]
+                                                                                                                     CO3D
+                                                                             ✔      ✔      ✔      ✘
+only controls camera motion and Ttgt only controls scene                                                  augmented with Lumiere [7]
+motion), we would ideally train on a large-scale dataset of                                                   static-view videos
+                                                                             ✔      ✔      ✘      ✔
+                                                                                                         augmented with CAT3D [17]
+multi-view videos that capture a dynamic 3D scene from                       ✔      ✔      ✘      ✘              single image
+multiple perspectives. However, this kind of dataset does
+                                                                       Table 1. Our training datasets: Datasets grouped based on
+not yet exist at scale due to the expense of collecting video
+                                                                       whether each has camera or scene motion in the input or target
+captures from multiple synchronized cameras [18, 25, 59].              views. The “single image” row corresponds to randomly (with 1%
+Rendering such a dataset from synthetic assets is straight-            probability) setting all target views to be one of the input views
+forward, but existing synthetic 4D datasets [12, 19, 54, 91]           when drawing samples from all above datasets. For Objaverse, we
+by themselves are insufficiently diverse or realistic to train         only use the filtered animated assets [39]. See Sec. 3.2 for details.
+a model that generalizes to challenging real-world scenes.
+Therefore, we carefully curate available datasets for train-           To achieve this, we follow a similar two-step approach to
+ing to maximally cover different combinations of camera                CAT3D [17] — we first use the diffusion model with an
+and scene motions. See Table 1 for an overview of our real             anchored sampling strategy to generate K novel views at
+and synthetic training datasets, grouped by the characteris-           some target time, and then run a robust 3D reconstruction
+tics of motions in input and target views.                             pipeline on those images.
+    Fortunately, there are many real-world multi-view im-                 Concretely, we first generate N anchor views by speci-
+ages of static scenes [36, 55, 82, 94] and real-world monoc-           fying all target times Ttgt to be the same as one of the inputs
+ular videos taken at a static viewpoint, each of which cor-            t ∈ Tcond . Then, we split all K target views into batches
+responds to one of our control signals: camera or time. We             of N views and generate each batch by conditioning on the
+therefore use a mixture of synthetic 4D datasets [12, 19],             nearest M anchor views. Finally, we reconstruct the 3D
+multi-view image datasets [36, 55, 82, 94], and monocular              scene using a standard 3DGS model [28] with an additional
+video datasets. We filter the video dataset to contain only            perceptual loss LPIPS [86]. See the supplement for details.
+videos of a static viewpoint, in order to prevent the model
+from confusing time control Ttgt with camera motion (as
+                                                                           3.4. Generating Consistent Multi-view Videos
+we lack camera annotation for these videos). We perform                To enable 4D reconstruction, we transform the input
+this filtering by checking if the four corner patches of each          monocular video to a multi-view video. When there is suf-
+video are constant over time (see supplement).                         ficient camera movement in the monocular input video, we
+    Until this point, we still do not have real data correspond-       aim to generate multi-view video at a subset of the ob-
+ing to the two cases we particularly care about — both cam-            served cameras. Given an input video of L frames I1:L with
+era and scene moves in the input views but one of them stays           cameras P1:L , we start by picking K camera viewpoints
+static in the target views. To address this issue, we perform          {Pki }Ki=1 ⊆ P1:L by farthest point sampling. Our goal is to
+generative data augmentations [66]. Specifically, on the one           generate multi-view videos at these K cameras, i.e., a K×L
+hand, we take samples from CO3D dataset [55], and prompt               grid of images GK,L . Recall that our model is trained to
+a video generation model (Lumiere [7]) to animate the input            generate N frames only, yet usually KL ≫ N . To generate
+frames without moving the camera. On the other hand, we                such a grid of images, we design a sampling strategy that
+take samples from the video dataset and run CAT3D [17] to              alternates between multi-view sampling that independently
+generate novel views of the input frames. While augmented              generates each column of the image grid and temporal sam-
+images are often not perfect (e.g., unrealistic deformation,           pling that independently generates each row of the image
+incorrect scene scale), we found them to help the model bet-           grid. Here we use a restricted setting of our multi-view
+ter learn disentangled camera and time control.                        video diffusion model where the number of conditioning
+                                                                       frames M is equal to the number of target frames N + 1. In
+3.3. Sparse-View Bullet-Time 3D Reconstruction                         order to condition on more input frames, we use a fine-tuned
+One application of our model is sparse-view static 3D                  version of our trained model with M = 9 input views and
+reconstruction in the presence of dynamic scene motion.                N = 8 output views. See Fig. 5 for an illustrative example
+Given only a few posed images of a dynamic scene, we                   of this procedure.
+want to create a “bullet-time” effect by reconstructing a              Multi-view sampling For each time t, we generate im-
+static 3D scene corresponding to the time of one input view.           ages G·,t at all K cameras by first generating each sliding
+
+
+
+                                                                   26061
+         Time                                                                                           P2, T2          P3, T3          P4, T4
+                                                                                             Time (T)
+                Multi-view   Temporal           Multi-view
+Camera
+
+
+
+
+                sampling     sampling           sampling
+
+
+
+
+                                                                                Camera (P)
+                                                                        Input
+                              SDEdit             SDEdit
+
+
+Multi-view sampling
+
+
+
+                                       median       next                                                P2, T1          P2, T1          P2, T1
+                                                   column
+
+
+
+
+                                                                        Varying View
+                                                                         Fixed Time
+Temporal sampling
+
+
+
+                                       median       next
+                                                    row
+
+
+Figure 5. Illustrating our alternating sampling strategy: Given                                         P1, T3          P1, T3          P1, T3
+a diffusion model that generates N output views (here, N = 3),
+
+
+
+
+                                                                        Varying Time
+                                                                         Fixed View
+we use SDEdit [45] to alternate between multi-view and temporal
+sampling to generate a grid of images at K cameras and L time
+steps (top, here K = 4 and L = 4). In multi-view sampling, we
+generate each sliding window of size 3 for each column and take
+the median of the results (middle). Temporal sampling follows a                                         P5, T0          P5, T0          P5, T0
+
+
+
+
+                                                                        Varying View
+                                                                        Varying Time
+similar process for rows (bottom). Generations for each column or
+row can be executed in parallel.
+
+
+window of size N and then taking the pixel-wise median
+                                                                                                                 4DiM            Ours            GT
+of the results. The generation of the j-th window is con-
+                                                                     Figure 6. Qualitative comparison, disentangled control: The
+ditioned on N input frames at corresponding target cam-
+                                                                     camera-time grid on the left shows the positions of three input im-
+eras {Ic | c ∈ {ki mod K }j+N
+                            i=j } and 1 input frame at the           ages (gray cells, images visualized in top row) and output images
+target time It . We choose such conditional frames as they           (green) in three different target sampling settings. One frame from
+provide the most useful information. Taking the pixel-wise           each setting (orange cell) is visualized in each row, comparing our
+median of multiple windows aggregates information from               model with 4DiM [71] and ground truth.
+more conditional frames and also helps reduce the variance.
+Results from multi-view sampling are largely multi-view             to sufficiently constrain 4D reconstruction. To do this, we
+consistent, but are not temporally consistent.                      first generate K novel views at t = 0, add these generated
+Temporal sampling For each camera Pki , we generate                 frames to the set of input frames, and then run the previously
+images Gi,· at all L times using a similar sliding window ap-       described alternating sampling strategy.
+proach as multi-view sampling. The generation of the j-th           Dense view sampling To further increase the coverage
+window is conditioned on N input frames at corresponding            of our generated multi-view videos, for each timestep we
+target timestamps {It mod L }j+N
+                               t=j and 1 input frame at tar-        condition on the K generated views and generate K ′ more
+get camera Iki . Results from temporal sampling are largely         views using the nearest-anchoring strategy presented in
+temporally consistent, but are not multi-view consistent.           Sec. 3.3. For our experiments, we set K = 13 and K ′ =
+Alternating strategy To achieve both multi-view and tem-            128. We use MonST3R [85] to get camera parameters for
+poral consistency, we alternate between multi-view sam-             unposed input videos. More details (e.g., sampled camera
+pling and temporal sampling with SDEdit [45] from the pre-          trajectories) are described in the supplement.
+vious iteration and use 25 DDIM steps for sampling from              3.5. 4D Reconstruction
+random noise and a reduces number of steps when initial-
+izing from lower noise levels. We run three iterations of            The alternating sampling method (Sec. 3.4) generates multi-
+sampling: (1) multi-view sampling from random noise, (2)             view videos that are sufficiently consistent to be used in
+temporal sampling initialized from the previous iteration at         existing 4D reconstruction pipelines. We build on 4D-
+noise level 16/25 (3) multi-view sampling initialized from           GS [72], which represents a dynamic 3D scene as a set
+the previous iteration at noise level 8/25. Multi-view videos        of canonical-space 3D Gaussians that are moved by a de-
+generated with this strategy are sufficiently consistent for         formation field parameterized with K-Planes [14]. See the
+accurate 4D reconstruction, provided the input video has             supplement for details.
+enough coverage of the scene (recall that the K cameras are
+picked from the input cameras P1:L ).
+                                                                     4. Experiments
+Stationary videos For input videos with little to no camera          Separate Control over Camera and Time We first exam-
+movement, we must generate images from novel viewpoints              ine our model’s ability to separately control camera view-
+
+
+
+                                                                26062
+                                                                                                                Fixed Viewpoint   Varying Viewpoint Varying Viewpoint
+Input
+
+
+
+
+                                                                                                                 Varying Time        Fixed Time       Varying Time
+                                                                                                     Method
+                                                                                                              PSNR SSIM LPIPS PSNR SSIM LPIPS PSNR SSIM LPIPS
+             CAT3D-1cond    CAT3D-3cond           CAT3D-1cond          CAT3D-3cond
+                                                                                                     4DiM[71] 19.77 0.540 0.195 18.81 0.428 0.219 17.28 0.378 0.256
+                                                                                                     Ours     21.97 0.683 0.121 21.68 0.588 0.105 19.73 0.533 0.155
+
+                                                                                                  Table 2. Quantitative comparison, disentangled control: We
+Novel View
+
+
+
+
+                                                                                                  compare with 4DiM [71] on the NSFF dataset [37], evaluating how
+             Ours           GT                    Ours                 GT                         well the time and viewpoint can be independently manipulated.
+
+
+                                                                                                          Method                  PSNR↑     SSIM↑     LPIPS ↓
+                                                                                                          CAT3D-1cond [17]        15.33      0.379      0.527
+                                                                                                          CAT3D-3cond [17]        20.19      0.568      0.258
+Figure 7. Qualitative comparison, sparse-view “bullet-time”                                               Ours                    20.79      0.576      0.160
+3D reconstruction: The three input images are shown on the top,
+where the first one is the target bullet-time frame.                                              Table 3. Quantitative comparison, sparse-view “bullet-time”:
+                                                                                                  We compare with CAT3D [17] on the NSFF dataset [37], evalu-
+                                                                                                  ating the ability to reconstruct a consistent static 3D scene from
+                                 Independent        Independent
+                    Image          multi-view         temporal        Alternating sampling        input images containing scene motion.
+
+
+                                                                                                 Sparse-View Bullet-Time 3D Reconstruction On this
+                                                                                                 task, we again evaluate on the NSFF dataset [37] with 3 in-
+                            Multi-view sampling   Temporal sampling      Ground Truth
+                                                                                                 put images. For each scene, we test on 4 different sets of in-
+                                                                                                 put images randomly sampled from the captured sequence.
+                                                                                                 We compare against two versions of CAT3D [17], with ei-
+                                                                                                 ther all 3 input images (“CAT3D-3cond”) or only one in-
+                                                                                                 put image at the target time (“CAT3D-1cond”). Qualitative
+                                                                                                 and quantitative comparison results are presented in Fig. 7
+Figure 8. Qualitative comparison, sampling strategies: A com-                                    and Table 3, respectively. CAT3D-3cond is unable to re-
+parison of different sampling strategies using space-time slices,                                solve inconsistencies in the inputs, resulting in blurry novel
+where the vertical axis represents time and the horizontal axis                                  view renderings, especially in dynamic parts of the scene.
+shows a spatial slice of the image (red line). Our alternating sam-                              CAT3D-1cond, which is given only one image at the target
+pling strategy best matches the ground truth motion.
+                                                                                                 time, does not need to resolve any dynamic inconsistencies,
+                                                                                                 but it is unable to leverage available information in other
+point and scene dynamics. Given 3 input images, we gen-                                          input images to determine the global scene scale and cor-
+erate three types of output sequences using our diffusion                                        rect scene content. Our multi-view video diffusion model
+model: 1) fixed viewpoint and varying time, 2) varying                                           reconstructs the 3D scene at the target time most accurately.
+viewpoint and fixed time, and 3) varying viewpoint and                                           4D Reconstruction We evaluate the task of dynamic
+varying time. We evaluate on the NSFF dataset [37] (a sub-                                       scene reconstruction from monocular video on the Dy-
+set of the Nvidia Dynamic Scenes Dataset [79]), which pro-                                       Check dataset [16], which contains video sequences with
+vides ground truth frames from 12 synchronized cameras in                                        200-500 frames of challenging real world scene motion.
+eight real-world dynamic scenes. For each scene, we test on                                      Following [70], we test on 5 scenes that have two synchro-
+8 different sets of input images that are randomly sampled                                       nized static cameras for novel-view synthesis evaluation. In
+from the dataset. We compare against 4DiM [71], a recent                                         Table 4 and Fig. 9, we compare to the baseline 4D-GS [72]
+method that trains a cascaded diffusion model to synthesize                                      (without using our generated images) and state-of-the-art
+images under specified viewpoints and timestamps. Qual-                                          dynamic reconstruction methods Shape-of-Motion [70] and
+itative and quantitative results are shown in Fig. 6 and Ta-                                     MoSca [33]. Our method greatly improves the reconstruc-
+ble 2, respectively. We observe that 4DiM conflates control                                      tion quality over the baseline 4D-GS representation that we
+over camera and scene motion: even when the model is in-                                         used. Our results are roughly on par with those of Shape-of-
+structed to only change the camera viewpoint, dynamic ob-                                        Motion and MoSca, but those models use additional super-
+jects still move. In contrast, our model exhibits decoupled                                      visory signals (e.g., depth maps, 2D tracks, user-provided
+control over camera and scene motion control, in addition                                        foreground masks). We use no additional signals and super-
+to generating overall higher quality images.                                                     vise with only straightforward photometric losses.
+
+
+
+                                                                                             26063
+        4D-GS             Shape-of-Motion            MoSca                       Ours                  GT              Training View
+
+
+
+
+Figure 9. Qualitative comparison, 4D reconstruction: We compare 4D reconstructions on the DyCheck dataset [16]. The rightmost
+column shows the input frame, at the same timestamp as the desired target image. Evaluation-excluded co-visibility masks are highlighted
+green. The visual improvement of our rendering over 4D-GS [72] (which our system leverages) demonstrates the value of our proposed
+multi-view video model. Renderings from Shape-of-Motion [70] and MoSca [33] were graciously provided by the authors.
+
+
+  Method                   mPSNR↑       mSSIM↑       mLPIPS ↓            Ablation Study The multi-view and temporal consis-
+  4D-GS [72]                 16.54          0.594     0.347
+                                                                         tency of our samples is essential for high-quality 4D cre-
+  Shape-of-Motion [70]       16.72          0.630     0.450              ation. We compare our alternating sampling strategy
+  Ours                       17.39          0.607     0.341              (Sec. 3.4) to four simpler options: 1) multi-view sampling
+                                                                         only, 2) temporal sampling only, 3) independent multi-view
+  MoSca [33]†                19.54          0.738     0.244
+                                                                         sampling (i.e., without the sliding-window overlap), and 4)
+  Ours†                      18.24          0.666     0.227
+                                                                         independent temporal sampling (i.e., without the sliding-
+Table 4. Quantitative comparison, 4D reconstruction: Follow-             window overlap). We evaluate different strategies on the
+ing prior work [16, 33, 70], we report co-visibility masked image        NSFF dataset [37] for generating multi-view videos. The
+metrics on the DyCheck dataset [16]. † indicates methods trained         results in Table 5 and Fig. 8 shows that our alternating sam-
+on images at half the original resolution.                               pling strategy improves sample quality. We also present an
+                                                                         ablation study of our training datasets in the supplement.
+  Sampling strategy           PSNR ↑        SSIM ↑    LPIPS ↓
+  Independent multi-view        20.27        0.525     0.136                5. Discussion
+  Independent temporal          21.63        0.615     0.130
+                                                                            We present CAT4D, an approach for creating 4D scenes
+  Multi-view sampling           22.34        0.609     0.217
+  Temporal sampling             23.36        0.681     0.145                from captured or generated monocular videos. Our multi-
+  Alternating sampling          22.15        0.633     0.108                view video diffusion model transforms monocular inputs
+                                                                            into consistent multi-view videos, enabling reconstruction
+Table 5. Quantitative comparison, sampling strategies: We                   as deformable 3D Gaussians.
+compare our sampling strategy to four simpler variants by com-
+                                                                               CAT4D has several limitations: the diffusion model
+paring to ground-truth images from the NSFF dataset [37].
+                                                                            struggles with temporal extrapolation beyond input frames
+                                                                            and cannot fully disentangle camera viewpoint from tempo-
+4D Creation In addition to reconstructing of real, captured                 ral progression, especially in challenging cases where dy-
+dynamic 3D scenes, CAT4D can also be used to create 4D                      namic objects become occluded. The alternating sampling
+scenes of generated content, by first using a text-to-video                 strategy we propose is effective at increasing the number of
+or image-to-video model [1, 2, 10, 51, 60, 65] to create                    frames we can generate, but training larger-scale multi-view
+a monocular video sequence. Unlike real captures, these                     video models that can accomplish this directly is an exciting
+generated videos sometimes contain inconsistent scene ele-                  future area. Additionally, while our generated 4D scenes
+ments that defy physical 3D constraints and typically lack                  appear plausible from novel viewpoints, the recovered 3D
+the camera motion that most state-of-the-art reconstruction                 motion fields may not be physically accurate. Incorporat-
+methods require. Fig. 2 shows a collection of these re-                     ing supervision signals like depth or motion estimates could
+sults, but we strongly recommend viewing the supplemen-                     improve the quality of our results but would reduce the ap-
+tary video instead.                                                         plicability of our method to dense video captures.
+
+
+
+                                                                    26064
+Acknowledgments We would like to thank Arthur                                Ehsani, Aniruddha Kembhavi, and Ali Farhadi. Objaverse:
+Brussee, Philipp Henzler, Daniel Watson, Jiahui Lei, Hang                    A Universe of Annotated 3D Objects. CVPR, 2023. 3, 5
+Gao, Qianqian Wang, Stan Szymanowicz, Jiapeng Tang,                     [13] Carl Doersch, Yi Yang, Mel Vecerik, Dilara Gokay, Ankush
+Hadi Alzayer, Dana Roth, Peter Hedman, and Angjoo                            Gupta, Yusuf Aytar, Joao Carreira, and Andrew Zisserman.
+Kanazawa for their valuable contributions. We also extend                    TAPIR: Tracking Any Point with per-frame Initialization and
+                                                                             temporal Refinement. ICCV, 2023. 3
+our gratitude to Shlomi Fruchter, Kevin Murphy, Moham-
+                                                                        [14] Sara Fridovich-Keil, Giacomo Meanti, Frederik Rahbæk
+mad Babaeizadeh, Han Zhang and Amir Hertz for training
+                                                                             Warburg, Benjamin Recht, and Angjoo Kanazawa. K-
+the base text-to-image latent diffusion model.                               Planes: Explicit Radiance Fields in Space, Time, and Ap-
+                                                                             pearance. CVPR, 2023. 1, 3, 6
+References                                                              [15] Chen Gao, Ayush Saraf, Johannes Kopf, and Jia-Bin Huang.
+ [1] Kling AI. Kling. https://klingai.com/, . 8                              Dynamic View Synthesis from Dynamic Monocular Video.
+                                                                             ICCV, 2021. 3
+ [2] Luma AI. Dream Machine. https://lumalabs.ai/
+                                                                        [16] Hang Gao, Ruilong Li, Shubham Tulsiani, Bryan Russell,
+     dream-machine/, . 8
+                                                                             and Angjoo Kanazawa. Monocular dynamic view synthesis:
+ [3] Benjamin Attal, Jia-Bin Huang, Christian Richardt, Michael
+                                                                             A reality check. NeurIPS, 2022. 7, 8
+     Zollhoefer, Johannes Kopf, Matthew O’Toole, and Changil
+                                                                        [17] Ruiqi Gao, Aleksander Holynski, Philipp Henzler, Arthur
+     Kim. HyperReel: High-Fidelity 6-DoF Video with Ray-
+                                                                             Brussee, Ricardo Martin-Brualla, Pratul Srinivasan,
+     Conditioned Sampling. CVPR, 2023. 3
+                                                                             Jonathan T Barron, and Ben Poole. CAT3D: Create Any-
+ [4] Sherwin Bahmani, Xian Liu, Wang Yifan, Ivan Sko-
+                                                                             thing in 3D with Multi-View Diffusion Models. NeurIPS,
+     rokhodov, Victor Rong, Ziwei Liu, Xihui Liu, Jeong Joon
+                                                                             2024. 1, 3, 4, 5, 7
+     Park, Sergey Tulyakov, Gordon Wetzstein, et al. TC4D:
+                                                                        [18] Kristen Grauman, Andrew Westbury, Lorenzo Torresani,
+     Trajectory-Conditioned Text-to-4D Generation.         ECCV,
+                                                                             Kris Kitani, Jitendra Malik, Triantafyllos Afouras, Kumar
+     2024. 3
+                                                                             Ashutosh, Vijay Baiyya, Siddhant Bansal, Bikram Boote,
+ [5] Sherwin Bahmani, Ivan Skorokhodov, Victor Rong, Gordon                  et al. Ego-Exo4D: Understanding Skilled Human Activity
+     Wetzstein, Leonidas Guibas, Peter Wonka, Sergey Tulyakov,               from First- and Third-Person Perspectives. CVPR, 2024. 5
+     Jeong Joon Park, Andrea Tagliasacchi, and David B Lindell.         [19] Klaus Greff, Francois Belletti, Lucas Beyer, Carl Doersch,
+     4D-fy: Text-to-4D Generation Using Hybrid Score Distilla-               Yilun Du, Daniel Duckworth, David J Fleet, Dan Gnanapra-
+     tion Sampling. CVPR, 2024. 3                                            gasam, Florian Golemo, Charles Herrmann, et al. Kubric: A
+ [6] Sherwin Bahmani, Ivan Skorokhodov, Aliaksandr Siaro-                    scalable dataset generator. CVPR, 2022. 3, 5
+     hin, Willi Menapace, Guocheng Qian, Michael Vasilkovsky,           [20] Yuwei Guo, Ceyuan Yang, Anyi Rao, Zhengyang Liang,
+     Hsin-Ying Lee, Chaoyang Wang, Jiaxu Zou, Andrea                         Yaohui Wang, Yu Qiao, Maneesh Agrawala, Dahua Lin,
+     Tagliasacchi, David B. Lindell, and Sergey Tulyakov.                    and Bo Dai. AnimateDiff: Animate Your Personalized
+     VD3D: Taming Large Video Diffusion Transformers for 3D                  Text-to-Image Diffusion Models without Specific Tuning.
+     Camera Control. arXiv:2407.12781, 2024. 4                               arXiv:2307.04725, 2023. 4
+ [7] Omer Bar-Tal, Hila Chefer, Omer Tov, Charles Her-                  [21] Hao He, Yinghao Xu, Yuwei Guo, Gordon Wetzstein,
+     rmann, Roni Paiss, Shiran Zada, Ariel Ephrat, Junhwa Hur,               Bo Dai, Hongsheng Li, and Ceyuan Yang. CameraC-
+     Yuanzhen Li, Tomer Michaeli, Oliver Wang, Deqing Sun,                   trl: Enabling Camera Control for Text-to-Video Generation.
+     Tali Dekel, and Inbar Mosseri. Lumiere: A Space-Time                    arXiv:2404.02101, 2024. 4
+     Diffusion Model for Video Generation. arXiv:2401.12945,            [22] Yicong Hong, Kai Zhang, Jiuxiang Gu, Sai Bi, Yang Zhou,
+     2024. 3, 5                                                              Difan Liu, Feng Liu, Kalyan Sunkavalli, Trung Bui, and Hao
+ [8] Mojtaba Bemana, Karol Myszkowski, Hans-Peter Seidel,                    Tan. LRM: Large Reconstruction Model for Single Image to
+     and Tobias Ritschel. X-fields: Implicit neural view-, light-            3D. ICLR, 2024. 1
+     and time-image interpolation. SIGGRAPH, 2020. 1                    [23] Chen Hou, Guoqiang Wei, Yan Zeng, and Zhibo
+ [9] Andreas Blattmann, Tim Dockhorn, Sumith Kulal, Daniel                   Chen. Training-free Camera Control for Video Generation.
+     Mendelevitch, Maciej Kilian, Dominik Lorenz, Yam Levi,                  arXiv:2406.10126, 2024. 4
+     Zion English, Vikram Voleti, Adam Letts, et al. Stable Video       [24] Edward J Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-
+     Diffusion: Scaling Latent Video Diffusion Models to Large               Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and Weizhu Chen.
+     Datasets. arXiv:2311.15127, 2023. 3                                     LoRA: Low-Rank Adaptation of Large Language Models.
+[10] Tim Brooks, Bill Peebles, Connor Holmes, Will DePue,                    ICLR, 2022. 3
+     Yufei Guo, Li Jing, David Schnurr, Joe Taylor, Troy Luh-           [25] Yifei Huang, Guo Chen, Jilan Xu, Mingfang Zhang, Li-
+     man, Eric Luhman, Clarence Ng, Ricky Wang, and Aditya                   jin Yang, Baoqi Pei, Hongjie Zhang, Lu Dong, Yali Wang,
+     Ramesh. Video generation models as world simulators.                    Limin Wang, et al. EgoExoLearn: A Dataset for Bridging
+     2024. 8                                                                 Asynchronous Ego-and Exo-centric View of Procedural Ac-
+[11] Ang Cao and Justin Johnson. HexPlane: A Fast Representa-                tivities in Real World. CVPR, 2024. 5
+     tion for Dynamic Scenes. CVPR, 2023. 1, 3                          [26] Yanqin Jiang, Li Zhang, Jin Gao, Weimin Hu, and Yao Yao.
+[12] Matt Deitke, Dustin Schwenk, Jordi Salvador, Luca Weihs,                Consistent4D: Consistent 360° Dynamic Object Generation
+     Oscar Michel, Eli VanderBilt, Ludwig Schmidt, Kiana                     from Monocular Video. ICLR, 2024. 3
+
+
+
+
+                                                                    26065
+[27] Nikita Karaev, Ignacio Rocco, Benjamin Graham, Natalia           [42] Yuan Liu, Cheng Lin, Zijiao Zeng, Xiaoxiao Long, Lingjie
+     Neverova, Andrea Vedaldi, and Christian Rupprecht. Co-                Liu, Taku Komura, and Wenping Wang. SyncDreamer: Gen-
+     Tracker: It is Better to Track Together. ECCV, 2024. 3                erating Multiview-consistent Images from a Single-view Im-
+[28] Bernhard Kerbl, Georgios Kopanas, Thomas Leimkühler,                 age. ICLR, 2024. 3
+     and George Drettakis. 3D Gaussian Splatting for Real-Time        [43] Jonathon Luiten, Georgios Kopanas, Bastian Leibe, and
+     Radiance Field Rendering. SIGGRAPH, 2023. 1, 3, 5                     Deva Ramanan. Dynamic 3D Gaussians: Tracking by Per-
+[29] Alexander Kirillov, Eric Mintun, Nikhila Ravi, Hanzi Mao,             sistent Dynamic View Synthesis. 3DV, 2024. 1, 3
+     Chloe Rolland, Laura Gustafson, Tete Xiao, Spencer White-        [44] Willi Menapace, Aliaksandr Siarohin, Ivan Skorokhodov,
+     head, Alexander C Berg, Wan-Yen Lo, et al. Segment Any-               Ekaterina Deyneka, Tsai-Shien Chen, Anil Kag, Yuwei
+     thing. ICCV, 2023. 3                                                  Fang, Aleksei Stoliar, Elisa Ricci, Jian Ren, et al. Snap
+[30] Agelos Kratimenos, Jiahui Lei, and Kostas Daniilidis.                 Video: Scaled Spatiotemporal Transformers for Text-to-
+     DynMF: Neural Motion Factorization for Real-time Dy-                  Video Synthesis. CVPR, 2024. 3
+     namic View Synthesis with 3D Gaussian Splatting. ECCV,           [45] Chenlin Meng, Yutong He, Yang Song, Jiaming Song, Jiajun
+     2024. 3                                                               Wu, Jun-Yan Zhu, and Stefano Ermon. SDEdit: Guided Im-
+[31] Zhengfei Kuang, Shengqu Cai, Hao He, Yinghao Xu, Hong-                age Synthesis and Editing with Stochastic Differential Equa-
+     sheng Li, Leonidas Guibas, and Gordon Wetzstein. Collab-              tions. ICLR, 2022. 6
+     orative Video Diffusion: Consistent Multi-video Generation       [46] Ben Mildenhall, Pratul P. Srinivasan, Matthew Tancik,
+     with Camera Control. arXiv:2405.17414, 2024. 4                        Jonathan T. Barron, Ravi Ramamoorthi, and Ren Ng. NeRF:
+[32] Yao-Chih Lee, Zhoutong Zhang, Kevin Blackburn-Matzen,                 Representing Scenes as Neural Radiance Fields for View
+     Simon Niklaus, Jianming Zhang, Jia-Bin Huang, and Feng                Synthesis. ECCV, 2020. 1, 3
+     Liu. Fast view synthesis of casual videos with soup-of-          [47] Zijie Pan, Zeyu Yang, Xiatian Zhu, and Li Zhang. Effi-
+     planes. ECCV, 2024. 3                                                 cient4D: Fast Dynamic 3D Object Generation from a Single-
+[33] Jiahui Lei, Yijia Weng, Adam Harley, Leonidas Guibas, and             view Video. arXiv:2401.08742, 2024. 3
+     Kostas Daniilidis. MoSca: Dynamic Gaussian Fusion from           [48] Keunhong Park, Utkarsh Sinha, Jonathan T Barron, Sofien
+     Casual Videos via 4D Motion Scaffolds. arXiv:2405.17421,              Bouaziz, Dan B Goldman, Steven M Seitz, and Ricardo
+     2024. 3, 7, 8                                                         Martin-Brualla. Nerfies: Deformable Neural Radiance
+[34] Bing Li, Cheng Zheng, Wenxuan Zhu, Jinjie Mai, Biao                   Fields. ICCV, 2021. 3
+     Zhang, Peter Wonka, and Bernard Ghanem. Vivid-zoo:               [49] Keunhong Park, Utkarsh Sinha, Peter Hedman, Jonathan T
+     Multi-view video generation with diffusion model. arXiv               Barron, Sofien Bouaziz, Dan B Goldman, Ricardo Martin-
+     preprint arXiv:2406.08659, 2024. 3                                    Brualla, and Steven M Seitz.       Hypernerf: A higher-
+[35] Tianye Li, Mira Slavcheva, Michael Zollhoefer, Simon                  dimensional representation for topologically varying neural
+     Green, Christoph Lassner, Changil Kim, Tanner Schmidt,                radiance fields. SIGGRAPH Asia, 2021. 3
+     Steven Lovegrove, Michael Goesele, Richard Newcombe,             [50] Luigi Piccinelli, Yung-Hsu Yang, Christos Sakaridis, Mattia
+     et al. Neural 3D Video Synthesis from Multi-view Video.               Segu, Siyuan Li, Luc Van Gool, and Fisher Yu. UniDepth:
+     CVPR, 2022. 1, 3                                                      Universal Monocular Metric Depth Estimation. CVPR, 2024.
+[36] Zhengqi Li, Tali Dekel, Forrester Cole, Richard Tucker,               3
+     Noah Snavely, Ce Liu, and William T Freeman. Learning            [51] Pika. Pika 1.5. https://pika.art/. 8
+     the Depths of Moving People by Watching Frozen People.           [52] Ben Poole, Ajay Jain, Jonathan T Barron, and Ben Milden-
+     CVPR, 2019. 3, 5                                                      hall. Dreamfusion: Text-to-3d using 2d diffusion. ICLR,
+[37] Zhengqi Li, Simon Niklaus, Noah Snavely, and Oliver Wang.             2023. 3
+     Neural Scene Flow Fields for Space-Time View Synthesis of        [53] Albert Pumarola, Enric Corona, Gerard Pons-Moll, and
+     Dynamic Scenes. CVPR, 2021. 3, 7, 8                                   Francesc Moreno-Noguer. D-NeRF: Neural Radiance Fields
+[38] Zhengqi Li, Qianqian Wang, Forrester Cole, Richard Tucker,            for Dynamic Scenes. CVPR, 2021. 1
+     and Noah Snavely. DynIBaR: Neural Dynamic Image-Based            [54] Alexander Raistrick, Lahav Lipson, Zeyu Ma, Lingjie Mei,
+     Rendering. CVPR, 2023. 3                                              Mingzhe Wang, Yiming Zuo, Karhan Kayan, Hongyu Wen,
+[39] Hanwen Liang, Yuyang Yin, Dejia Xu, Hanxue Liang,                     Beining Han, Yihan Wang, et al. Infinite photorealistic
+     Zhangyang Wang, Konstantinos N Plataniotis, Yao Zhao,                 worlds using procedural generation. CVPR, 2023. 5
+     and Yunchao Wei. Diffusion4D: Fast Spatial-temporal              [55] Jeremy Reizenstein, Roman Shapovalov, Philipp Henzler,
+     Consistent 4D Generation via Video Diffusion Models.                  Luca Sbordone, Patrick Labatut, and David Novotny. Com-
+     arXiv:2405.16645, 2024. 3, 5                                          mon Objects in 3D: Large-Scale Learning and Evaluation of
+[40] Huan Ling, Seung Wook Kim, Antonio Torralba, Sanja Fi-                Real-life 3D Category Reconstruction. ICCV, 2021. 3, 5
+     dler, and Karsten Kreis. Align Your Gaussians: Text-to-4D        [56] Jiawei Ren, Liang Pan, Jiaxiang Tang, Chi Zhang, Ang Cao,
+     with Dynamic 3D Gaussians and Composed Diffusion Mod-                 Gang Zeng, and Ziwei Liu. DreamGaussian4D: Generative
+     els. CVPR, 2024. 3                                                    4D Gaussian Splatting. arXiv:2312.17142, 2023. 3
+[41] Ruoshi Liu, Rundi Wu, Basile Van Hoorick, Pavel Tok-             [57] Jiawei Ren, Kevin Xie, Ashkan Mirzaei, Hanxue Liang, Xi-
+     makov, Sergey Zakharov, and Carl Vondrick. Zero-1-to-3:               aohui Zeng, Karsten Kreis, Ziwei Liu, Antonio Torralba,
+     Zero-shot One Image to 3D Object. ICCV, 2023. 3                       Sanja Fidler, Seung Wook Kim, et al. L4GM: Large 4D
+
+
+
+
+                                                              26066
+     Gaussian Reconstruction Model. arXiv:2406.10324, 2024.              [69] Liao Wang, Jiakai Zhang, Xinhang Liu, Fuqiang Zhao, Yan-
+     3                                                                        shun Zhang, Yingliang Zhang, Minye Wu, Jingyi Yu, and
+[58] Kyle Sargent, Zizhang Li, Tanmay Shah, Charles Herrmann,                 Lan Xu. Fourier PlenOctrees for Dynamic Radiance Field
+     Hong-Xing Yu, Yunzhi Zhang, Eric Ryan Chan, Dmitry La-                   Rendering in Real-time. CVPR, 2022. 3
+     gun, Li Fei-Fei, Deqing Sun, et al. ZeroNVS: Zero-shot 360-         [70] Qianqian Wang, Vickie Ye, Hang Gao, Jake Austin, Zhengqi
+     degree View Synthesis from a Single Real Image. CVPR,                    Li, and Angjoo Kanazawa. Shape of Motion: 4D Recon-
+     2024. 1, 3                                                               struction from a Single Video. arXiv:2407.13764, 2024. 3,
+[59] Fadime Sener, Dibyadip Chatterjee, Daniel Shelepov, Kun                  7, 8
+     He, Dipika Singhania, Robert Wang, and Angela Yao. As-              [71] Daniel Watson, Saurabh Saxena, Lala Li, Andrea Tagliasac-
+     sembly101: A Large-Scale Multi-View Video Dataset for                    chi, and David J Fleet. Controlling Space and Time with
+     Understanding Procedural Activities. CVPR, 2022. 5                       Diffusion Models . arXiv:2407.07860, 2024. 4, 6, 7
+[60] Abhishek Sharma, Adams Yu, Ali Razavi, Andeep Toor, An-             [72] Guanjun Wu, Taoran Yi, Jiemin Fang, Lingxi Xie, Xiaopeng
+     drew Pierson, Ankush Gupta, Austin Waters, Aäron van den                Zhang, Wei Wei, Wenyu Liu, Qi Tian, and Xinggang Wang.
+     Oord, Daniel Tanis, Dumitru Erhan, Eric Lau, Eleni Shaw,                 4D Gaussian Splatting for Real-Time Dynamic Scene Ren-
+     Gabe Barth-Maron, Greg Shaw, Han Zhang, Henna Nand-                      dering. CVPR, 2024. 1, 3, 6, 7, 8
+     wani, Hernan Moraldo, Hyunjik Kim, Irina Blok, Jakob                [73] Rundi Wu, Ben Mildenhall, Philipp Henzler, Keunhong
+     Bauer, Jeff Donahue, Junyoung Chung, Kory Mathewson,                     Park, Ruiqi Gao, Daniel Watson, Pratul P. Srinivasan, Dor
+     Kurtis David, Lasse Espeholt, Marc van Zee, Matt McGill,                 Verbin, Jonathan T. Barron, Ben Poole, and Aleksander
+     Medhini Narasimhan, Miaosen Wang, Mikołaj Bińkowski,                    Holynski. ReconFusion: 3D Reconstruction with Diffusion
+     Mohammad Babaeizadeh, Mohammad Taghi Saffar, Nando                       Priors. CVPR, 2024. 1, 3
+     de Freitas, Nick Pezzotti, Pieter-Jan Kindermans, Poorva
+                                                                         [74] Jinyu Yang, Mingqi Gao, Zhe Li, Shang Gao, Fangjing
+     Rane, Rachel Hornung, Robert Riachi, Ruben Villegas, Rui
+                                                                              Wang, and Feng Zheng. Track Anything: Segment Anything
+     Qian, Sander Dieleman, Serena Zhang, Serkan Cabi, Shixin
+                                                                              Meets Videos. arXiv:2304.11968, 2023. 3
+     Luo, Shlomi Fruchter, Signe Nørly, Srivatsan Srinivasan, To-
+                                                                         [75] Lihe Yang, Bingyi Kang, Zilong Huang, Xiaogang Xu, Jiashi
+     bias Pfaff, Tom Hume, Vikas Verma, Weizhe Hua, William
+                                                                              Feng, and Hengshuang Zhao. Depth Anything: Unleashing
+     Zhu, Xinchen Yan, Xinyu Wang, Yelin Kim, Yuqing Du, and
+                                                                              the Power of Large-Scale Unlabeled Data. CVPR, 2024. 3
+     Yutian Chen. Veo. 2024. 8
+[61] Yichun Shi, Peng Wang, Jianglong Ye, Mai Long, Kejie Li,            [76] Shiyuan Yang, Liang Hou, Haibin Huang, Chongyang
+     and Xiao Yang. MVDream: Multi-view Diffusion for 3D                      Ma, Pengfei Wan, Di Zhang, Xiaodong Chen, and Jing
+     Generation. arXiv:2308.16512, 2023. 3                                    Liao.     Direct-a-Video: Customized Video Generation
+                                                                              with User-Directed Camera Movement and Object Motion.
+[62] Uriel Singer, Adam Polyak, Thomas Hayes, Xi Yin, Jie An,
+                                                                              arXiv:2402.03162, 2024. 4
+     Songyang Zhang, Qiyuan Hu, Harry Yang, Oron Ashual,
+     Oran Gafni, et al. Make-A-Video: Text-to-Video Generation           [77] Zeyu Yang, Zijie Pan, Chun Gu, and Li Zhang. Diffusion2 :
+     without Text-Video Data. ICLR, 2023. 3                                   Dynamic 3D Content Generation via Score Composition of
+[63] Uriel Singer, Shelly Sheynin, Adam Polyak, Oron Ashual,                  Orthogonal Diffusion Models. arXiv:2404.02148, 2024. 3
+     Iurii Makarov, Filippos Kokkinos, Naman Goyal, Andrea               [78] Yuyang Yin, Dejia Xu, Zhangyang Wang, Yao Zhao, and
+     Vedaldi, Devi Parikh, Justin Johnson, et al. Text-to-4d dy-              Yunchao Wei. 4DGen: Grounded 4D Content Generation
+     namic scene generation. arXiv:2301.11280, 2023. 3                        with Spatial-temporal Consistency. arXiv:2312.17225, 2023.
+[64] Wenqiang Sun, Shuo Chen, Fangfu Liu, Zilong Chen, Yueqi                  3
+     Duan, Jun Zhang, and Yikai Wang. DimensionX: Create Any             [79] Jae Shin Yoon, Kihwan Kim, Orazio Gallo, Hyun Soo Park,
+     3D and 4D Scenes from a Single Image with Controllable                   and Jan Kautz. Novel View Synthesis of Dynamic Scenes
+     Video Diffusion. arXiv:2411.04928, 2024. 3, 4                            with Globally Coherent Depths from a Monocular Camera.
+[65] Genmo Team. Mochi 1. https://github.com/                                 CVPR, 2020. 3, 7
+     genmoai/models, 2024. 8                                             [80] Heng Yu, Chaoyang Wang, Peiye Zhuang, Willi Mena-
+[66] Alex Trevithick, Roni Paiss, Philipp Henzler, Dor Verbin,                pace, Aliaksandr Siarohin, Junli Cao, Laszlo A Jeni, Sergey
+     Rundi Wu, Hadi Alzayer, Ruiqi Gao, Ben Poole, Jonathan T                 Tulyakov, and Hsin-Ying Lee. 4Real: Towards Photore-
+     Barron, Aleksander Holynski, Ravi Ramamoorthi, and                       alistic 4D Scene Generation via Video Diffusion Models.
+     Pratul P. Srinivasan. Simvs: Simulating world incon-                     arXiv:2406.07472, 2024. 3
+     sistencies for robust view synthesis.        arXiv preprint         [81] Wangbo Yu, Jinbo Xing, Li Yuan, Wenbo Hu, Xiaoyu
+     arXiv:2412.07696, 2024. 5                                                Li, Zhipeng Huang, Xiangjun Gao, Tien-Tsin Wong, Ying
+[67] Basile Van Hoorick, Rundi Wu, Ege Ozguroglu, Kyle Sar-                   Shan, and Yonghong Tian. Viewcrafter: Taming video
+     gent, Ruoshi Liu, Pavel Tokmakov, Achal Dave, Changxi                    diffusion models for high-fidelity novel view synthesis.
+     Zheng, and Carl Vondrick. Generative Camera Dolly: Ex-                   arXiv:2409.02048, 2024. 4
+     treme Monocular Dynamic Novel View Synthesis. ECCV,                 [82] Xianggang Yu, Mutian Xu, Yidan Zhang, Haolin Liu,
+     2024. 4                                                                  Chongjie Ye, Yushuang Wu, Zizheng Yan, Tianyou Liang,
+[68] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszko-                  Guanying Chen, Shuguang Cui, and Xiaoguang Han.
+     reit, Llion Jones, Aidan N Gomez, et al. Attention is all you            MVImgNet: A Large-scale Dataset of Multi-view Images.
+     need. NeurIPS, 2017. 4                                                   CVPR, 2023. 3, 5
+
+
+
+
+                                                                 26067
+[83] Yifei Zeng, Yanqin Jiang, Siyu Zhu, Yuanxun Lu, Youtian
+     Lin, Hao Zhu, Weiming Hu, Xun Cao, and Yao Yao.
+     STAG4D: Spatial-Temporal Anchored Generative 4D Gaus-
+     sians . ECCV, 2024. 3
+[84] David Junhao Zhang, Roni Paiss, Shiran Zada, Nikhil
+     Karnad, David E. Jacobs, Yael Pritch, Inbar Mosseri,
+     Mike Zheng Shou, Neal Wadhwa, and Nataniel Ruiz.
+     ReCapture:      Generative Video Camera Controls for
+     User-Provided Videos using Masked Video Fine-Tuning.
+     arXiv:2411.05003, 2024. 4
+[85] Junyi Zhang, Charles Herrmann, Junhwa Hur, Varun Jam-
+     pani, Trevor Darrell, Forrester Cole, Deqing Sun, and Ming-
+     Hsuan Yang. MonST3R: A Simple Approach for Estimat-
+     ing Geometry in the Presence of Motion. arXiv:2410.03825,
+     2024. 6
+[86] Richard Zhang, Phillip Isola, Alexei A Efros, Eli Shechtman,
+     and Oliver Wang. The unreasonable effectiveness of deep
+     features as a perceptual metric. CVPR, 2018. 5
+[87] Yunzhi Zhang and Jiajun Wu. Video extrapolation in space
+     and time. ECCV, 2022. 4
+[88] Xiaoming Zhao, R Alex Colburn, Fangchang Ma,
+     Miguel Ángel Bautista, Joshua M Susskind, and Alex
+     Schwing. Pseudo-Generalized Dynamic View Synthesis
+     from a Video. ICLR, 2024. 3
+[89] Yuyang Zhao, Zhiwen Yan, Enze Xie, Lanqing Hong, Zhen-
+     guo Li, and Gim Hee Lee. Animate124: Animating One
+     Image to 4D Dynamic Scene. arXiv:2311.14603, 2023. 3
+[90] Yuyang Zhao, Chung-Ching Lin, Kevin Lin, Zhiwen Yan,
+     Linjie Li, Zhengyuan Yang, Jianfeng Wang, Gim Hee Lee,
+     and Lijuan Wang. Genxd: Generating any 3d and 4d scenes.
+     arXiv preprint arXiv:2411.02319, 2024. 4
+[91] Yang Zheng, Adam W Harley, Bokui Shen, Gordon Wet-
+     zstein, and Leonidas J Guibas. PointOdyssey: A Large-Scale
+     Synthetic Dataset for Long-Term Point Tracking. ICCV,
+     2023. 5
+[92] Yufeng Zheng, Xueting Li, Koki Nagano, Sifei Liu, Otmar
+     Hilliges, and Shalini De Mello. A Unified Approach for
+     Text- and Image-guided 4D Scene Generation. CVPR, 2024.
+     3
+[93] Kaichen Zhou, Jia-Xing Zhong, Sangyun Shin, Kai Lu,
+     Yiyuan Yang, Andrew Markham, and Niki Trigoni. Dyn-
+     point: Dynamic neural point for view synthesis. NeurIPS,
+     2024. 3
+[94] Tinghui Zhou, Richard Tucker, John Flynn, Graham Fyffe,
+     and Noah Snavely. Stereo Magnification: Learning View
+     Synthesis using Multiplane Images. SIGGRAPH, 2018. 3, 5
+
+
+
+
+                                                                26068
+

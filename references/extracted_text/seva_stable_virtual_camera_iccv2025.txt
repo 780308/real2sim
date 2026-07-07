@@ -1,0 +1,660 @@
+                        This ICCV paper is the Open Access version, provided by the Computer Vision Foundation.
+                                      Except for this watermark, it is identical to the accepted version;
+                                the final published version of the proceedings is available on IEEE Xplore.
+
+
+
+
+S TABLE V IRTUAL C AMERA: Generative View Synthesis with Diffusion Models
+                                Jensen (Jinghao) Zhou1,2,∗,† Hang Gao1,3,∗,†
+                    Vikram Voleti1 Aaryaman Vasishta1 Chun-Han Yao1 Mark Boss1
+                           Philip Torr2 Christian Rupprecht2 Varun Jampani1
+                1                   2                               3
+                    Stability AI        University of Oxford            University of California, Berkeley
+
+
+                                                                        lily dragon
+                         Abstract
+
+We present S TABLE V IRTUAL C AMERA (S EVA), a gener-
+alist diffusion model that creates novel views of a scene,
+given any number of input views and target cameras. Ex-
+isting works struggle to generate either large viewpoint
+changes or temporally smooth samples, while relying on
+specific task configurations. Our approach overcomes these
+limitations through simple model design, optimized train-
+ing recipe, and flexible sampling strategy that generalize
+                                                                                  x9
+across view synthesis tasks at test time. As a result, our
+samples maintain high consistency without requiring ad-
+ditional 3D representation-based distillation, thus stream-
+lining view synthesis in the wild. Furthermore, we show
+that our method can generate high-quality videos lasting          Figure 1. Generative view synthesis. S TABLE V IRTUAL C AM -
+                                                                  ERA generates novel views from any number of input views and
+up to half a minute with seamless loop closure. Extensive
+                                                                  target cameras, which the user can specify anywhere. We show
+benchmarking demonstrates that S EVA outperforms exist-
+                                                                  three examples: single view with simple orbit camera trajectory
+ing methods across different datasets and settings.
+                                                                  (top); two views with long camera trajectory (middle); and nine
+                                                                  views with large spatial range (bottom). Please refer to the supple-
+1. Introduction                                                   mentary webpage and video for the video results.
+
+                                                                  cessitating additional NeRF distillation to fuse inconsistent
+Novel view synthesis (NVS) aims to generate realistic, 3D-
+                                                                  results into a coherent representation [7, 8, 13]. These lim-
+consistent images of a scene from arbitrary camera view-
+                                                                  itations hinder their applicability across diverse NVS tasks,
+points given any number of camera-posed input views. Tra-
+                                                                  which we address in this work.
+ditional methods, which rely on dense input views, treat
+NVS as a 3D reconstruction and rendering problem [1–                  We present S TABLE V IRTUAL C AMERA1 (S EVA), a
+3], but this approach fails with sparse inputs. Generative        diffusion-based NVS model that generalizes across a spec-
+view synthesis addresses this limitation by leveraging mod-       trum of view synthesis tasks without requiring NeRF distil-
+ern deep network priors [4, 5], enabling immersive 3D in-         lation. With a single network, S EVA generates high-quality
+teractions in uncontrolled environments without the need to       novel views that strike both large viewpoint changes and
+capture large image sets per scene. In this work, we focus        temporal smoothness while supporting any number of in-
+on generative view synthesis and, unless otherwise speci-         put and target views. Our approach simplifies the NVS
+fied, refer to it simply as NVS for clarity.                      pipeline without requiring distillation from a 3D represen-
+                                                                  tation, thus streamlining it for real-world applications. For
+    Despite recent progress [6–12], NVS in the wild remains
+                                                                  the first time, we demonstrate high-quality videos lasting up
+limited due to two key challenges: First, existing methods
+                                                                  to half a minute with precise camera control and seamless
+struggle to generate both large viewpoint changes [9, 10]
+                                                                  loop closure in 3D. We highlight these results in Fig. 1 and
+and temporally smooth samples [6–8, 13] while being con-
+strained by rigid task configurations, such as a fixed number       1 We are naming this model in tribute to the Virtual Camera [14] cin-
+of input and target views [7, 9, 11, 12], reviewed in Tab. 1.     ematography technology, a pre-visualization technique to simulate real-
+Second, their sampling consistency is often insufficient, ne-     world camera movements.
+
+
+
+
+                                                            12405
+showcase more examples of camera control in Fig. 2.                  model
+                                                                                    training generation interpolation            input
+    To achieve this, we carefully design our pipeline in three                        data capacity smoothness                flexibility
+key aspects: model design, training recipe, and sampling             Regression-based
+method at inference. First, S EVA avoids explicit 3D rep-            pixelNeRF [4]    ò          ✗           ✓                sparse (1)
+                                                                     pixelSplat [15]  U          ✗           ✓                sparse (2)
+resentations within the network, allowing the model to in-
+                                                                     MVSplat [16]     U          ✗           ✓                sparse (2)
+herit strong priors from pre-trained 2D models. Second,              Long-LRM [17] U             ✗           ✓          semi-dense ({16, 32})
+during training, we carefully craft our view selection strat-        LVSM [11]       ò/U         ✗           ✓             sparse ({2, 4})
+egy to cover both small and large viewpoint changes, en-             Diffusion-based: image models
+suring strong generalization to diverse NVS tasks. Third,            Zero123 [6]       ò       ✓             ✗               sparse (1)
+at inference, we introduce a two-pass procedural sampling            ZeroNVS [13] ò U          ✓             ✗               sparse (1)
+approach that supports flexible input-target configurations.         ReconFusion [7] ò U       ✓             ✗               sparse (3)
+                                                                     CAT3D [8]       òU        ✓             ✗             sparse ([1, 9])
+Together, these design choices create a versatile 3D “virtual
+camera simulation system” capable of synthesizing novel              Diffusion-based: video models
+                                                                     SV3D [18]         ò        ✗            ✓                sparse (1)
+views along arbitrary camera trajectories with any number
+                                                                     MotionCtrl [10] U          ✗            ✓                sparse (1)
+of input and target views, without using a 3D representation.        ViewCrafter [9] U          ✗            ✓                sparse (2)
+    We conducted a unified benchmark across 10 datasets              4DiM [12]         U       ✓             ✓            sparse ({1, 2, 8})
+and a variety of experimental settings, including both open-                                                               sparse ([1, 8]),
+source and proprietary models. It reflects the diversity             S EVA           òU         ✓            ✓
+                                                                                                                        semi-dense ([9, 32∗ ])
+of real-world NVS tasks across the board and system-
+atically evaluates existing methods beyond their comfort         Table 1. Comparison of existing NVS models based on the
+zones. We find that S EVA consistently outperforms previ-        source of training data and key attributes. S EVA is trained on both
+ous works, achieving +1.5 dB PSNR over the state of the          object-level (ò) and scene-level (U) data, offering flexible input
+                                                                 conditioning, strong generation capacity, and smooth view inter-
+art CAT3D [8]. Our method generalizes well to in-the-wild
+                                                                 polation. We define generation capacity and interpolation smooth-
+user captures, with input views ranging from 1 to 32.            ness of each work based on their evaluation setting and our bench-
+    In summary, our key contributions with the S EVA model       mark results. ∗ This upper-bound can be up to hundreds for dense
+include: (1) a training strategy for jointly modeling large      captures, we test our model up to 32 views in practice.
+viewpoint changes and temporal smoothness, (2) a two-pass
+procedural sampling method for smooth video generation           typically involve hundreds of views. Based on the nature of
+along arbitrary long camera trajectories, (3) a comprehen-       their target views, we bucket a broad range of NVS tasks
+sive benchmark that evaluates NVS methods across differ-         into “set NVS” and “trajectory NVS”, as shown in Fig. 3.
+ent datasets and settings, and (4) an open-source release of
+model weights to support future research.                        Set NVS considers a set of target views in arbitrary order,
+                                                                 usually across a large spatial range. The order of views is
+2. Background                                                    often not helpful here, and a good NVS model requires great
+                                                                 generation capacity to excel at this task. We note that some
+We consider the evaluation of an NVS model across three          works address only this task (e.g. ReconFusion [7]).
+key criteria: (1) generation capacity—the ability to synthe-
+size missing regions for large viewpoint changes; (2) inter-     Trajectory NVS regards target views along a smooth
+polation smoothness—the ability to produce seamless tran-        camera trajectory, such that they form a video sequence.
+sitions between views; and (3) input flexibility—the abil-       However, they are often sampled within a small spatial
+ity to handle a variable number of input and target views;       range in a shorter video. To solve this task, a good NVS
+We review existing NVS models based on these criteria            model requires great interpolation smoothness to produce
+in Tab. 1, including the types of training data.                 consistent and non-flickering results. We note that some ex-
+                                                                 isting works address only this task (e.g. ViewCrafter [9]).
+2.1. Types of NVS Tasks
+                                                                 2.2. Existing Models
+Given M input view images Iinp ∈ RM ×H×W ×3 of
+H × W resolution, along with their corresponding cam-            We group existing approaches into regression- and
+eras π inp , NVS involves predicting N targets views Itgt ∈      diffusion-based models based on their high-level design
+RN ×H×W ×3 , specified by their respective cameras π tgt .       choices. A more detailed discussion of related works can
+For each camera, we assume we know both intrinsics and           be found in the appendix.
+extrinsics. Based on the number of input views, we de-
+fine the “sparse-view regime” as having up to 8 input views,     Regression-based models learn a deterministic mapping:
+and the “semi-dense-view regime” as an intermediate state                                               
+bridging the sparse-view regime and dense captures, which                         fθ Iinp , π inp , π tgt ,
+
+
+
+                                                             12406
+Figure 2. Diverse camera control. S EVA generates photorealistic novel views following diverse camera trajectories. This includes orbit,
+spiral, zoom out, dolly zooms, and any user-specified trajectories. Please visit our website for more visual results.
+
+to directly generate Itgt deterministically from
+                                                                                                                                  Input
+Iinp , π inp , π tgt . fθ can be either an end-to-end network
+parameterized by θ, or a composition of a feed-forward
+prediction of an intermediate 3D representation and then                                                                          Target
+
+
+a neural renderer (e.g., NeRF [19] or 3DGS [3]). For the
+                                                                                 Set NVS                   Trajectory NVS
+latter case, set NVS and trajectory NVS are solved in the
+same way since there exists a persistent 3D representation.            Figure 3. Set NVS versus trajectory NVS. Set NVS generates
+                                                                       target views as an image set, whereas trajectory NVS produces
+Diffusion-based models capture the conditional distribu-               them as a trajectory video.
+tion:                                                                is a set of video frames with preserved ordering. Additional
+                pθ Itgt | Iinp , π inp , π tgt ,                       temporal operators may also be used to improve temporal
+                                                                       smoothness, such as temporal positional encoding and tem-
+from which Itgt are sampled [20] iteratively. We high-
+                                                                       poral attention. In contrast with image models, video mod-
+light two types of models within this scope: Image and
+                                                                       els thrive at trajectory NVS but struggle at set NVS. More-
+Video models. Image models are trained on unordered
+                                                                       over, all existing video models require both input and target
+image sets, such that (Iinp , Itgt ) ∼ I, where I =
+                                                                       views to be ordered (input views followed by target ones),
+{Iρ(1) , Iρ(2) , · · · , Iρ(M +N ) } is an image batch, and ρ(·)
+                                                                       constraining their input flexibility [10, 18, 21, 22].
+is a random permutation function (camera parameters are
+omitted for simplicity). Image models usually thrive at
+                                                                       3. Method
+set NVS but struggle at trajectory NVS since they are de-
+signed to generate images and not videos. Moreover, the                It is challenging to develop a unified model that works for
+unordered nature of all views solicits flexible input condi-           different NVS tasks while being flexible in input and output
+tioning. Video models are instead trained on ordered views,            domains. Our design choices enable S EVA to achieve high
+such that (Iinp , Itgt ) ∼ V, where V = {I1 , I2 , · · · , IM +N }     generation capacity, smooth view interpolation, and flexi-
+
+
+
+                                                                 12407
+Training: fixed seq. len (M-in N-out)          Sampling: variable seq. len (P-in Q-out)         Input         Anchor         Target
+                                                                            Procedural Two-Pass Sampling
+
+
+
+                                                                                                             chunk 2        chunk 3
+         Multi-View Diffusion Model
+
+                                                                                                          chunk 1
+
+
+
+                                                           Anchor Generation                             Target Generation
+Figure 4. Method. S EVA is trained with fixed sequence length as a “M -in N -out” multi-view diffusion model with standard architecture.
+During sampling, S EVA can be cast as a generative “P -in Q-out” renderer that works with variable sequence length, where P and Q need
+not be equal to M and N . To enhance temporal and 3D consistency across generated views, especially when generating along a trajectory,
+we present procedural two-pass sampling as a general strategy.
+
+ble input conditioning (Tab. 1) in both set NVS as well as             temporal weights with data sampled with a small subsam-
+trajectory NVS. A system overview is provided in Fig. 4.               pling stride and a batch size of 512 for 200K iterations. We
+                                                                       shift the signal-to-noise ratio (SNR) in all stages as more
+3.1. Model Design and Training                                         noise is necessary to remove the input information, corrob-
+We consider an “M -in N -out” multi-view diffusion model               orating findings from [8, 29, 30]. The model is trained with
+pθ , as notated in Sec. 2.2. We formulate this learning prob-          squared images with H = W = 576. The training data
+lem as a standard diffusion process [20] without any change.           is a superset of data used in [8] and derives from all public
+                                                                       academic datasets, consisting of around 340K objects and
+Architecture. Our model is based on the publicly avail-
+                                                                       80K scenes.
+able SD 2.1 [23], which consists of an auto-encoder and a
+latent denoising U-Net. Following [8], we inflate the 2D                3.2. Sampling Novel Views
+self-attention of each low-resolution residual block into 3D
+self-attention [24] within the U-Net. To improve model                 Once the diffusion model is trained, we can sample it for
+capacity, we add 1D self-attention along the view axis                 a wide range of NVS tasks during test time. Formally,
+after each self-attention block via skip connection [25, 26],          let us consider a “P -in Q-out” NVS task during testing,
+bumping the model parameters from 870M to 1.3B.                        where we are given P = |Iinp | input frames and aim to
+Optionally, we further tame this model into a video model              produce Q = |Itgt | target frames. Our goal is to design a
+by introducing 3D convolutions after each residual block               generic sampling strategy that works for all P and Q con-
+via skip connection, similar to [27, 28], yielding 1.5B total          figurations, where P and Q need not be equal to M and N .
+parameters. The temporal pathway can be enabled during                     We make two key observations: First, within a sin-
+inference when frames within one forward pass are known                gle forward pass, predictions are 3D consistent, provided
+to be spatially ordered, enhancing output’s smoothness. For            the model is well-trained. Second, when P + Q > T ,
+the conditioning of our model, please refer to the appendix.           Itgt must be split into smaller chunks of size Qi such that
+                                                                       P + Qi ⩽ T for the ith forward pass. We term this practice
+Training. Let us define the training context window                    one-pass sampling. However, predictions across these for-
+length T = |Iinp | + |Itgt | = M + N . One natural goal                ward passes would be inconsistent unless they share com-
+is to support large T such that we can generate larger set             mon frames to maintain local consistency within a spatial
+of frames. However, we find that naive training is prone to            neighborhood. Building on these observations, we summa-
+divergence, and we thus employ a two-stage training cur-               rize our sampling process under two scenarios: P + Q ⩽ T
+riculum. During the first stage, we train our model with               and P + Q > T .
+T = 8 with a batch size of 1472 for 100K iterations. In
+the second stage, we train our model with T = 21 with                   P + Q ⩽ T . We fit the task within one forward pass for
+a batch size of 512 for 600K iterations. Given a training               simplicity and consistency. As shown in the appendix , we
+video sequence, we randomly sample the number of input                  find it works better to pad the forward pass to have exactly
+frames M ∈ [1, T − 1] and the frames (Iinp , Itgt ) across              T frames by repeating the first input image, compared to
+the entire sequence to encourage diversity. We find it im-              changing the context window T zero-shot.
+portant to jointly sample with a smaller subsampling stride
+to ensure sufficient temporal granularity and avoid missing             P + Q > T . We propose procedural two-pass sampling:
+critical transitions with a small probability (0.2 is used in           In the first pass, we generate anchor frames Iacr using all
+practice). In the optional video training stage, we only train          input frames Iinp . In the second pass, we divide Itgt into
+
+
+
+                                                                12408
+chunks and generate them using Iacr (and optionally Iinp )                  Input      Prev. Anchor       Anchor      Memory Bank
+
+according to the spatial distribution of Iacr and Itgt .
+   Given the distinct nature of the two tasks of interest—set
+NVS and trajectory NVS—e.g., differences in the availabil-                                                                   NN
+ity of views’ ordering, we design tailored chunking strate-
+gies for each task.                                                                                          NN
+
+   For set NVS, we consider nearest procedural sampling.
+We first generate Iacr based on pre-defined trajectory pri-                  Previous chunk                  Current chunk
+ors, similar to [8], e.g., 360 trajectories for object-centric
+scenes or spiral trajectories for forward-facing scenes. We         Figure 5. Anchor generation when Q ≫ T . We introduce
+then divide Itgt into chunks w.r.t. Iacr using nearest neighbor.    a memory bank composed of previously-generated anchor views
+                                                                    and their corresponding camera poses. The lookup of spatial
+Specifically, the ith forward pass involves:
+                                                                    neighbors helps improve long-term 3D consistency.
+                          tgt     tgt acr
+      nearest : {Iacr                        acr
+                  i } ∪ {Ij | NN(Ij , I ) = Ii }.                   regime (P ≤ 8), we observe similar performance degrada-
+We considered two strategies of procedural sampling:                tion caused by zero-shot extension of T compared to what
+nearest as described above, and gt + nearest strategy by            we have found when P + Q ⩽ T . Refer to the appendix for
+appending Iinp into each forward pass. We find that the             a detailed discussion.
+gt + nearest strategy performs better than nearest, and
+thus default to it instead. In the absence of trajectory pri-          Q ≫ T . When the number of target views Q is large,
+ors, we revert to one-pass sampling. In practice, employing            e.g., in large-set NVS or long-trajectory NVS, even an-
+nearest anchors enhances qualitative consistency, albeit on            chors will be chunked into different forwards in the first
+a limited scale.                                                       pass, leading to the inconsistency of anchors. To this end,
+    For trajectory NVS, we consider interp procedural sam-             we maintain a memory bank of anchor views previously
+pling. We first generate a subset of target frames as Iacr             generated, as shown in Fig. 5. We generate anchors auto-
+by uniformly spanning the target camera path with a stride             regressively by retrieving their spatially nearest ones from
+∆ = ⌊ TQ  −2 ⌋. We then generate the rest of I
+                                               tgt
+                                                   as segments         the memory bank, similar to the nearest strategy intro-
+between those anchors:                                                 duced above for the second pass. In Sec. 4.4, we show that
+                       tgt              tgt                            this strategy drastically outperforms the standard practice of
+       interp : {Iacr                                acr
+                  i , Ii·∆+1 , · · · , I(i+1)·∆−1 , Ii+1 }.            reusing temporally nearest anchors previously generated in
+Since the input to the model is ordered, we can leverage               long video literature [22], in terms of long-range 3D consis-
+temporal weights to further improve smoothness (Sec. 4.3).             tency, especially for hard trajectories.
+Similarly, gt + interp is possible by appending Iinp with
+∆ = ⌊ T −P Q                                                           4. Experiments
+             −2 ⌋. We find that interp is sufficiently ro-
+bust, and choose it as the default option. The interp strat-           We employ a single model for a spectrum of settings and
+egy drastically outperforms its counterparts (e.g., one-pass,          find that S EVA model generalizes well under the three cri-
+or gt + nearest procedural sampling) in terms of temporal              teria (Tab. 1). We cover different NVS tasks (set NVS and
+smoothness.                                                            trajectory NVS) and examine one special task of interest—
+3.3. Scaling Sampling for Large P and Q                                long trajectory NVS. We also cover different input regimes
+                                                                       (single-view, sparse-view, and semi-dense-view). A discus-
+Next, we examine two special cases when P + Q > T :                    sion about key properties is presented in the appendix.
+P > T and Q ≫ T . Here, we make a tailored design for
+anchor generation in the first pass, while keeping target              4.1. Benchmark
+generation in the second pass unchanged.
+                                                                       Datasets, splits, and the number of input views. We
+P > T . In the semi-dense-view regime (e.g., P = 32),                  collect 10 commonly used datasets to benchmark NVS,
+we extend the context window length T zero-shot to ac-                 encompassing a diverse range of scene distributions and
+commodate all P input views and anchor views in one pass               complexities. We consider (1) object datasets [32, 33];
+during anchor generation. Empirically, T can even be ex-               (2) object-centric scene datasets [34–38]; and (3) scene
+tended up to hundreds without severe degradation in pho-               datasets [39–41]. To establish a comprehensive and rig-
+torealism in the generated outputs. We find that the diffu-            orous comparison with baselines, we consider different
+sion model generalizes well in this case as long as the input          dataset splits utilized in prior works with the same input-
+views cover the majority of the scene, shifting the task from          view configuration, unless specified as our split (O). These
+generation to primarily interpolation. In the sparse-view              include splits used in 4DiM [12] (D), ViewCrafter [9] (V),
+
+
+
+                                                               12409
+     Input            Target            Ours            Baseline            Input           Target             Ours           Baseline
+
+
+
+
+                                                    VC                                                                     LVSM
+
+                                                                                    x32
+
+
+
+
+                                                    DS                                                                     LLRM
+
+
+    Input           Ours         Baseline          Input           Ours         Baseline          Input           Ours         Baseline
+                                       4DiM                                               VC                                       CAT3D
+
+
+
+
+                                     CAT3D                                          CAT3D                                          CAT3D
+
+
+
+
+Figure 6. SOTA comparison on set NVS (top) and trajectory NVS (bottom) across varying numbers of input views. From left to right
+and top to bottom, inputs views are (top, i.e. set NVS) 1, 2, 3, 32; (bottom, i.e. trajectory NVS) 1, 2, 1, 1, 3, 3. For cases with multiple
+input views, the view closest to the target is shown over the rest. We compare with open-source approaches—ViewCrafter [9] (VC) and
+DepthSplat [31] (DS)—as well as proprietary ones including LVSM [11], Long-LRM [17] (LLRM), 4DiM [12], and CAT3D [8].
+
+pixelSplat [15] (P), ReconFusion [7] (R), SV3D [18] (S),                  larity index measure [44] (SSIM), and learned perceptual
+and Long-LRM [17] (L).                                                    image patch similarity [45] (LPIPS). Only PSNR is show-
+                                                                          cased here due to space limits, with the rest deferred to the
+                                                                          appendix. Empirically, our method shows a greater perfor-
+Small-viewpoint versus large-viewpoint NVS. Sweep-
+                                                                          mance improvement on LPIPS, reflecting the photorealism
+ing across all datasets, splits, and input-view configurations
+                                                                          of our results.
+reveals a diverse benchmark of setups. To better evaluate
+models’ generation capacity and interpolation smoothness                      For small-viewpoint set NVS, Tab. 2 shows that S EVA
+(Sec. 2.1), we propose to categorize this setup into two                  sets state-of-the-art results in the majority of splits. In the
+groups—small-viewpoint NVS and large-viewpoint NVS—                       sparse-view regime (i.e., P ⩽ 8), S EVA excels across differ-
+depending on the disparity between Itgt and Iinp .                        ent datasets when P > 1. For example, a performance gain
+                                                                          of +6.0 dB PSNR is achieved on LLFF with P = 3. In the
+                                                                          semi-dense-view regime (e.g., P = 32), S EVA surprisingly
+Baselines. We consider a range of proprietary mod-                        performs favorably against the specialized model [17], de-
+els, including ReconFusion [7], CAT3D [8], 4DiM [12],                     spite not being specifically designed for this setup. For ex-
+LVSM [11], and Long-LRM [17]. We also consider various                    ample, S EVA lags behind the state-of-the-art method [17] by
+open-source models, including SV3D [18], MVSplat [16],                    only 1.7 dB on T&T. A detailed discussion on the RE10K
+depthSplat [31], MotionCtrl [42], and ViewCrafter [9].                    dataset can be found in the appendix. On object datasets
+As outlined in Sec. 2.2, these baselines encompass both                   OO3D and GSO, S EVA achieves a significantly higher state-
+regression-based and diffusion-based approaches, provid-                  of-the-art PSNR compared to all other methods.
+ing a comprehensive framework for comparison. Please re-                      For large-viewpoint set NVS, Tab. 3 shows that S EVA’s
+fer to the appendix for more details of the benchmark.                    quantitative advantages are even more prominent here, re-
+                                                                          vealing clear benefits of S EVA in terms of generation capac-
+4.2. Set NVS                                                              ity when the camera spans a large spatial range. On Mip360
+Quantitative comparison. The input and target views are                   with P = 3, S EVA improves over previous state-of-the-art
+chosen following the splits used in previous methods. The                 method CAT3D [8] by +0.6 dB PSNR. On harder scenes
+order of target views is not preserved. We use standard met-              like DL3DV and T&T with different input-view configura-
+rics of peak signal-to-noise ratio (PSNR), structural simi-               tions, S EVA obtains a clear performance lead.
+
+
+
+                                                                   12410
+           dataset OO3D GSO                          RE10K                           LLFF            DTU         CO3D   WRGBD Mip360        DL3DV           T&T
+  Method
+            split       O       O   D [12] V [9] P [15]           R [7]              R [7]        R [7]      V [9] R [7] Oe   Oh    R [7]   O   L [17] V [9] L [17]
+             P          3       3       1       1        2       1       3           1   3       1       3    1     3    3    6       6     6    32     1      32
+  Regression-based models
+  Long-LRM [17] -         -     -     -     -     -     -     -     -     -     -     -     -     -     -     -     - 23.86 - 18.20
+  MVSplat [16] 14.78 15.21 20.42 20.32 26.39 21.56 25.64 11.23 12.50 13.87 15.52 12.52 13.52 14.56 12.54 13.56 14.34 16.24 13.22 12.63
+  DepthSplat [31] 15.67 16.52 20.90 19.24 27.44 21.87 22.54 12.07 12.62 14.15 16.24 13.23 13.77 15.93 14.23 14.01 15.72 16.78 14.35 13.12
+  LVSM [11]         -     -     -     - 29.67 -         -     -     -     -     -     -     -     -     -     -     -     -     -     -
+  Diffusion-based models
+  MotionCtrl [42]   -     - 12.74 16.29 -         -     -     -     -     -     - 15.46 -         -     -     -     -     - 13.29 -
+  4DiM [12]         -     - 17.08 -         -     -     -     -     -     -     -     -     -     -     -     -     -     -     -     -
+  ViewCrafter [9] 14.64 15.93 20.43 22.04 21.42 20.88 22.81 10.53 13.52 12.66 16.40 18.96 14.72 16.42 12.66 14.59 13.78 - 18.07 -
+  S EVA           30.30 31.53 17.99 18.56 25.66 18.11 27.57 14.03 19.48 14.47 20.82 18.40 19.25 19.75 18.91 16.70 17.80 20.96 15.16 16.50
+
+Table 2. PSNR↑ on small-viewpoint set NVS. P denotes the number of input views. For all results with P = 1, we sweep the unit
+length for camera normalization due to the model’s scale ambiguity. Oe and Oh denote the easy and hard split of our split, respectively.
+Underlined numbers are run by us using the offical released code.
+
+         dataset OO3D GSO CO3D WRGBD                         Mip360       DL3DV                   T&T                                                         large-
+Method                                                                                                                                small-viewpoint
+           split S [18] S [18] R [7]            Oh            R [7]              O                   O             Method                                   viewpoint
+
+            P       1       1       1       1        3       1       3       1       3       1   3       6   9                     RE10K LLFF DTU CO3D Mip360
+
+SV3D [18]       19.28 20.38 -       -     -     -     -     -     -     -     -     -     -   ZipNeRF [43]    20.77 17.23 9.18 14.34                         12.77
+DepthSplat [31] 11.56 12.32 10.42 9.35 13.53 10.49 12.54 9.63 12.52 8.63 9.78 10.12 11.20 ZeroNVS [13] 19.11 15.91 16.71 17.13                               14.44
+CAT3D [8]         -     -     -     -     -     - 15.15 -         -     -     -     -     -   ReconFusion [7] 25.84 21.34 20.74 19.59                        15.50
+ViewCrafter [9] 10.56 11.42 10.11 9.12 13.45 9.79 10.34 8.97 11.50 9.23 9.88 10.32 11.08 CAT3D [8]            26.78 21.58 22.02 20.57                        16.62
+S EVA           19.25 20.65 15.30 14.37 17.28 12.93 15.78 13.01 15.95 11.28 12.65 13.80 14.72 S EVA           27.95 21.88 22.68 21.88                        17.82
+
+
+Table 3. PSNR↑ on large-viewpoint set NVS. For all results with P = 1, we sweep the Table 4. PSNR↑ on 3DGS renderings for set
+unit length for camera normalization due to the model’s scale ambiguity. Underlined NVS. Results are reported on the ReconFusion [7]
+numbers are run by us using the officially released code.                           split with P = 3.
+
+Comparison of 3D reconstruction. To enable a direct                                                  In the single-view regime (i.e., P = 1), we manually
+quantitative comparison with prior works [7, 8], we adopt                                        craft a set of common camera movements/effects, e.g., look-
+the few-view 3D reconstruction pipeline described in [8].                                        at 360, spiral, panning, zoom-in, zoom-out, dolly zoom, etc.
+We optimize the camera parameters and apply LPIPS                                                We observe that S EVA generalizes to a wide range of im-
+loss [46] during the distillation. Finally, we render the dis-                                   ages and demonstrates accurate camera-following capacity.
+tilled 3D model on the test views and report the performance                                     An extensive sweeping of camera movements on 4 types of
+in Tab. 4. S EVA shows a consistent performance lead.                                            images is provided in the appendix.
+                                                                                                     In the sparse-view regime with few input views (i.e.,
+Qualitative comparison. Fig. 6 top panel shows a qual-
+                                                                                                 1 < P ⩽ 8), we observe that S EVA demonstrates strong
+itative comparison with diverse baselines. For small-
+                                                                                                 generalization to in-the-wild real-world images and versa-
+viewpoint set NVS, the output from S EVA with the best
+                                                                                                 tility in adapting to different numbers of input views. The
+scale exhibits desirable alignment with the ground truth
+                                                                                                 output forms a smooth trajectory video with subtle tempo-
+while being more photorealistic in details. Compared with
+                                                                                                 ral flickering, revealing its capacity to interpolate between
+LVSM [11] on the P split of RE10K, S EVA produces sharper
+                                                                                                 views smoothly. In the last row of Fig. 2, our model gen-
+images, also corroborating that lower PSNR arises from
+                                                                                                 erates plausible results at the end of the trajectory—an area
+scale ambiguity rather than interpolation quality. Similar
+                                                                                                 unseen in the input observations—demonstrating its strong
+trends hold when compared to Long-LRM [17] on DL3DV
+                                                                                                 generation capacity. In the semi-dense-view regime (i.e.,
+with P = 32. For large-viewpoint set NVS, we compare
+                                                                                                 P > 9), we similarly find that S EVA is surprisingly able to
+with DepthSplat [31] on DL3DV with P = 3. Depth-
+                                                                                                 produce a smooth trajectory video with minimal artifacts.
+Splat fails to produce reasonable results when the viewpoint
+                                                                                                 Please check the supplementary website for video results.
+change is too large and falls short in overall visual quality.
+4.3. Trajectory NVS                                                                              Qualitative comparison. Fig. 6 bottom panel presents a
+Qualitative results. Fig. 2 presents qualitative results, il-                                    qualitative comparison with diverse baselines. In the single-
+lustrating trajectories of varying complexities with different                                   view regime (i.e., P = 1), we compare to 4DiM [12] and
+numbers of input views across diverse types.                                                     CAT3D [8]. We observe more photo-realistic and sharper
+
+
+
+                                                                                         12411
+                                                                                                                     Loop 1 Loopnd2               Loop 3
+                        small-viewpoint                large-viewpoint                                                   nd
+                                                                                                                              (582 )                     th
+          split                                                                                                      (242 )                       (838 )
+
+ Method                V [9]                           O                          Input
+                                                                                                                                       Loop 2
+                                                                                                                                           th
+                                                                                                                                       (496 )
+
+          dataset RE CO3D T&T       RE       DTU WR         DL    T&T                                                                           Loop 1
+                                                                                                                                                   st
+                                                                                                                                                (111 )
+ MotionCtrl [42] 16.29 15.46 13.29 -       -     -     -     -
+ DepthSplat [31] 19.24 13.23 14.35 25.23 14.68 12.45 11.32 9.11
+ ViewCrafter [9] 22.04 18.96 18.07 26.54 18.99 13.44 11.45 9.68
+ S EVA           18.56 18.40 15.16 27.34 19.99 17.79 15.76 11.92                                                      incosistency
+                                                                                                incosistency
+                                                                                 Baseline
+ S EVA (+ temp.) 18.62 18.43 15.13 27.36 20.19 17.93 15.78 11.99
+
+Table 5. PSNR↑ on trajectory NVS. temp. denotes optional
+temporal pathway. RE, WR, and DL denotes RE10K, WRGBD,                            Ours
+and DL3DV, respectively. For the V [9] split, P = 1 with unit
+length swept; for the O split, P = 3. Underlined numbers are run                            Loop 1   Loop 2     Loop 1        Loop 2        Loop 3
+by us using the officially released code.
+                                                                             Figure 8. Long-range 3D consistency. We visualize samples fol-
+                                                                             lowing a camera path looping three times around the TELEPHONE -
+                                                                             BOOTH scene. Lookup using spatial neighbors from the memory
+     discontinuity                                                           bank (ours) notably improves view consistency and reduces ar-
+One-pass                           flicker                                   tifacts in recurring locations across different loops, compared to
+                                                                             lookup using temporal neighbors (baseline).
+
+                                                                             architecture.
+Two-pass: gt+nearest                         flicker
+                                                                             Ablation on two-pass procedural sampling. Fig. 7
+                                                                             shows that one-pass sampling introduces visible temporal
+                                                                             flickering and abrupt scene changes. In contrast, interp pro-
+Two-pass: interp                                                             cedural sampling produces the smoothest transitions, out-
+                             Time                                            performing the alternative gt + nearest strategy and mit-
+Figure 7. Temporal quality. Vertical slices of a rendered novel              igating noticeable flickering. Additional quantitative abla-
+camera path on the BONSAI scene from Mip-NeRF360 [38] illus-                 tion is deferred to the appendix, including 3DGS distillation
+trate the temporal quality across adjacent viewpoints. One-pass              and video quality metrics.
+or gt + nearest procedural sampling results in notable flickering,
+whereas interp procedural sampling ensures temporally smooth                 4.4. Long-Trajectory NVS
+rendering.
+                                                                             Fig. 8 presents a qualitative demonstration of NVS over a
+output from our model, especially in the background area                     long trajectory of up to 1000 frames. With the memory bank
+for object-centric scenes. 4DiM outputs tend to be cartoon-                  maintaining previously generated anchors, S EVA achieves
+ish and over-simplistic, given that the model is only trained                robust 3D consistency for long-trajectory NVS, e.g., the
+on RE10K. In the sparse-view regime with few input views                     building in front of and the plantation after the booth. Com-
+(i.e., P = 3), we compare with CAT3D and observe that                        paring it to using temporal nearest anchors previously gen-
+our model demonstrates more photo-realistic textures, es-                    erated, using spatially nearest ones demonstrates a clear ad-
+pecially in the background.                                                  vantage in terms of long-term consistency.
+
+                                                                             5. Conclusion
+Quantitative comparison. We use the same input views
+as in set NVS for each split. We use all frames from each                    We introduce S EVA, a generalist diffusion model for novel
+scene as target views such that they form a smoothly transi-                 view synthesis that balances large viewpoint changes and
+tioning trajectory video, i.e., Itgt ∼ V. For small-viewpoint                smooth interpolation while supporting flexible input and
+trajectory NVS, Tab. 5 compares S EVA with baselines on                      target configurations. By designing a diffusion-based ar-
+PSNR. S EVA performs favorably against other methods in                      chitecture without 3D representation, a structured train-
+V split with P = 1. The performance lead of ViewCrafter                      ing strategy, and a two-pass procedural sampling approach,
+is mainly attributed to its training on high-resolution im-                  S EVA achieves 3D consistent rendering across diverse NVS
+ages. For large-viewpoint trajectory NVS with P = 3,                         tasks. Extensive benchmarking demonstrates its superiority
+S EVA consistency sets new state-of-the-art results. Apply-                  over existing methods, with strong generalization to real-
+ing the temporal pathway further boosts performance and                      world scenes. For broader impact and limitations, please
+improves smoothness, indicating the benefits of the gated                    refer to the appendix.
+
+
+
+                                                                         12412
+References                                                                  360-degree view synthesis from a single real image. arXiv
+                                                                            preprint arXiv:2310.17994, 2023. 1, 2, 7
+ [1] Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik,
+                                                                       [14] Virtual camera system. https://en.wikipedia.
+     Jonathan T Barron, Ravi Ramamoorthi, and Ren Ng. NeRF:
+                                                                            org/wiki/Virtual_camera_system. Accessed: 5-
+     Representing scenes as neural radiance fields for view syn-
+                                                                            Mar-2025. 1
+     thesis. In European Conference on Computer Vision, pages
+                                                                       [15] David Charatan, Sizhe Li, Andrea Tagliasacchi, and Vincent
+     405–421, 2020. 1
+                                                                            Sitzmann. pixelsplat: 3d gaussian splats from image pairs
+ [2] Thomas Müller, Alex Evans, Christoph Schied, and Alexan-
+                                                                            for scalable generalizable 3d reconstruction. In arXiv, 2023.
+     der Keller. Instant neural graphics primitives with a multires-
+                                                                            2, 6, 7
+     olution hash encoding. ACM Trans. Graph., 2022.
+                                                                       [16] Yuedong Chen, Haofei Xu, Chuanxia Zheng, Bohan Zhuang,
+ [3] Bernhard Kerbl, Georgios Kopanas, Thomas Leimkühler,                  Marc Pollefeys, Andreas Geiger, Tat-Jen Cham, and Jianfei
+     and George Drettakis. 3D gaussian splatting for real-time              Cai. Mvsplat: Efficient 3d gaussian splatting from sparse
+     radiance field rendering. ACM Transactions on Graphics,                multi-view images. In European Conference on Computer
+     42(4), July 2023. 1, 3                                                 Vision, pages 370–386. Springer, 2025. 2, 6, 7
+ [4] Alex Yu, Vickie Ye, Matthew Tancik, and Angjoo Kanazawa.          [17] Chen Ziwen, Hao Tan, Kai Zhang, Sai Bi, Fujun Luan, Yi-
+     pixelNeRF: Neural radiance fields from one or few images.              cong Hong, Li Fuxin, and Zexiang Xu. Long-lrm: Long-
+     In CVPR, 2021. 1, 2                                                    sequence large reconstruction model for wide-coverage
+ [5] Ben Poole, Ajay Jain, Jonathan T. Barron, and Ben Milden-              gaussian splats. arXiv preprint arXiv:2410.12781, 2024. 2,
+     hall. Dreamfusion: Text-to-3D using 2D diffusion. arXiv,               6, 7
+     2022. 1                                                           [18] Vikram Voleti, Chun-Han Yao, Mark Boss, Adam Letts,
+ [6] Ruoshi Liu, Rundi Wu, Basile Van Hoorick, Pavel Tok-                   David Pankratz, Dmitrii Tochilkin, Christian Laforte, Robin
+     makov, Sergey Zakharov, and Carl Vondrick. Zero-1-to-3:                Rombach, and Varun Jampani. SV3D: Novel multi-view
+     Zero-shot one image to 3D object. In Proceedings of the                synthesis and 3D generation from a single image using la-
+     IEEE/CVF International Conference on Computer Vision,                  tent video diffusion. In European Conference on Computer
+     2023. 1, 2                                                             Vision, 2024. 2, 3, 6, 7
+ [7] Rundi Wu, Ben Mildenhall, Philipp Henzler, Keunhong               [19] Ben Mildenhall, Pratul P Srinivasan, Matthew Tancik,
+     Park, Ruiqi Gao, Daniel Watson, Pratul P Srinivasan, Dor               Jonathan T Barron, Ravi Ramamoorthi, and Ren Ng. NeRF:
+     Verbin, Jonathan T Barron, Ben Poole, et al. Reconfusion:              Representing scenes as neural radiance fields for view syn-
+     3d reconstruction with diffusion priors. In Proceedings of             thesis. Communications of the ACM, 2021. 3
+     the IEEE/CVF Conference on Computer Vision and Pattern            [20] Jonathan Ho, Ajay Jain, and Pieter Abbeel. Denoising dif-
+     Recognition, pages 21551–21561, 2024. 1, 2, 6, 7                       fusion probabilistic models. Advances in neural information
+ [8] Ruiqi Gao*, Aleksander Holynski*, Philipp Henzler, Arthur              processing systems, 33:6840–6851, 2020. 3, 4
+     Brussee, Ricardo Martin-Brualla, Pratul P. Srinivasan,            [21] Hao He, Yinghao Xu, Yuwei Guo, Gordon Wetzstein,
+     Jonathan T. Barron, and Ben Poole*. Cat3d: Create any-                 Bo Dai, Hongsheng Li, and Ceyuan Yang. Cameractrl: En-
+     thing in 3d with multi-view diffusion models. arXiv, 2024.             abling camera control for text-to-video generation. arXiv
+     1, 2, 4, 5, 6, 7                                                       preprint arXiv:2404.02101, 2024. 3
+ [9] Wangbo Yu, Jinbo Xing, Li Yuan, Wenbo Hu, Xiaoyu Li,              [22] Yingqing He, Tianyu Yang, Yong Zhang, Ying Shan, and
+     Zhipeng Huang, Xiangjun Gao, Tien-Tsin Wong, Ying Shan,                Qifeng Chen. Latent video diffusion models for high-fidelity
+     and Yonghong Tian. ViewCrafter: Taming video diffusion                 long video generation. arXiv, 2022. 3, 5
+     models for high-fidelity novel view synthesis. arXiv preprint     [23] Robin Rombach, Andreas Blattmann, Dominik Lorenz,
+     arXiv:2409.02048, 2024. 1, 2, 5, 6, 7, 8                               Patrick Esser, and Björn Ommer. High-resolution image
+[10] Zhouxia Wang, Ziyang Yuan, Xintao Wang, Yaowei Li,                     synthesis with latent diffusion models. In Proceedings of
+     Tianshui Chen, Menghan Xia, Ping Luo, and Ying Shan.                   the IEEE/CVF Conference on Computer Vision and Pattern
+     Motionctrl: A unified and flexible motion controller for               Recognition (CVPR), pages 10684–10695, June 2022. 4
+     video generation. In ACM SIGGRAPH 2024 Conference Pa-             [24] Yichun Shi, Peng Wang, Jianglong Ye, Mai Long, Kejie Li,
+     pers, pages 1–11, 2024. 1, 2, 3                                        and Xiao Yang. MVDream: Multi-view diffusion for 3d gen-
+[11] Haian Jin, Hanwen Jiang, Hao Tan, Kai Zhang, Sai Bi,                   eration. arXiv preprint arXiv:2308.16512, 2023. 4
+     Tianyuan Zhang, Fujun Luan, Noah Snavely, and Zexiang             [25] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun.
+     Xu. Lvsm: A large view synthesis model with minimal 3d                 Deep residual learning for image recognition. In Proceed-
+     inductive bias, 2024. 1, 2, 6, 7                                       ings of the IEEE conference on computer vision and pattern
+[12] Daniel Watson, Saurabh Saxena, Lala Li, Andrea Tagliasac-              recognition, pages 770–778, 2016. 4
+     chi, and David J Fleet. Controlling space and time with dif-      [26] P Goyal. Accurate, large minibatch sg d: training imagenet
+     fusion models. arXiv preprint arXiv:2407.07860, 2024. 1, 2,            in 1 hour. arXiv preprint arXiv:1706.02677, 2017. 4
+     5, 6, 7                                                           [27] Andreas Blattmann, Robin Rombach, Huan Ling, Tim Dock-
+[13] Kyle Sargent, Zizhang Li, Tanmay Shah, Charles Herrmann,               horn, Seung Wook Kim, Sanja Fidler, and Karsten Kreis.
+     Hong-Xing Yu, Yunzhi Zhang, Eric Ryan Chan, Dmitry La-                 Align your latents: High-resolution video synthesis with la-
+     gun, Li Fei-Fei, Deqing Sun, et al. Zeronvs: Zero-shot                 tent diffusion models. In Proceedings of the IEEE/CVF Con-
+
+
+
+
+                                                                   12413
+     ference on Computer Vision and Pattern Recognition, pages       [40] Lu Ling, Yichen Sheng, Zhi Tu, Wentian Zhao, Cheng Xin,
+     22563–22575, 2023. 4                                                 Kun Wan, Lantao Yu, Qianyu Guo, Zixun Yu, Yawen Lu,
+[28] Andreas Blattmann, Tim Dockhorn, Sumith Kulal, Daniel                et al. Dl3dv-10k: A large-scale scene dataset for deep
+     Mendelevitch, Maciej Kilian, Dominik Lorenz, Yam Levi,               learning-based 3d vision. In Proceedings of the IEEE/CVF
+     Zion English, Vikram Voleti, Adam Letts, et al. Stable video         Conference on Computer Vision and Pattern Recognition,
+     diffusion: Scaling latent video diffusion models to large            pages 22160–22169, 2024.
+     datasets. arXiv preprint arXiv:2311.15127, 2023. 4              [41] Arno Knapitsch, Jaesik Park, Qian-Yi Zhou, and Vladlen
+[29] Emiel Hoogeboom, Jonathan Heek, and Tim Salimans. sim-               Koltun. Tanks and temples: Benchmarking large-scale
+     ple diffusion: End-to-end diffusion for high resolution im-          scene reconstruction. ACM Transactions on Graphics (ToG),
+     ages. arXiv preprint arXiv:2301.11093, 2023. 4                       36(4):1–13, 2017. 5
+[30] Patrick Esser, Sumith Kulal, Andreas Blattmann, Rahim           [42] Tsai-Shien Chen, Chieh Hubert Lin, Hung-Yu Tseng, Tsung-
+     Entezari, Jonas Müller, Harry Saini, Yam Levi, Dominik              Yi Lin, and Ming-Hsuan Yang. Motion-conditioned diffu-
+     Lorenz, Axel Sauer, Frederic Boesel, et al. Scaling recti-           sion model for controllable video synthesis. arXiv preprint
+     fied flow transformers for high-resolution image synthesis.          arXiv:2304.14404, 2023. 6, 7, 8
+     In ICLR, 2024. 4                                                [43] Jonathan T Barron, Ben Mildenhall, Dor Verbin, Pratul P
+[31] Haofei Xu, Songyou Peng, Fangjinhua Wang, Hermann                    Srinivasan, and Peter Hedman. Zip-nerf: Anti-aliased
+     Blum, Daniel Barath, Andreas Geiger, and Marc Pollefeys.             grid-based neural radiance fields. In Proceedings of the
+     Depthsplat: Connecting gaussian splatting and depth. arXiv           IEEE/CVF International Conference on Computer Vision,
+     preprint arXiv:2410.13862, 2024. 6, 7, 8                             pages 19697–19705, 2023. 7
+[32] Tong Wu, Jiarui Zhang, Xiao Fu, Yuxin Wang, Jiawei Ren,         [44] Zhou Wang, Alan C Bovik, Hamid R Sheikh, and Eero P Si-
+     Liang Pan, Wayne Wu, Lei Yang, Jiaqi Wang, Chen Qian,                moncelli. Image quality assessment: from error visibility to
+     et al. Omniobject3D: Large-vocabulary 3D object dataset for          structural similarity. IEEE transactions on image processing,
+     realistic perception, reconstruction and generation. In Pro-         13(4):600–612, 2004. 6
+     ceedings of the IEEE/CVF Conference on Computer Vision          [45] Richard Zhang, Phillip Isola, Alexei A Efros, Eli Shecht-
+     and Pattern Recognition, pages 803–814, 2023. 5                      man, and Oliver Wang. The unreasonable effectiveness of
+[33] Laura Downs, Anthony Francis, Nate Koenig, Brandon Kin-              deep features as a perceptual metric. In Proceedings of the
+     man, Ryan Hickman, Krista Reymann, Thomas B McHugh,                  IEEE conference on computer vision and pattern recogni-
+     and Vincent Vanhoucke. Google Scanned Objects: A high-               tion, pages 586–595, 2018. 6
+     quality dataset of 3D scanned household items. In 2022 In-      [46] Richard Zhang, Phillip Isola, Alexei A. Efros, Eli Shecht-
+     ternational Conference on Robotics and Automation (ICRA),            man, and Oliver Wang. The unreasonable effectiveness of
+     pages 2553–2560. IEEE, 2022. 5                                       deep features as a perceptual metric, 2018. 7
+[34] Ben Mildenhall, Pratul P Srinivasan, Rodrigo Ortiz-Cayon,
+     Nima Khademi Kalantari, Ravi Ramamoorthi, Ren Ng, and
+     Abhishek Kar. Local light field fusion: Practical view syn-
+     thesis with prescriptive sampling guidelines. ACM Transac-
+     tions on Graphics (ToG), 38(4):1–14, 2019. 5
+[35] Rasmus Jensen, Anders Dahl, George Vogiatzis, Engin Tola,
+     and Henrik Aanæs. Large scale multi-view stereopsis eval-
+     uation. In Proceedings of the IEEE conference on computer
+     vision and pattern recognition, pages 406–413, 2014.
+[36] Jeremy Reizenstein, Roman Shapovalov, Philipp Henzler,
+     Luca Sbordone, Patrick Labatut, and David Novotny. Com-
+     mon objects in 3d: Large-scale learning and evaluation of
+     real-life 3d category reconstruction. In International Con-
+     ference on Computer Vision, 2021.
+[37] Hongchi Xia, Yang Fu, Sifei Liu, and Xiaolong Wang. Rgbd
+     objects in the wild: Scaling real-world 3d object learning
+     from rgb-d videos, 2024.
+[38] Jonathan T Barron, Ben Mildenhall, Matthew Tancik, Peter
+     Hedman, Ricardo Martin-Brualla, and Pratul P Srinivasan.
+     Mip-NeRF: A multiscale representation for anti-aliasing
+     neural radiance fields. In Proceedings of the IEEE/CVF
+     International Conference on Computer Vision, pages 5855–
+     5864, 2021. 5, 8
+[39] Tinghui Zhou, Richard Tucker, John Flynn, Graham Fyffe,
+     and Noah Snavely.          Stereo magnification: Learning
+     view synthesis using multiplane images. arXiv preprint
+     arXiv:1805.09817, 2018. 5
+
+
+
+
+                                                                12414
+

@@ -1,0 +1,951 @@
+                                 G EN 3C: 3D-Informed World-Consistent Video Generation
+                                               with Precise Camera Control
+
+                     Xuanchi Ren* 1,2,3 Tianchang Shen* 1,2,3 Jiahui Huang1 Huan Ling1,2,3 Yifan Lu1
+                    Merlin Nimier-David1 Thomas Müller1 Alexander Keller1 Sanja Fidler1,2,3 Jun Gao1,2,3
+                                      1
+                                        NVIDIA 2 University of Toronto 3 Vector Institute
+                        Inputs             Cameras                                                     Generated video
+Single view
+
+
+
+
+                                                                                    26                      39                      106                118
+Sparse views
+
+
+
+
+                                                                                    12                      22                      42                 69
+Dynamic video
+
+
+
+
+                                                                                    0                        4                       8                 12
+
+
+
+
+                       N   Frame number
+                                                                                    0                        4                      8                  12
+                                                          Driving simulation
+ Cinematic effect
+
+
+
+
+                        Input                Dolly zoom                        Original          Lane change (4m)        Original            Editing
+
+Figure 1. G EN 3C can generate long and temporally consistent videos with precise camera control. We apply it to various applications, including single-view
+and sparse-views novel view synthesis, monocular dynamic video novel view synthesis, and driving simulation. With an explicit 3D cache, G EN 3C further
+supports generating videos with cinematic effects, such as Dolly Zoom which simultaneously changes poses and intrinsics, and 3D editing.
+
+                                          Abstract                                            ously generated nor does it have to infer the image structure
+                                                                                              from the camera pose. The model, instead, can focus all its
+We present G EN 3C, a generative video model with precise                                     generative power on previously unobserved regions, as well
+Camera Control and temporal 3D Consistency. Prior video                                       as advancing the scene state to the next frame. Our results
+models already generate realistic videos, but they tend to                                    demonstrate more precise camera control than prior work,
+leverage little 3D information, leading to inconsistencies,                                   as well as state-of-the-art results in sparse-view novel view
+such as objects popping in and out of existence. Camera                                       synthesis, even in challenging settings such as driving scenes
+control, if implemented at all, is imprecise, because camera                                  and monocular dynamic video. Results are best viewed in
+parameters are mere inputs to the neural network which must                                   videos. Check out our webpage! https://research.
+then infer how the video depends on the camera. In contrast,                                  nvidia.com/labs/toronto-ai/GEN3C/
+G EN 3C is guided by a 3D cache: point clouds obtained by
+predicting the pixel-wise depth of seed images or previously
+                                                                                              1. Introduction
+generated frames. When generating the next frames, G EN 3C                                    Creating immersive visual renderings that convey real-world
+is conditioned on the 2D renderings of the 3D cache with the                                  scenery while enabling flexible viewing, manipulation and
+new camera trajectory provided by the user. Crucially, this                                   simulation thereof, is a longstanding aspiration in computer
+means that G EN 3C neither has to remember what it previ-                                     graphics, supporting industries including movie production,
+
+
+                                                                                          1
+                                                                                    Moving forward                      Moving backward
+VR/AR, robotics and social platforms. However, traditional
+
+
+
+
+                                                                     CameraCtrl
+graphics workflows entail extensive manual effort and time
+in asset creation and scene design. Recently, Novel View                                6                 29                 66                 79
+Synthesis (NVS) methods [25, 36] unleash this requirement
+
+
+
+
+                                                                     Ours
+and successfully produce realistic images at novel viewpoints
+of a scene with a set of posed images. However, such meth-                              6                 29                 66                 79
+
+ods generally require dense input images and often suffer            Figure 2. Motivation: Our model can generate consistent videos when
+from severe artifacts when viewing from extreme viewpoints.          the camera covers the same region multiple times, while previous work
+   More recently, video generation models, which can “ren-           produces severe artifacts due to the lack of explicit modeling of the history.
+der” photorealistic videos from text prompts, have demon-
+                                                                     scene manipulation by simply modifying the 3D point cloud.
+strated impressive visual quality and powerful content cre-
+ation capabilities [4, 35, 40, 45], capturing the underly-              We extensively evaluate our model on video generation
+ing distribution of real-world videos by training with mas-          tasks with varying input conditions, ranging from a single
+sive amounts of data. However, the key challenge to-                 image to sparse and dense multi-view inputs. Our model gen-
+wards practical applications in digital content creation work-       eralizes well to dynamic scenes and demonstrates the ability
+flows is controllability and consistency, i.e. allowing the          to accurately control viewpoint, generate 3D-consistent high-
+user to adjust camera motion, scene composition and dy-              fidelity videos, and fill in occluded or missing regions in
+namics, and maintaining spatial and temporal consistency             the 3D cache. Beyond novel view synthesis, we explore
+across long-generated videos. While several methods have             applications enabled by the explicit 3D cache, such as object
+been proposed to address this challenge through fine-tuning          removal, and scene editing. We believe these results validate
+with images, additional text prompts or camera parame-               our approach as a step toward applying video generation
+ters [16, 31, 48, 54, 60, 61], achieving precise control for         models in production and simulation environments.
+subtle or complex camera movements or scene arrangement
+remains unsolved. The model can easily forget previously             2. Related Work
+generated content when looking back and forth; see Fig. 2.           Novel View Synthesis (NVS). Generating novel views from
+   Controllability and consistency in graphics pipelines are         a set of posed images has seen significant progress [25,
+fundamentally rooted in their explicit modeling of 3D geom-          36, 51], with numerous extensions towards large scene
+etry and rendering it into 2D views. In this work, we take           reconstruction [3, 28, 63, 72], improved rendering qual-
+an initial step towards building this insight into the video         ity [2, 21, 59], faster rendering speed [38, 59] and handling
+generation models, and propose G EN 3C, a world-Consistent           dynamic scenes [11, 33]. Yet, many of these methods re-
+video generation model with precise Camera Control. Its              quire a dense set of input images and may produce severe
+core is an approximated 3D geometry—akin to 3D modeling              artifacts when viewed from extreme viewpoints. Several
+in graphics pipelines—constructed from user-provided im-             works proposed to address these issues through regulariza-
+ages, and can be precisely projected to any camera trajectory        tion using geometric priors [10, 39, 44, 49, 55, 64, 71, 76],
+to guide video generation, providing strong conditioning             which, however, are sensitive to noise in the estimated depth
+for visual consistency. In addition, “rendering” with video          or normals. Alternative approaches seek to train a feed-
+generation models leverages the rich prior from pre-trained          forward model to predict novel views from sparse posed
+large models, enabling NVS in sparse-view settings.                  images [6–8, 22, 43, 52, 56, 68, 74], but these methods are
+   Specifically, we construct a 3D cache, represented as a           limited by the scarcity of training data and struggle to gen-
+point cloud, by unprojecting a depth estimate of the input           eralize to unseen domains and extreme novel views. With
+image(s) or previously generated video frames. With the              the recent success of image/video generation models, Re-
+camera trajectory from the user, we then render the 3D cache         conFusion [62] and CAT3D [12] started leveraging prior
+and use the rendered video as conditioning input for the             knowledge learned by these models to facilitate sparse-view
+video model. The video model is fine-tuned to translate im-          NVS. Due to the necessity of per-scene optimization, these
+perfectly rendered video into a high-quality video, correcting       methods remain inherently slow. Concurrent and unpub-
+any artifacts that stem from the 3D unprojection-projection          lished work, including ReconX [30] and ViewCrafter [70],
+process and filling in missing information. This way, we             are closer to our work. However, they rely on the alignment
+achieve precise control of the camera and encourage the gen-         of input multiple views using DUSt3R [57], which is not
+erated video to remain consistent over time. When multiple           robust to thin structures, and introduces artifacts when mis-
+views are provided, we maintain a separate 3D cache for              alignment happens. MultiDiff [37] leverages depth to warp
+each individual view and leverage the video model to han-            a single image as guidance for novel view synthesis using a
+dle potential misalignment and aggregattion across views.            video diffusion model. It, however, only focuses on single
+Acting as an explicit geometry, the 3D cache further enables         view setting.
+
+
+                                                                 2
+     Inputs                           Spatial-temporal 3D cache (Sec. 4.1)             Render 3D cache (Sec. 4.2)                                                                                                                                                                                      3D-informed video
+                                                   𝑡 = 1, … 𝐿                                                                                                                                                                                                                                          generation (Sec. 4.3)
+
+                                                              …                                                                                                                                                                                                                                      Latent video
+
+
+
+
+                                      𝑣 = 1, … 𝑉
+                                                                              Render
+
+
+
+
+                                                                                                                                                                                                                                                                 Encoder
+                                                                                                                                                                                                                                                                                                                                                                                                                      Spatial
+       Single-view (𝑉 = 1, 𝐿 = 1)                                   Duplicate 𝑡                                                                                                                                                                                                                                                                                                                                       maxpool
+                                                              …
+
+                                                                                                                                                                                                                                                                                                                                                                                        𝑧%
+                                                              …
+
+
+
+
+                                                                                                                                                                                                                                                                                                                                                                                                                                             Decoder
+      Multi-view (𝑉 > 1, 𝐿 = 1)                    Estimate                                                                                                                                                                                                                                  Video diffusion                                                                                             𝑧$
+                                                                                                                                                                                                                                                                                                 model
+
+                                                                      P!,#
+                                                                  Unproject                                                                                                                                                                                                                                                                                                                    Generated
+    Dynamic video(s) (𝑉 ≥ 1, 𝐿 > 1)                𝑥 !,#                                                                                                                                                                                                                                                                                                                                         video
+
+Figure 3. Overview of G EN 3C. With the user input, which can be a single-view image, multi-view images, or dynamic video(s), we first build a spatiotemporal
+3D cache (Sec. 4.1) by predicting the depth for each image and unprojecting it into 3D. With the camera poses from the user, we then render the cache into
+video(s) (Sec. 4.2), which are fed into the video diffusion model to generate a photorealistic video that aligns with the desired camera poses (Sec. 4.3 & 4.4).
+
+Camera-Controllable Video Generation. Early works                                       to model a data distribution pdata (x) via an iterative denoising
+propose inputting numerical camera parameters into their                                process. To train the model, noisy versions xτ = ατ x0 +στ ϵ
+video generation models as an additional condition to fine-                             of a data sample x0 ∼ pdata (x) are constructed by adding
+tune for camera control [15, 31, 48, 54, 60, 61]. However,                              noise ϵ sampled from a Gaussian distribution, N (0, I), with
+these works struggle with precise control due to the model                              the noise schedule parameterized by ατ and στ . The dif-
+having to learn the mapping from the camera parameters                                  fusion time τ is sampled from the distribution pτ . Then,
+to video, usually failing to generalize to camera motion                                the parameters θ of the diffusion model fθ are optimized to
+that is different from the training data. Several training-free                         minimize the denoising score matching objective function:
+methods [19, 67] proposed to leverage depth to warp a single
+frame to a given camera trajectory and incorporate the result                                  \label {Eqn:DSMObjective} \mathbb {E}_{\videoInput _0\sim \dataDistribution (\videoInput ), \diffusionTime \sim p_{\diffusionTime }, \diffusionNoise \sim \mathcal {N}(\mathbf {0}, \mathbf {I})} \left [\|\diffusionModel _{\diffusionModelParams }(\videoInput _\diffusionTime ; \diffusionCond , \diffusionTime ) - \diffusionTarget \|_2^2\right ],    (1)
+in the denoising process of a pre-trained diffusion model.
+This requires tuning the degree of consistency between the                              where c is optional conditions, and the target y can be ϵ,
+depth-warped images and the denoising output, leading to                                ατ ϵ − στ x0 [46], or x0 [23], depending on the selected
+either artifacts or imprecise camera control.                                           denoising process. Once trained, iteratively applying fθ to a
+                                                                                        sample of Gaussian noise will produce a sample of pdata (x).
+Consistent Video Generation. Early work [34] leverages
+                                                                                            In diffusion-based video generation models, latent diffu-
+a 3D point cloud, similar to our 3D cache, obtained by ap-
+                                                                                        sion models [5] are frequently employed to compress the
+plying structure from motion to past frames. Renders of this
+                                                                                        video for operation in a lower-dimensional space. Specifi-
+point cloud are used to condition a Generative Adversarial
+                                                                                        cally, given the a RGB video data x ∈ RL×3×H×W , where
+Network [13]. Instead, we estimate the depth for each seed
+                                                                                        L is the number of frames of size H × W , a pre-trained
+image that is then reconciled by a diffusion-based video
+                                                                                        VAE encoder E will encode the video into a latent space,
+generation model, which is more robust to small-overlap                                                        ′
+                                                                                        i.e. z = E(x) ∈ RL ×C×h×w . Training and inference of
+images. Streetscapes [9] improved the consistency of video
+                                                                                        the diffusion model are performed in this latent space. The
+diffusion models by relying on a precise height map of the
+                                                                                        final video x̂ = D(z) is decoded with a pre-trained VAE
+environment that is not necessarily available. More recently,
+                                                                                        decoder D. In this paper, we leverage the pre-trained Stable
+CVD [27] make synchronous frames of generated videos
+                                                                                        Video Diffusion [4] model, which is conditioned on an image
+consistent with each other. However, overall consistency is
+                                                                                        c and only compresses the video in the spatial dimension:
+still lost if content temporarily leaves the view of all videos,
+                                                                                        L′ = L, C = 4, h = H8 , and w = W      8 . However, our method
+because no history is maintained. StreamingT2V [17] main-
+                                                                                        is compatible with any other image-to-video diffusion model,
+tain a history in the form of latent feature maps to enhance
+                                                                                        as it does not rely on details of its architecture.
+consistency, but camera control remains difficult because the
+history is latent rather than 3D.                                                       4. Method: 3D-Informed Video Generation
+                                                                                        Our key idea is to use 3D guidance to inform video gener-
+3. Background: Video Diffusion Models                                                   ation, enabling precise camera control and improving con-
+As our method is based on a video diffusion model, we                                   sistency across the video frames. For this purpose, we first
+briefly review their principles. A diffusion model fθ learns                            build a 3D cache from the input image(s) or pre-generated
+
+
+                                                                                   3
+video frames (Sec. 4.1). Then, the 3D cache will be ren-
+dered into the camera plane with the camera poses from the
+user (Sec. 4.2). Such renderings, while imperfect, provide a               𝑋!                                                                                    𝑃!                                                                                                                                                     𝑃"                                                            𝑋"
+strong condition for the video generation model on the visual                                                                                                                                                                             Fusion                                                                                                                           Render    Encode
+content it needs to generate (Sec. 4.3). Our video generation                                                                                                                                                   𝑃!                                                                            𝑃"                                                                             𝑃!          𝑃"
+model is fine-tuned accordingly to produce a 3D-consistent
+video that precisely aligns with the desired camera poses
+(Sec. 4.4). Fig. 3 provides an overview of our method.
+                                                                          𝑃!∪"
+4.1. Building a Spatiotemporal 3D Cache                                                                                                                                                                                                                                                                                                                                        Maxpool
+
+Choosing a proper 3D cache compatible with different ap-                                                                                   𝑧!∪#                                                                                         𝑐𝑜𝑛𝑐𝑎𝑡(𝑧! , 𝑧# )                                                                                                                             𝑧′
+
+plications and that generalizes to different scenes is the               (a) Explicit fusion                                                                                                            (b) Latent concat                                                                                                                                                     (c) Ours
+main consideration in our design. Recently, depth estima-
+                                                                        Figure 4. Three approaches to fuse the point cloud from two views.
+tion has achieved significant progress across various do-
+mains [20, 24, 57, 65, 66], such as indoor, outdoor, or self-            For a sequence C = (C1 , . . . , CL ) of new camera poses
+driving scenes. We thus choose the colored point cloud,               from the user, we render all cache elements Pt,v and obtain
+unprojected from the depth estimation of an RGB image, as             V videos (R(P1,v , C1 ), R(P2,v , C2 ), . . . , R(PL,v , CL )),
+the basic element of our 3D cache.                                    where 1 ≤ v ≤ V . Concatenating the rendered im-
+   Specifically, we maintain a spatiotemporal 3D cache. For           ages (I 1,v , . . . , I L,v ) and masks (M 1,v , . . . , M L,v ) along
+an RGB image seen from a camera viewpoint v at time t,                the temporal dimension for a camera view v, we denote
+we create a point cloud, Pt,v , by unprojecting the depth             the resulting videos of the images and the masks by Iv ∈
+estimation of this RGB image. We denote the number of                 RL×3×H×W and Mv ∈ RL×1×H×W , respectively.
+camera views as V , and the length in temporal dimension as           4.3. Fusing and Injecting the 3D Cache
+L; thus, our 3D cache is an L × V array of point clouds.
+   We build the spatiotemporal 3D cache according to the              When conditioning a video diffusion model with the render-
+specific downstream applications. For single image to video           ings of our 3D cache, the key challenge is that the 3D cache
+generation, we only create one cache element (V = 1) for              may be inconsistent across different camera viewpoints, ei-
+the given image, and duplicate it L times along the temporal          ther due to imperfect depth predictions or inconsistent light-
+dimension to generate the video of length L. For static               ing. Hence, the model will need to aggregate the information
+NVS, we create one cache element for each of the V images             (if V > 1) for a coherent prediction. Our key principle
+provided by the user, and duplicate them L times along                when designing this module is to minimize the introduction
+the temporal dimension. We can then enable both sparse-               of additional trainable parameters: as the pre-trained video
+view and dense-view NVS. For dynamic NVS, we build the                diffusion model has been trained on massive Internet data,
+cache from each initial video(s) of identical length L that           any new parameters may not generalize as well.
+are provided by a user or generated by another video model.               Specifically, we modify the forward computation process
+Then, V equals to the number of time-synchronized videos,             of the image-to-video diffusion model, denoted by fθ′ . We
+and we can enable both single-view and multi-view dynamic             first encode the rendered video Iv using the frozen VAE en-
+NVS. For these different applications, we assume the camera           coder E to obtain the latent video zv = E(Iv ), and mask out
+poses are provided along with the image(s) or video(s). If not,       the regions that are not covered by the 3D cache, as indicated
+we estimate the camera poses using DROID-SLAM [53].                   by the masks Mv . During training, we then concatenate the
+   Optionally, the 3D cache we build may be edited or sim-            masked latent with the noisy version zτ = ατ E(x) + στ ϵ of
+ulated, for example, by removing or adding objects; we                the target video x in latent space along the channel dimen-
+provide qualitative results in Sec. 5.4.                              sion, and feed it into the video diffusion model. To fuse the
+                                                                      information from multiple viewpoints, we separately feed
+4.2. Rendering the 3D Cache                                           each viewpoint into the first layer of the diffusion model,
+                                                                      denoted by In-Layer, and apply max-pooling over all the
+Point clouds can be easily and efficiently rendered along             viewpoints to get the final feature map. In summary:
+any camera trajectory, much like Gaussian Splats [25].
+Such a rendering function R maps Pt,v onto a tuple:                                \latent ^{\View , \prime } &= \textit {In-Layer} (\text {Concat}(\latent ^{\View } \odot \MaskVideo ^{\View ,\prime }, \latent _\diffusionTime )), \label {eqn:concat_train}\\ \latent ^{\prime } &= \text {Max-Pool}\{\latent ^{1, \prime }, \ldots , \latent ^{\nView , \prime }\},
+(I t,v , M t,v ) := R(Pt,v , Ct ), where I t,v is the RGB image                                                                                                                                                                                                                                                                                                                               (3)
+as seen from a new camera Ct . The mask M t,v identifies
+disocclusions, flagging pixels that are not covered when ren-         where ⊙ denotes element-wise multiplication and Mv,′ ∈
+dering the point cloud. In that sense, the mask identifies            RL×1×h×w is obtained by downsampling the Mv using min-
+regions of the image I t,v that need to be filled in.                 pooling with size H   W
+                                                                                        h × w , in order to align with the latent
+
+
+                                                                  4
+            Input                     CameraCtrl                      NVS-Solver                         Ours                          GT
+Figure 5. Qualitative results for single-view novel view synthesis. Compared to the baselines, our model generates photorealistic novel view images that
+precisely align with the camera poses. The green zoom-in boxes highlight the fine-grained details that our model can preserve.
+dimension (Sec. 3). The resulting feature map z′ is further                     4.4. Model Training
+processed in the video diffusion model that is fine-tuned to
+                                                                                With the renderings of the 3D cache as the conditioning sig-
+generate a consistent video conditioned on these renderings
+                                                                                nal c, we fine-tune our modified video diffusion model fθ′ .
+from the 3D cache.
+                                                                                Specifically, we first create pairs of the renderings of the 3D
+                                                                                cache, R(Pt,v , ·), and the corresponding RGB ground truth
+Discussion. The strategy described above is a general mech-                     video x along a new camera trajectory from our training data.
+anism to aggregate the information from multiple views and                      We then fine-tune the video diffusion model using our fusion
+inject it into the video diffusion model. We compare it to                      strategy (Sec. 4.3) with the denoising score matching objec-
+alternatives that exhibit different properties, as illustrated in               tive function of Eqn. (1), where the target y is z0 = E(x)
+Fig. 4. See Sec. 5.6 for an empirical comparison.                               following the pre-trained image-to-video diffusion model
+                                                                                practices [4]. We also encode the first frame using the CLIP
+    The explicit fusion approach, proposed in concurrent                        model [41] as an additional condition. Details about creating
+works [30, 70], directly fuses the point clouds in 3D space.                    paired data used for fine-tuning are provided in Sec. 5.
+While being simple, such an approach strongly relies on
+depth alignment and will introduce artifacts when inconsis-                     4.5. Model Inference
+tencies manifest across multiple viewpoints. Furthermore,                       For inference, we initialize the latent code z with Gaussian
+it would be nontrivial to imbue such fused cache with view-                     noise and iteratively denoise this latent code using our modi-
+dependent lighting information. For these reasons, we prefer                    fied video diffusion model fθ′ , conditioned on the renderings
+to let the model handle aggregation of view information.                        of our 3D cache. The final RGB video is obtained by running
+Another approach, which we denote as “concat”, is to con-                       the pre-trained VAE decoder D on the denoised latent code.
+catenate all latents for the rendered cache along the channel                   Generating a 14-frame video takes around 30 seconds on
+dimension. Although this approach empirically works well,                       one A100 NVIDIA GPU.
+it requires bounding the maximum number of viewpoints the                       Autoregressive Inference and 3D Cache Updates. Many
+model can support by a constant, and imposes an order on                        applications require generating long videos, but, the longer
+the viewpoints. Instead, we favored a permutation-invariant                     the video, existing models are particularly prone to inconsis-
+fusion operation, leading to our pooling-based strategy.                        tencies. To generate long, consistent videos, we propose up-
+                                                                                dating our 3D cache incrementally. We first divide the long
+   Another key design choice is the incorporation of the                        video into overlapping chunks of length L with a one-frame
+masking information into the model. We initially tried to                       overlap between two consecutive chunks. We then render the
+concatenate the mask channel to the latent. However, the                        3D cache and generate the frames of each chunk in sequence
+concatenation operation introduces additional model parame-                     autoregressively. To make the prediction consistent over
+ters, which would now need to be trained, and therefore may                     time, we update the 3D cache using previously generated
+not generalize well when the mask channel is not represented                    chunks: for each generated frame in a chunk, we estimate
+in any large-scale training data. Instead, we apply the mask                    its pixel-wise depth using a depth estimator [66]. Since the
+values directly to the latents by element-wise multiplica-                      camera pose of the frames is known (user-provided), we
+tion, leaving the model architecture unchanged. We provide                      can align the depth estimation with the existing 3D cache
+emperical results of this observation in the Supplement.                        by minimizing reprojection error; details in the supplement.
+
+
+                                                                            5
+                       Input                                PixelSplat                 MVSplat                        Ours                     GT
+Figure 6. Qualitative results on two-views novel view synthesis. Compared to the baselines, our model generates much more plausible and realistic novel
+views with a smooth transition between two input views even if the overlap is small (such as the first row).
+
+The aligned RGB-D frame is then unprojected into 3D and                                                Tanks-and-Temples [26]           RE10K [75]
+concatenated with the 3D cache, which is subsequently used                          Method            PSNR ↑ SSIM ↑ LPIPS↓ PSNR ↑ SSIM ↑ LPIPS↓ TSED↑
+for predicting the next chunk of frames.                                            MotionCtrl [60]   13.46    0.46     0.42    13.60   0.59   0.46   0.1363
+                                                                                    CameraCtrl [16]   15.88    0.55     0.29    18.40   0.72   0.25   0.8033
+                                                                                    GenWarp [47]      16.04    0.50     0.39    15.50   0.61   0.40   0.0330
+5. Experiments and Applications                                                     NVS-Solver [67]   16.95    0.59     0.27    16.90   0.69   0.30   0.7286
+                                                                                    G EN 3C           18.66    0.67     0.20    19.88   0.78   0.20   0.9143
+In this section, we introduce the experimental setup to train
+G EN 3C (Sec. 5.1) and showcase its versatility with several                      Table 1. Quantitative results for single view to video generation. RE10K is
+                                                                                  the in-domain dataset and Tanks and Temples is the out-of-domain dataset.
+downstream tasks, including single image to video gener-
+                                                                                  unseen viewpoints and generate consistent video informed
+ation (Sec. 5.2), two-views NVS (Sec. 5.3), NVS for driv-
+                                                                                  by the observations. Specifically, for RE10K and DL3DV,
+ing simulation (Sec. 5.4), and monocular dynamic NVS
+                                                                                  we randomly select equally-spaced V ∈ [1, 4] frames from
+(Sec. 5.5). We provide ablation studies in Sec. 5.6.
+                                                                                  the video clip to create our 3D cache. The ground truth
+5.1. Training Details                                                             video consists of L consecutive frames that include one of
+                                                                                  the selected V frames. For the WOD, we randomly sample
+A key challenge in training G EN 3C is the lack of multi-view,                    a sequence of time-synchronized L frames for each of the
+dynamic, real-world video data, that provides the pairs of 3D                     three cameras to create our 3D cache (V = 3 in this case).
+cache and ground truth video for a novel camera trajectory.                       The ground truth video is only sampled from the FRONT
+We leverage static real-world video to help the model reason                      camera. We use all three cameras to create the 3D cache be-
+about spatial consistency and synthetic multi-view dynamic                        cause it allows the model to learn to resolve inconsistencies
+video to help with temporal consistency.                                          across cameras, such as depth prediction, camera ISP, etc.
+Datasets. We select three real-world videos datasets:                             For Kubric, we render each dynamic scene from V ∈ [1, 4]
+RE10K [75], DL3DV [29], Waymo Open Dataset (WOD)                                  camera trajectories to generate multi-view dynamic videos
+[50], and a synthetic dataset Kubric4D [14, 54]. RE10K [75]                       for creating the 3D cache. We then render one additional
+consists of 74,766 video clips that capture real-world real-                      video at a different camera trajectory as ground truth. Al-
+estate scenes for both indoors and outdoors. We esti-                             though we choose maximum V to be 4 for training, it is
+mate camera parameters with DROID-SLAM [53] and pre-                              flexible and can be an arbitrary number.
+dict per-frame depth using DAV2 [66]. The depth predic-
+tion is aligned with the scene scale from DROID-SLAM.                             5.2. Single View to Video Generation
+DL3DV [29] contains 10k videos of real-world scenes. We                           G EN 3C can be easily applied to video/scene creation from a
+annotate these clips following the same protocol as RE10K.                        single image. We first predict the depth of the given image,
+WOD [50] is a real-world driving dataset with 1000 scenes                         then create the 3D cache, and render it into a 2D video, which
+and each scene has 200 frames. We use DAV2 [66] to predict                        is fed into the trained video diffusion model to generate a
+the depth and rigidly align it with the scale from the LiDAR                      video that precisely follows the given camera trajectory.
+point cloud. For Kubric4D [14], we use the 3000 scenes gen-                       Evaluation and Baselines. We compare G EN 3C to four
+erated by GCD [54], which includes multi-object dynamics.                         baselines, including GenWarp [47], MotionCtrl [60], Camer-
+This dataset is in the format of point cloud sequences and                        aCtrl [16], and NVS-Solver [67]. For a fair comparison to
+we render RGB-D videos for desirable camera trajectories.                         GenWarp [47] and NVS-Solver [67], we use the same depth
+Paired Data Curation. For real-world videos, we train our                         estimator [66] to get the pixel-wise depth and rigidly align it
+model to predict current frames using past or future frames                       by globally shifting and scaling using the scene scale. Cam-
+from the same sequence. In this way, we effectively simu-                         eraCtrl [16] is the most related work, and we reproduce it by
+late viewpoint changes, allowing the model to extrapolate to                      training with the same datasets, training protocol, and video
+
+
+                                                                              6
+Nerfacto
+3D-GS
+Ours
+
+
+
+
+                   Original                          Left 2m                        Left 4m                       Up 1m                            Up 2m
+  Figure 7. Qualitative results on novel view synthesis for driving scene. Our model can fill in the missing regions in the original video even when the deviation
+  is large, while reconstruction-based baselines produce severe artifacts.
+                   Method             PSNR ↑         SSIM ↑        LPIPS↓                     Method           y ± 0.0m    y ± 1.0m     y ± 2.0m     y ± 4.0m
+                   PixelSplat [6]   21.34 / 17.45   0.70 / 0.65   0.42 / 0.46                 Nerfacto [51]      48.34       67.77        80.41       112.40
+           T-&-T
+
+
+
+
+                   MVSplat [8]      20.90 / 16.08   0.70 / 0.63   0.39 / 0.44                 3D-GS [25]         34.81       53.85        61.78       81.26
+                   G EN 3C          22.22 / 20.51   0.76 / 0.72   0.14 / 0.16
+                                                                                              G EN 3C             7.93       18.19        25.11        35.33
+                   PixelSplat [6]   19.74 / 16.95   0.75 / 0.70   0.40 / 0.44
+           RE10K
+
+
+
+
+                   MVSplat [8]      21.40 / 15.51   0.78 / 0.69   0.30 / 0.37            Table 3. Quantitative results of FID [18] for NVS on driving scene. G EN 3C
+                   G EN 3C          24.08 / 21.56   0.86 / 0.83   0.11 / 0.15            significantly outperforms the baselines, especially when generating novel
+                                                                                         views that are far away from the original trajectory.
+ Table 2. Quantitative results for two-views NVS. The two values in each
+  table cell represent the interpolation and extrapolation results, respectively.        5.3. Two-Views Novel View Synthesis
+                                                                                         We further apply G EN 3C to a challenging sparse-view novel
+                                                                                         view synthesis setting, where only two views are provided
+ diffusion model as in our method and replacing the rendered                             and we generate novel views from these two views. Similar
+ videos from our 3D cache with Plücker embeddings of cam-                                to Sec. 5.2, we first predict the depth for each view, create the
+ era trajectories.We evaluate all the methods on two datasets:                           3D cache, and use the camera trajectory to render it into two
+ RE10K, which serves for in-domain testing. and Tanks and                                videos, which are fed into and fused by G EN 3C to generate
+ Temples (T-&-T), which serves for out-of-domain testing to                              the output video. Note that during inference, our model is
+ evaluate generalization capabilities. To ensure a comprehen-                            not limited to two views and can be applied to any number
+ sive evaluation, we sample 100 testing sequences for both                               of views. We provide qualitative results in the Supplement.
+ RE10K and T-&-T. Following prior work [8, 42, 70], we re-                               Evaluation and Baselines. We compare our method to two
+ port both pixel-align metrics, i.e., PSNR and SSIM [58], and                            representative works for sparse view reconstruction, Pixel-
+ perceptual metrics, i.e., LPIPS [73]. We further report TSED                            Splat [6] and MVSplat [8]. In this task, we evaluate both
+ score [69] to evaluate the 3D consistency of the prediction.                            the interpolation and extrapolation capabilities of our model.
+                                                                                         Specifically, we randomly select two input frames from a
+  Results. Quantitative results are provided in Table 1. Our                             video. For interpolation, we select target views between the
+  method outperforms all the baselines in both out-of-domain                             input frames, and for extrapolation, we choose target views
+  and in-domain testing, demonstrating the strong capability                             outside the range of the two input frames. We sample 40
+  of generating photorealistic videos from a single image. No-                           testing sequences from both RE10K [75] and T-&-T [26],
+  tably, Plücker-embedding based methods, such as Camera-                                and report PSNR, SSIM and LPIPS.
+  Ctrl [16], generalize poorly to out-of-domain data, which has                          Results. We provide quantitative results in Table 2 with
+  both different scene layouts and camera trajectories. Thanks                           qualitative results in Fig. 6. Our method outperforms all the
+  to the explicit modeling of 3D content in our 3D cache, our                            baselines, especially when extrapolating from the provided
+  model only suffers a small performance drop. We provide a                              two views, and can generate photorealistic novel views even
+  qualitative comparison with the two strongest baselines in                             if the overlap between two views is small, thanks to the
+  Fig. 5 and with the others in the Supplement. The prediction                           strong prior from the pre-trained video generation models.
+  from our method precisely follows the ground truth camera
+  trajectory and captures fine-grained detail such as the chair                          5.4. Novel View Synthesis for Driving Simulation
+  legs or letter words. In particular, CameraCtrl [16] fails to                          Simulating real-world driving scenes along a novel trajectory
+  precisely follow the camera motion, as reasoning the scene                             that is different from captured videos is a cornerstone for
+  layout only from the Plücker embedding is hard.                                        training autonomous vehicles. G EN 3C can be applied.
+
+
+                                                                                     7
+                                                                                            Noise Ratio       PSNR ↑           SSIM ↑          LPIPS↓
+                                                                                               0%          24.08 / 21.56     0.86 / 0.83     0.12 / 0.15
+                                                                                               3%          22.39 / 21.00     0.83 / 0.81     0.16 / 0.18
+                                                                                               10%         20.85 / 19.64     0.79 / 0.76     0.19 / 0.22
+                                                                                               30%         18.52 / 17.91     0.72 / 0.70     0.29 / 0.31
+
+                                                                                  Table 5. Quantitative results on the robustness analysis on noisy depth
+                                                                                  estimation. The two values in each table cell represent the interpolation and
+       Original                  Removal                   Editing                extrapolation results, respectively.
+Figure 8. Qualitative results on 3D editing for driving scene. We remove
+and modify the trajectory of cars from the original scene.
+                                                                                                                   PSNR             SSIM         LPIPS
+ Input
+
+
+
+
+                                                                                        Explicit Fusion      21.81 / 19.87     0.79 / 0.75     0.21 / 0.28
+                                                                                        Ours                 24.08 / 21.56     0.86 / 0.83     0.11 / 0.15
+
+                                                                                  Table 6. Ablation of different fusion strategies on RE10K dataset. The
+                                                                                  two values in each table cell represent the interpolation and extrapolation
+ Orbit
+
+
+
+
+                                                                                  results, respectively.
+ Farther away
+
+
+
+
+Figure 9. Qualitative results on monocular dynamic NVS. Our model
+generates plausible novel camera trajectories for the given dynamic video.
+Note that, when zooming out from the original video, our model successfully         Input        Explicit fusion             Ours                   GT
+reasons depth of field out.
+                                                                                  Figure 10. Qualitative results on ablating different fusion strategies.
+                  Method      PSNR ↑     SSIM ↑    LPIPS ↓     FID ↓              G EN 3C can generate a realistic novel view with misaligned depth and
+                                                                                  different lighting in the input views, while the explicit fusion strategy fails.
+                  GCD [54]     19.37       0.67      0.48     150.64
+                  G EN 3C      19.41       0.63      0.29      98.58
+                                                                                  Evaluation and Baselines. We evaluate on the 20 held-out
+                Table 4. Quantitative results on monocular dynamic NVS.           test scenes of Kubric dataset released by GCD [54] and com-
+                                                                                  pare them to GCD. We use the publicly released checkpoint
+Evaluation and Baselines. We compare G EN 3C to two                               trained on Kubric datasets. Since GCD is only trained at a
+representative scene reconstruction methods, Nerfacto [51]                        resolution of 256x384, we upsample its predictions to the
+and 3DGS [25]. For a fair comparison, we filter out 18                            same resolution as our method for a fair comparison.
+static scenes from the validation set. For evaluation, we                         Results. We provide quantitative results in Table 4, with
+create the novel trajectories by horizontally shifting from                       qualitative results in the Supplement. Our method demon-
+the original trajectory of the frontal camera and varying the                     strates superior performance in preserving object details and
+deviation. We report FID [18] for this evaluation since there                     dynamics in input videos, and precisely aligns with the new
+is no ground truth for novel trajectories.                                        camera motion from the users with a 3D cache.
+Results. As shown in Table 3, our method achieves sig-                            Out-of-Domain Results. We further qualitatively evalu-
+nificantly better FID scores than reconstruction methods on                       ate G EN 3C on dynamic videos generated by Sora [40] and
+driving scenarios. This is because reconstruction methods                         MovieGen [35], and provide the results in Fig. 9. G EN 3C
+struggle to recover the scene structures from the sparsely                        generates photorealistic videos that preserve the 3D content
+observed views in the driving scenario. Thus, the rendering                       and align with the new camera motion. We refer the readers
+quality degrades significantly when the rendering camera                          to the supplement video for full results.
+moves away from the original trajectory, as shown in Fig. 7.
+                                                                                  5.6. Ablation Study
+3D Editing. Our explicit 3D cache naturally lends itself to
+3D editing. As shown in Fig. 8, we can remove the 3D cars,                        We ablate our method in two ways: First, different strategies
+modify the trajectory of the car, and generate a plausible                        to fuse the point cloud as discussed in Sec. 4.3, and second,
+re-simulation video of the driving scene using G EN 3C.                           the robustness to noisy depth estimation. We follow the
+                                                                                  experiment settings from Sec. 5.3.
+5.5. Monocular Dynamic Novel View Synthesis
+                                                                                  Different Fusion Strategies. We select two input views
+Given a monocular video of a dynamic scene, G EN 3C is                            and predict the interpolation between these two views. Our
+able to “rerender” that video along a new camera trajectory.                      fusion strategy is compared to the explicit fusion of the point
+
+
+                                                                              8
+ SVD
+ Cosmos
+
+
+
+
+                Input                     New camera 1                   New camera 2                    New camera 3                   New camera 4
+
+Figure 11. Qualitative comparison on using different base models: Stable Video Diffusion (SVD) [4] v.s. Cosmos [1]. When having a more powerful video
+generation model, G EN 3C is able to generate more realistic output with less artifacts. Note that the slight misalignment between the two results is due to the
+models using different video resolutions.
+
+                                                                                   additional results on our webpage2 . Results for extreme
+                                                                                   novel view synthesis are shown in Figure 12.
+                                                                                      When leveraging a more powerful video diffusion model,
+Figure 12. Example of extreme NVS using Cosmos as the base model:                  G EN 3C is able to generate videos with much higher quality,
+the input view is the middle one, and our model is capable of rotating             even under extreme camera viewpoint changes. This high-
+significantly to the left and right.                                               lights a key strength of our method: its ability to leverage
+                                                                                   continuously evolving, pre-trained video models to achieve
+clouds from two views, in analogy to the method proposed                           generalizability with minimal data required for fine-tuning.
+in the concurrent work ReconX [30] and ViewCrafter [70].
+Qualitative examples are provided in Fig. 10 with quanti-                          6. Conclusion
+tative comparison in Table 6. Our method can smoothly
+transition between two disjoint views even if the depth es-                        In this paper, we introduced G EN 3C, a consistent video
+timates are misaligned and the lighting is different, while                        generative model with precise camera control. We achieve
+explicit fusion on the point cloud suffers from severe artifacts                   this goal by constructing a 3D cache from seed image(s) or
+in misalignment regions.                                                           previously generated videos. We then render the cache into
+Robustness to Noisy Depth Estimation. Since our model                              2D videos from a user-provided camera trajectory to strongly
+leverages an off-the-shelf depth estimator to create the 3D                        condition our video generation, achieving more accurate
+cache, we need to understand the impact of error in the                            camera control than previous methods. Our results are also
+depth estimation. Given a depth estimation, we add a noise                         state-of-the-art in sparse-view novel view synthesis, even in
+sampled from the Gaussian distribution, N (0, s ∗ (d0.95 −                         challenging settings such as driving scenes and monocular
+d0.05 )). d0.95 , d0.05 denote the 95 and 5 percentile of depth,                   dynamic novel view synthesis.
+respectively, and s is the noise ratio. We vary the noise ratio                    Limitations. When generating videos with dynamic con-
+and evaluate the capability of producing novel views. As                           tent, G EN 3C relies on a pre-generated video to provide the
+shown in Table 5, when having a small amount of noise, the                         motion of the objects. Generating such a video is a chal-
+performance drop is negligible, and our model still performs                       lenge on its own. A promising extension is to incorporate
+reasonably well when the noise ratio is large (30%).                               text conditioning to prompt for motion when training video
+                                                                                   generation models.
+5.7. Extending to Advanced Video Diffusion Model
+We further replace the Stable Video Diffusion model [4]                            References
+with Cosmos [1], a more advanced video diffusion model                               [1] Niket Agarwal, Arslan Ali, Maciej Bala, Yogesh Bal-
+which has demonstrated superior performance in video                                     aji, Erik Barker, Tiffany Cai, Prithvijit Chattopadhyay,
+generation. We follow the same fine-tuning protocol as                                   Yongxin Chen, Yin Cui, Yifan Ding, et al. Cosmos
+above. Specifically, we chose Cosmos1.0Diffusion-                                        world foundation model platform for physical ai. arXiv
+7BVideo2World1 as our base model and concatenate the                                     preprint arXiv:2501.03575, 2025. 9
+noisy latent with the embedding of rendered frames, which                            [2] Jonathan T. Barron, Ben Mildenhall, Matthew Tancik,
+are encoded by the Cosmos tokenizer. The model is fine-                                  Peter Hedman, Ricardo Martin-Brualla, and Pratul P.
+tuned on both the RE10K [75] and DL3DV [29] datasets for                                 Srinivasan. Mip-NeRF: a multiscale representation for
+10,000 steps with a batch size of 64.                                                    anti-aliasing neural radiance fields. ICCV, 2021. 2
+   We provide a qualitative comparison in Figure 11 with
+                                                                                     2 https : / / research . nvidia . com / labs / toronto - ai /
+     1 https://github.com/NVIDIA/Cosmos                                            GEN3C/
+
+
+                                                                               9
+ [3] Jonathan T. Barron, Ben Mildenhall, Dor Verbin,                      networks. Communications of the ACM, 63(11):139–
+     Pratul P. Srinivasan, and Peter Hedman. Mip-NeRF                     144, 2020. 3
+     360: unbounded anti-aliased neural radiance fields.             [14] Klaus Greff, Francois Belletti, Lucas Beyer, Carl Doer-
+     CVPR, 2022. 2                                                        sch, Yilun Du, Daniel Duckworth, David J. Fleet, Dan
+ [4] Andreas Blattmann, Tim Dockhorn, Sumith Kulal,                       Gnanapragasam, Florian Golemo, Charles Herrmann,
+     Daniel Mendelevitch, Maciej Kilian, Dominik Lorenz,                  et al. Kubric: A scalable dataset generator. In Proceed-
+     Yam Levi, Zion English, Vikram Voleti, Adam Letts,                   ings of the IEEE/CVF conference on computer vision
+     et al. Stable video diffusion: Scaling latent video                  and pattern recognition, pages 3749–3761, 2022. 6, 16
+     diffusion models to large datasets. arXiv preprint              [15] Yuwei Guo, Ceyuan Yang, Anyi Rao, Zhengyang
+     arXiv:2311.15127, 2023. 2, 3, 5, 9, 14                               Liang, Yaohui Wang, Yu Qiao, Maneesh Agrawala,
+ [5] Andreas Blattmann, Robin Rombach, Huan Ling, Tim                     Dahua Lin, and Bo Dai. AnimateDiff: animate your
+     Dockhorn, Seung Wook Kim, Sanja Fidler, and Karsten                  personalized text-to-image diffusion models without
+     Kreis. Align your latents: High-resolution video syn-                specific tuning, 2023. 3
+     thesis with latent diffusion models. In Proceedings of          [16] Hao He, Yinghao Xu, Yuwei Guo, Gordon Wetzstein,
+     the IEEE/CVF Conference on Computer Vision and                       Bo Dai, Hongsheng Li, and Ceyuan Yang. CameraCtrl:
+     Pattern Recognition, pages 22563–22575, 2023. 3                      enabling camera control for text-to-video generation.
+ [6] David Charatan, Sizhe Lester Li, Andrea Tagliasac-                   CoRR, abs/2404.02101, 2024. 2, 6, 7
+     chi, and Vincent Sitzmann. PixelSplat: 3D Gaussian              [17] Roberto Henschel, Levon Khachatryan, Daniil
+     splats from image pairs for scalable generalizable 3D                Hayrapetyan, Hayk Poghosyan, Vahram Tadevosyan,
+     reconstruction. In CVPR, 2024. 2, 7, 14                              Zhangyang Wang, Shant Navasardyan, and Humphrey
+ [7] Anpei Chen, Zexiang Xu, Fuqiang Zhao, Xiaoshuai                      Shi. Streamingt2v: Consistent, dynamic, and extend-
+     Zhang, Fanbo Xiang, Jingyi Yu, and Hao Su. MVS-                      able long video generation from text. arXiv preprint
+     NeRF: fast generalizable radiance field reconstruction               arXiv:2403.14773, 2024. 3
+     from multi-view stereo. In ICCV, pages 14124–14133,             [18] Martin Heusel, Hubert Ramsauer, Thomas Unterthiner,
+     2021.                                                                Bernhard Nessler, and Sepp Hochreiter. GANs trained
+ [8] Yuedong Chen, Haofei Xu, Chuanxia Zheng, Bo-                         by a two time-scale update rule converge to a local
+     han Zhuang, Marc Pollefeys, Andreas Geiger, Tat-Jen                  Nash equilibrium. Advances in neural information
+     Cham, and Jianfei Cai. MVSplat: efficient 3D Gaus-                   processing systems, 30, 2017. 7, 8
+     sian splatting from sparse multi-view images. In ECCV,          [19] Chen Hou, Guoqiang Wei, Yan Zeng, and Zhibo
+     2024. 2, 7, 14                                                       Chen. Training-free camera control for video gen-
+ [9] Boyang Deng, Richard Tucker, Zhengqi Li, Leonidas                    eration. arXiv preprint arXiv:2406.10126, 2024. 3
+     Guibas, Noah Snavely, and Gordon Wetzstein.                     [20] Wenbo Hu, Xiangjun Gao, Xiaoyu Li, Sijie Zhao,
+     Streetscapes: Large-scale consistent street view genera-             Xiaodong Cun, Yong Zhang, Long Quan, and Ying
+     tion using autoregressive video diffusion. In ACM SIG-               Shan. DepthCrafter: generating consistent long depth
+     GRAPH 2024 Conference Papers, pages 1–11, 2024.                      sequences for open-world videos. arXiv preprint
+     3                                                                    arXiv:2409.02095, 2024. 4
+[10] Kangle Deng, Andrew Liu, Jun-Yan Zhu, and Deva                  [21] Binbin Huang, Zehao Yu, Anpei Chen, Andreas Geiger,
+     Ramanan. Depth-supervised NeRF: fewer views and                      and Shenghua Gao. 2D Gaussian splatting for geomet-
+     faster training for free. In CVPR, pages 12882–12891,                rically accurate radiance fields. In SIGGRAPH 2024
+     2022. 2                                                              Conference Papers. ACM, 2024. 2
+[11] Yuanxing Duan, Fangyin Wei, Qiyu Dai, Yuhang He,                [22] Haian Jin, Hanwen Jiang, Hao Tan, Kai Zhang, Sai
+     Wenzheng Chen, and Baoquan Chen. 4D-rotor Gaus-                      Bi, Tianyuan Zhang, Fujun Luan, Noah Snavely, and
+     sian splatting: Towards efficient novel view synthesis               Zexiang Xu. LVSM: a large view synthesis model with
+     for dynamic scenes. In Proc. SIGGRAPH, 2024. 2                       minimal 3D inductive bias, 2024. 2
+[12] Ruiqi Gao, Aleksander Holynski, Philipp Henzler,                [23] Tero Karras, Miika Aittala, Timo Aila, and Samuli
+     Arthur Brussee, Ricardo Martin-Brualla, Pratul Srini-                Laine. Elucidating the design space of diffusion-based
+     vasan, Jonathan T. Barron, and Ben Poole. CAT3D:                     generative models. Advances in neural information
+     create anything in 3D with multi-view diffusion models.              processing systems, 35:26565–26577, 2022. 3
+     arXiv preprint arXiv:2405.10314, 2024. 2                        [24] Bingxin Ke, Anton Obukhov, Shengyu Huang, Nando
+[13] Ian Goodfellow, Jean Pouget-Abadie, Mehdi Mirza,                     Metzger, Rodrigo Caye Daudt, and Konrad Schindler.
+     Bing Xu, David Warde-Farley, Sherjil Ozair, Aaron                    Repurposing diffusion-based image generators for
+     Courville, and Yoshua Bengio. Generative adversarial                 monocular depth estimation. In Proceedings of the
+
+
+                                                                10
+     IEEE/CVF Conference on Computer Vision and Pat-                      view synthesis. Communications of the ACM, 65(1):
+     tern Recognition (CVPR), 2024. 4                                     99–106, 2021. 2
+[25] Bernhard Kerbl, Georgios Kopanas, Thomas Leimküh-               [37] Norman Müller, Katja Schwarz, Barbara Rössle,
+     ler, and George Drettakis. 3D Gaussian splatting for                 Lorenzo Porzi, Samuel Rota Bulò, Matthias Nießner,
+     real-time radiance field rendering. ACM Transactions                 and Peter Kontschieder. Multidiff: Consistent novel
+     on Graphics, 42(4), 2023. 2, 4, 7, 8                                 view synthesis from a single image. In Proceedings of
+[26] Arno Knapitsch, Jaesik Park, Qian-Yi Zhou, and                       the IEEE/CVF Conference on Computer Vision and Pat-
+     Vladlen Koltun. Tanks and temples: Benchmarking                      tern Recognition (CVPR), pages 10258–10268, 2024.
+     large-scale scene reconstruction. ACM Transactions                   2
+     on Graphics (ToG), 36(4):1–13, 2017. 6, 7                       [38] Thomas Müller, Alex Evans, Christoph Schied, and
+[27] Zhengfei Kuang, Shengqu Cai, Hao He, Yinghao Xu,                     Alexander Keller. Instant neural graphics primitives
+     Hongsheng Li, Leonidas Guibas, and Gordon Wet-                       with a multiresolution hash encoding. ACM Trans.
+     zstein. Collaborative video diffusion: Consistent multi-             Graph., 41(4):102:1–102:15, 2022. 2
+     video generation with camera control. arXiv preprint            [39] Michael Niemeyer, Jonathan T. Barron, Ben Milden-
+     arXiv:2405.17414, 2024. 3                                            hall, Mehdi S. M. Sajjadi, Andreas Geiger, and Noha
+[28] Zhaoshuo Li, Thomas Müller, Alex Evans, Russell H.                   Radwan. RegNeRF: regularizing neural radiance fields
+     Taylor, Mathias Unberath, Ming-Yu Liu, and Chen-                     for view synthesis from sparse inputs. In CVPR, 2022.
+     Hsuan Lin. Neuralangelo: High-fidelity neural surface                2
+     reconstruction. In Proceedings of the IEEE/CVF Con-             [40] OpenAI. Sora: Creating video from text. https:
+     ference on Computer Vision and Pattern Recognition                   //openai.com/index/sora/. Accessed: 2024-
+     (CVPR), pages 8456–8465, 2023. 2                                     11-05. 2, 8
+[29] Lu Ling, Yichen Sheng, Zhi Tu, Wentian Zhao, Cheng              [41] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya
+     Xin, Kun Wan, Lantao Yu, Qianyu Guo, Zixun Yu,                       Ramesh, Gabriel Goh, Sandhini Agarwal, Girish Sas-
+     Yawen Lu, et al. DL3DV-10K: a large-scale scene                      try, Amanda Askell, Pamela Mishkin, Jack Clark, et al.
+     dataset for deep learning-based 3D vision. In Proceed-               Learning transferable visual models from natural lan-
+     ings of the IEEE/CVF Conference on Computer Vision                   guage supervision. In International conference on ma-
+     and Pattern Recognition, pages 22160–22169, 2024. 6,                 chine learning, pages 8748–8763. PMLR, 2021. 5
+     9, 14                                                           [42] Xuanchi Ren and Xiaolong Wang. Look outside the
+[30] Fangfu Liu, Wenqiang Sun, Hanyang Wang, Yikai                        room: Synthesizing A consistent long-term 3d scene
+     Wang, Haowen Sun, Junliang Ye, Jun Zhang, and Yueqi                  video from A single image. In IEEE/CVF Conference
+     Duan. ReconX: reconstruct any scene from sparse                      on Computer Vision and Pattern Recognition, CVPR
+     views with video diffusion model. arXiv preprint                     2022, New Orleans, LA, USA, June 18-24, 2022, pages
+     arXiv:2408.16767, 2024. 2, 5, 9                                      3553–3563. IEEE, 2022. 7
+[31] Ruoshi Liu, Rundi Wu, Basile Van Hoorick, Pavel                 [43] Xuanchi Ren, Yifan Lu, Hanxue Liang, Zhangjie
+     Tokmakov, Sergey Zakharov, and Carl Vondrick. Zero-                  Wu, Huan Ling, Mike Chen, Sanja Fidler, Francis
+     1-to-3: Zero-shot one image to 3d object, 2023. 2,                   Williams, and Jiahui Huang. Scube: Instant large-scale
+     3                                                                    scene reconstruction using voxsplats. arXiv preprint
+[32] Ilya Loshchilov, Frank Hutter, et al.           Fixing               arXiv:2410.20030, 2024. 2
+     weight decay regularization in adam. arXiv preprint             [44] Barbara Roessle, Jonathan T. Barron, Ben Mildenhall,
+     arXiv:1711.05101, 5, 2017. 14                                        Pratul P. Srinivasan, and Matthias Nießner. Dense
+[33] Jonathon Luiten, Georgios Kopanas, Bastian Leibe,                    depth priors for neural radiance fields from sparse input
+     and Deva Ramanan. Dynamic 3D Gaussians: tracking                     views. In CVPR, pages 12892–12901, 2022. 2
+     by persistent dynamic view synthesis. In 3DV, 2024. 2           [45] Runway. Runway. https://runwayml.com/.
+[34] Arun Mallya, Ting-Chun Wang, Karan Sapra, and                        Accessed: 2024-11-05. 2
+     Ming-Yu Liu. World-consistent video-to-video syn-               [46] Tim Salimans and Jonathan Ho. Progressive distil-
+     thesis. In Proceedings of the European Conference on                 lation for fast sampling of diffusion models. In The
+     Computer Vision, 2020. 3                                             Tenth International Conference on Learning Represen-
+[35] Meta. Meta Movie Gen: a cast of media foundation                     tations, ICLR 2022, Virtual Event, April 25-29, 2022.
+     models. https://ai.meta.com/research/                                OpenReview.net, 2022. 3
+     movie-gen/. Accessed: 2024-11-05. 2, 8                          [47] Junyoung Seo, Kazumi Fukuda, Takashi Shibuya,
+[36] Ben Mildenhall, Pratul P. Srinivasan, Matthew Tancik,                Takuya Narihira, Naoki Murata, Shoukang Hu, Chieh-
+     Jonathan T. Barron, Ravi Ramamoorthi, and Ren Ng.                    Hsin Lai, Seungryong Kim, and Yuki Mitsufuji. Gen-
+     NeRF: representing scenes as neural radiance fields for              warp: Single image to novel views with semantic-
+
+
+                                                                11
+     preserving generative warping. In NeurIPS, 2024. 6,                 ror visibility to structural similarity. IEEE transactions
+     14, 16                                                              on image processing, 13(4):600–612, 2004. 7
+[48] Ruoxi Shi, Hansheng Chen, Zhuoyang Zhang,                      [59] Zian Wang, Tianchang Shen, Merlin Nimier-David,
+     Minghua Liu, Chao Xu, Xinyue Wei, Linghao Chen,                     Nicholas Sharp, Jun Gao, Alexander Keller, Sanja Fi-
+     Chong Zeng, and Hao Su. Zero123++: a single image                   dler, Thomas Müller, and Zan Gojcic. Adaptive shells
+     to consistent multi-view diffusion base model, 2023. 2,             for efficient neural radiance field rendering. ACM Trans.
+     3                                                                   Graph., 42(6), 2023. 2
+[49] Nagabhushan Somraj, Adithyan Karanayil, and Rajiv              [60] Zhouxia Wang, Ziyang Yuan, Xintao Wang, Yaowei
+     Soundararajan. SimpleNeRF: Regularizing sparse in-                  Li, Tianshui Chen, Menghan Xia, Ping Luo, and Ying
+     put neural radiance fields with simpler solutions. In               Shan. Motionctrl: A unified and flexible motion con-
+     SIGGRAPH Asia, 2023. 2                                              troller for video generation. In SIGGRAPH, 2024. 2,
+[50] Pei Sun, Henrik Kretzschmar, Xerxes Dotiwalla, Aure-                3, 6, 14, 16
+     lien Chouard, Vijaysai Patnaik, Paul Tsui, James Guo,          [61] Daniel Watson, Saurabh Saxena, Lala Li, Andrea
+     Yin Zhou, Yuning Chai, Benjamin Caine, et al. Scal-                 Tagliasacchi, and David J. Fleet. Controlling space
+     ability in perception for autonomous driving: Waymo                 and time with diffusion models. arXiv preprint
+     open dataset. In Proceedings of the IEEE/CVF con-                   arXiv:2407.07860, 2024. 2, 3
+     ference on computer vision and pattern recognition,
+                                                                    [62] Rundi Wu, Ben Mildenhall, Philipp Henzler, Keunhong
+     pages 2446–2454, 2020. 6
+                                                                         Park, Ruiqi Gao, Daniel Watson, Pratul P. Srinivasan,
+[51] Matthew Tancik, Ethan Weber, Evonne Ng, Ruilong                     Dor Verbin, Jonathan T. Barron, Ben Poole, and Alek-
+     Li, Brent Yi, Justin Kerr, Terrance Wang, Alexan-                   sander Holynski. ReconFusion: 3D reconstruction with
+     der Kristoffersen, Jake Austin, Kamyar Salahi, Abhik                diffusion priors. In Proceedings of the IEEE/CVF Con-
+     Ahuja, David McAllister, and Angjoo Kanazawa. Nerf-                 ference on Computer Vision and Pattern Recognition,
+     studio: A modular framework for neural radiance field               pages 21551–21561, 2024. 2
+     development. In ACM SIGGRAPH 2023 Conference
+                                                                    [63] Jiawei Yang, Boris Ivanovic, Or Litany, Xinshuo Weng,
+     Proceedings, 2023. 2, 7, 8
+                                                                         Seung Wook Kim, Boyi Li, Tong Che, Danfei Xu,
+[52] Jiaxiang Tang, Zhaoxi Chen, Xiaokang Chen, Tengfei
+                                                                         Sanja Fidler, Marco Pavone, and Yue Wang. Emernerf:
+     Wang, Gang Zeng, and Ziwei Liu. Lgm: Large multi-
+                                                                         Emergent spatial-temporal scene decomposition via
+     view gaussian model for high-resolution 3d content
+                                                                         self-supervision. arXiv preprint arXiv:2311.02077,
+     creation. arXiv preprint arXiv:2402.05054, 2024. 2
+                                                                         2023. 2
+[53] Zachary Teed and Jia Deng. DROID-SLAM: deep vi-
+                                                                    [64] Jiawei Yang, Marco Pavone, and Yue Wang. Freen-
+     sual SLAM for monocular, stereo, and RGB-D cameras.
+                                                                         erf: Improving few-shot neural rendering with free
+     Advances in neural information processing systems, 34:
+                                                                         frequency regularization. In CVPR, 2023. 2
+     16558–16569, 2021. 4, 6
+[54] Basile Van Hoorick, Rundi Wu, Ege Ozguroglu, Kyle              [65] Lihe Yang, Bingyi Kang, Zilong Huang, Xiaogang Xu,
+     Sargent, Ruoshi Liu, Pavel Tokmakov, Achal Dave,                    Jiashi Feng, and Hengshuang Zhao. Depth anything:
+     Changxi Zheng, and Carl Vondrick. Generative camera                 Unleashing the power of large-scale unlabeled data. In
+     dolly: Extreme monocular dynamic novel view synthe-                 CVPR, 2024. 4
+     sis. European Conference on Computer Vision (ECCV),            [66] Lihe Yang, Bingyi Kang, Zilong Huang, Zhen Zhao,
+     2024. 2, 3, 6, 8, 16                                                Xiaogang Xu, Jiashi Feng, and Hengshuang Zhao.
+[55] Guangcong Wang, Zhaoxi Chen, Chen Change Loy,                       Depth anything V2. arXiv:2406.09414, 2024. 4, 5,
+     and Ziwei Liu. Sparsenerf: Distilling depth ranking                 6, 14
+     for few-shot novel view synthesis. In ICCV, pages              [67] Meng You, Zhiyu Zhu, Hui Liu, and Junhui Hou. NVS-
+     9065–9076, 2023. 2                                                  Solver: video diffusion model as zero-shot novel view
+[56] Qianqian Wang, Zhicheng Wang, Kyle Genova, Pratul                   synthesizer. CoRR, abs/2405.15364, 2024. 3, 6, 14
+     Srinivasan, Howard Zhou, Jonathan T. Barron, Ri-               [68] Alex Yu, Vickie Ye, Matthew Tancik, and Angjoo
+     cardo Martin-Brualla, Noah Snavely, and Thomas                      Kanazawa. pixelNeRF: Neural radiance fields from
+     Funkhouser. Ibrnet: Learning multi-view image-based                 one or few images. In CVPR, 2021. 2
+     rendering. In CVPR, 2021. 2                                    [69] Jason J Yu, Fereshteh Forghani, Konstantinos G Derpa-
+[57] Shuzhe Wang, Vincent Leroy, Yohann Cabon, Boris                     nis, and Marcus A Brubaker. Long-term photometric
+     Chidlovskii, and Jerome Revaud. DUSt3R: geometric                   consistent novel view synthesis with diffusion models.
+     3D vision made easy. In CVPR, 2024. 2, 4                            In Proceedings of the IEEE/CVF International Con-
+[58] Zhou Wang, Alan C. Bovik, Hamid R. Sheikh, and                      ference on Computer Vision, pages 7094–7104, 2023.
+     Eero P. Simoncelli. Image quality assessment: from er-              7
+
+
+                                                               12
+[70] Wangbo Yu, Jinbo Xing, Li Yuan, Wenbo Hu, Xiaoyu
+     Li, Zhipeng Huang, Xiangjun Gao, Tien-Tsin Wong,
+     Ying Shan, and Yonghong Tian. ViewCrafter: taming
+     video diffusion models for high-fidelity novel view
+     synthesis. arXiv preprint arXiv:2409.02048, 2024. 2,
+     5, 7, 9
+[71] Zehao Yu, Songyou Peng, Michael Niemeyer, Torsten
+     Sattler, and Andreas Geiger. MonoSDF: exploring
+     monocular geometric cues for neural implicit surface
+     reconstruction. In NeurIPS, pages 25018–25032, 2022.
+     2
+[72] Zehao Yu, Torsten Sattler, and Andreas Geiger. Gaus-
+     sian opacity fields: Efficient adaptive surface recon-
+     struction in unbounded scenes. ACM Transactions on
+     Graphics, 2024. 2
+[73] Richard Zhang, Phillip Isola, Alexei A. Efros, Eli
+     Shechtman, and Oliver Wang. The unreasonable ef-
+     fectiveness of deep features as a perceptual metric. In
+     Proceedings of the IEEE conference on computer vi-
+     sion and pattern recognition, pages 586–595, 2018.
+     7
+[74] Kun Zhou, Wenbo Li, Yi Wang, Tao Hu, Nian-
+     juan Jiang, Xiaoguang Han, and Jiangbo Lu. NeR-
+     FLix: high-quality neural view synthesis by learning
+     a degradation-driven inter-viewpoint mixer. In CVPR,
+     pages 12363–12374, 2023. 2
+[75] Tinghui Zhou, Richard Tucker, John Flynn, Graham
+     Fyffe, and Noah Snavely. Stereo magnification: Learn-
+     ing view synthesis using multiplane images. In SIG-
+     GRAPH, 2018. 6, 7, 9, 14
+[76] Zehao Zhu, Zhiwen Fan, Yifan Jiang, and Zhangyang
+     Wang. FSGS: real-time few-shot view synthesis using
+     Gaussian splatting. In ECCV, 2024. 2
+
+
+
+
+                                                               13
+Appendices                                                                                                                                                                                                                                               B.1. Optimization Details
+                                                                                                                                                                                                                                                         We optimize the neural network using AdamW opti-
+In the supplement, we provide additional details of our                                                                                                                                                                                                  mizer [32] with the learning rate 3e-5. During training, we
+method in Sec. A and experiments in Sec. B. We provide                                                                                                                                                                                                   apply a 15% dropout ratio to the conditions (the rendered
+more qualitative results in Sec. C.                                                                                                                                                                                                                      videos from our 3D cache and the CLIP embedding of the
+                                                                                                                                                                                                                                                         first frame. We adopt a progressive training strategy for our
+A. Method Details                                                                                                                                                                                                                                        model. Specifically, we first train the model on RE10K [75]
+                                                                                                                                                                                                                                                         and DL3DV [29] at a resolution of 320 × 576 for 100K it-
+In this section, we provide additional details on the autore-
+                                                                                                                                                                                                                                                         erations. We then finetune it on all four datasets at a higher
+gressive generation process that updates the 3D cache.
+                                                                                                                                                                                                                                                         resolution of 576 × 1024 for another 100K iterations. In
+A.1. Auto-regressive generation                                                                                                                                                                                                                          the above two stages, the sequence length is set to 14. To
+                                                                                                                                                                                                                                                         support longer sequence lengths, we finetune the temporal
+In many applications, we need to generate a video with a
+                                                                                                                                                                                                                                                         layers of the video diffusion model on all four datasets for
+sequence length that is longer than the length the original
+                                                                                                                                                                                                                                                         another 10K iterations at a resolution of 320 × 576. We first
+video models can support. To achieve this, we first divide the
+                                                                                                                                                                                                                                                         resize the video into the resolution of 576 × 1024 and use
+long video into overlapping chunks of length L, with a one-
+                                                                                                                                                                                                                                                         center cropping to get the 320 × 576 video. We randomly
+frame overlap between consecutive chunks, and generate
+                                                                                                                                                                                                                                                         sample a video with a sequence length ranging from 14 to
+the frames of each chunk sequentially in an autoregressive
+                                                                                                                                                                                                                                                         56 frames to finetune the temporal layer. The entire training
+manner. Specifically, for the first chunk, we follow the
+                                                                                                                                                                                                                                                         takes around 4 days using 32 A100 GPUs.
+inference pipeline described in Sec. 4.5 of the main paper to
+predict an RGB video. We then update the 3D cache with the                                                                                                                                                                                               B.2. Inference Details
+frames from the first chunk prediction, which captures a new
+viewpoint of the scene and provides additional information                                                                                                                                                                                               We follow the practices from Stable Video Diffusion [4] and
+not present in the original 3D cache.                                                                                                                                                                                                                    use classifier-free guidance during inference with the guid-
+    To update the 3D cache, we estimate the pixel-wise depth                                                                                                                                                                                             ance weight being 3. We run 25 diffusion steps to generate
+of the last frame in the first chunk using DAV2 [66], and                                                                                                                                                                                                the result.
+align this depth estimation with the 3D cache by minimizing
+                                                                                                                                                                                                                                                         B.3. Single-view to video generation
+the reprojection error. Specifically, we denote the depth
+estimation as d and optimize scaling s and translation t                                                                                                                                                                                                 We provide further details of the compared baselines in this
+coefficients for d. We render the point cloud from the 3D                                                                                                                                                                                                subsection.
+cache into a depth image at the camera viewpoint of d. We                                                                                                                                                                                                Baseline Details. For GenWarp [47]3 and MotionCtrl [60]4 ,
+render the point cloud from the 3D cache into a depth image                                                                                                                                                                                              we use the official checkpoint that is trained with Stable
+from the camera viewpoint of d, denoted as dtgt , and, similar                                                                                                                                                                                           Video Diffusion [4] and evaluate on the same testing scenes
+to the main paper, render a mask M indicating whether each                                                                                                                                                                                               as our method. Note that RE10k [75] is the training dataset
+pixel is covered by the 3D cache. The optimization objective                                                                                                                                                                                             for two methods. For NVS-Solver [67]5 , we use the official
+is then defined as:                                                                                                                                                                                                                                      codebase and run the evaluation using our testing data since
+                 \depthScale ,\depthTranslation = \argmin _{\depthScale ,\depthTranslation } \left \| \left ( \depthScale \cdot \depthEstimation + \depthTranslation - \depthEstimation ^{\text {tgt}} \right ) \cdot \Mask \right \|_2^2.    (4)        the model is training-free.
+
+                                                                                                                                                                                                                                                         B.4. Two-views NVS
+The optimized s and t are applied to normalize the depth
+estimation d:                                                                                                                                                                                                                                            We provide further details of the compared baselines in this
+                      \depthEstimation ' = \depthScale \cdot \depthEstimation + \depthTranslation .  (5)                                                                                                                                                 subsection.
+
+   We unproject d′ into a 3D point cloud using the camera                                                                                                                                                                                                Baseline Details. For PixelSplat [6], we take the official
+parameters of this frame and append it to the existing 3D                                                                                                                                                                                                codebase and the released checkpoint6 that is trained on
+cache. The updated 3D cache is subsequently used to predict                                                                                                                                                                                              RE10k [75] for a fair evaluation. For MVSplat [8], we
+the second chunk of frames. This ensures that the prediction                                                                                                                                                                                             also take the official codebase and the released checkpoint7 .
+for the second chunk is informed by the first chunk, lead-                                                                                                                                                                                               Both baselines take images and their corresponding camera
+ing to consistent generation of long videos. We iterate this                                                                                                                                                                                             parameters as input to reconstruct 3D Gaussian Splats that
+process for all subsequent chunks.                                                                                                                                                                                                                       can be used to render the video in the target camera trajectory.
+                                                                                                                                                                                                                                                           3 https://github.com/sony/genwarp
+B. Experimental Details                                                                                                                                                                                                                                    4 https://github.com/TencentARC/MotionCtrl
+                                                                                                                                                                                                                                                           5 https://github.com/ZHU-Zhiyu/NVS_Solver
+In this section, we provide additional details for our experi-                                                                                                                                                                                             6 https://github.com/dcharatan/pixelsplat
+
+ments in the main paper.                                                                                                                                                                                                                                   7 https://github.com/donydchen/mvsplat
+
+
+
+
+                                                                                                                                                                                                                                                    14
+           Input                     GenWarp                    MotionCtrl                       Ours                       GT
+
+                              Figure 13. Additional qualitative results for single-view novel view synthesis.
+
+
+                                                                            estimation for each frame. In this case, we treat each frame
+                                                                            as a different time capture of the same scene and concatenate
+                                                                            them along the temporal dimension of the 3D cache, since
+                                                                            there could exist dynamic objects in the scene. With the
+                                                                            new camera trajectory provided by the user, we render the
+                                                                            3D cache along this trajectory. The rendering of the 3D
+                                                                            cache is then used to generate the video at the novel camera
+                                                                            trajectory.
+
+                                                                            B.6. Monocular Dynamic NVS
+                                                                            Inference Pipeline. With a monocular video of a dynamic
+              Input                              Ours                       scene, we aim to generate a video of the same scene from
+Figure 14. Illustration of rendered depth images and model outputs.         a different camera trajectory. Similar to the driving simu-
+Our model can fix the error in the depth projection (such as the            lation, we predict the depth for each frame separately and
+orange handrail in the first image and the light in the second one),        concatenate the unprojected point cloud from depth along
+and generate realistic content in the missing regions (such as the          the temporal dimension of the 3D cache. With the new cam-
+inpainted railway).                                                         era trajectory provided by the user, we render the 3D cache
+                                                                            along this new camera trajectory. The rendered video is fed
+                                                                            into G EN 3C to generate a dynamic video output.
+We run the two baselines on the testing data we prepared and
+report the results for both interpolation and extrapolation.
+                                                                            C. Additional Results
+B.5. NVS for driving simulation                                             C.1. Generalization with mask channel
+Baseline Details. For Nerfacto, we take the official code-                  In Sec. 4.3 of the main paper, we discuss different strategies
+base released by Nerfstudio8 , which is a state-of-the-art                  for incorporating mask information into the model. Here,
+codebase for training Nerf. For 3DGS, we take the official                  we provide an additional qualitative comparison in Fig. 16.
+codebase9 . We use all frames from three cameras in the                     Concatenating the mask channel to the latent introduces ad-
+training data to train Nerfacto and 3DGS.                                   ditional model parameters, which do not generalize well to
+Inference Pipeline. With a driving video, we estimate                       out-of-distribution masks during training. This issue is par-
+the depth of each frame and align it with the depth scale                   ticularly severe in driving simulations, where ground truth
+from the Lidar point cloud. We then unproject the depth                     views for novel trajectories (e.g., horizontal shifts from the
+  8 https : / / github . com / nerfstudio - project /
+                                                                            original trajectory) are unavailable. In contrast, directly mul-
+nerfstudio
+                                                                            tiplying the mask with the latent demonstrates better gener-
+  9 https : / / github . com / graphdeco - inria / gaussian -               alization, significantly reducing artifacts when synthesizing
+splatting                                                                   extreme novel views.
+
+
+                                                                       15
+        7th frame
+        14th frame
+        7th frame
+        14th frame
+
+
+
+
+                            Input                         Ours                            GCD                        Ground truth
+
+Figure 15. Qualitative results on Kubric4D [14]. Compared to GCD [54], our method demonstrates superior performance in preserving object details and
+dynamics in input videos.
+
+
+
+
+        Concatenation                       Multiplication
+Figure 16. Comparison of different strategies for incorporating
+masking information into the model. (Left) the mask channel is
+concatenated to the latent as an additional channel. (Right) the
+mask values are applied directly to the latent through element-wise
+multiplication.
+
+C.2. Single-view to video generation
+In addition to the comparison in the main paper, we provide
+the quantitative comparisons with GenWarp [47] and Mo-
+tionCtrl [60] in Fig. 13. We also provide the rendered depth
+images and the model outputs in Fig. 14 to demonstrate the
+capability of our model on both filling missing regions in
+the 3D cache and fixing artifacts from the rendering of the
+imperfect 3D cache.
+
+C.3. Monocular Dynamic Novel View Synthesis
+We provide the qualitative comparison with GCD [54] on
+the Kubric dataset in Fig. 15. Our method generates sharper
+video details with more object details and dynamics com-
+pared to GCD [54].
+
+
+                                                                        16
+

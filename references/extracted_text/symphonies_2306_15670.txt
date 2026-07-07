@@ -1,0 +1,1031 @@
+                                           Symphonize 3D Semantic Scene Completion with Contextual Instance Queries
+
+                                                     Haoyi Jiang1 * Tianheng Cheng1∗ Naiyu Gao2 Haoyang Zhang2 Tianwei Lin2
+                                                                              Wenyu Liu1 Xinggang Wang 1†
+                                                               1
+                                                                 School of EIC, Huazhong University of Science & Technology
+                                                                                    2
+                                                                                      Horizon Robotics
+                                                                               {haoyi jiang,thch,liuwy,xgwang}@hust.edu.cn
+arXiv:2306.15670v2 [cs.CV] 22 Nov 2023
+
+
+
+
+                                                                          {naiyu.gao,haoyang.zhang,tianwei.lin}@horizon.cc
+
+
+
+                                                                    Abstract                                        cupancy of their immediate surroundings. This task, how-
+                                                                                                                    ever, is not a facile endeavor, given the inherent complex-
+                                             3D Semantic Scene Completion (SSC) has emerged as                      ities of the real world, characterized by clutter, ambiguity,
+                                         a nascent and pivotal undertaking in autonomous driv-                      and rapid evolution.
+                                         ing, aiming to predict voxel occupancy within volumet-                         3D Semantic Scene Completion (SSC) formulates this
+                                         ric scenes. However, prevailing methodologies primar-                      challenge as the reconstruction of both occupancy and
+                                         ily focus on voxel-wise feature aggregation, while neglect-                semantics for every volumetric grid within a 3D scene.
+                                         ing instance semantics and scene context. In this pa-                      Recent advancements in vision-based solutions, such as
+                                         per, we present a novel paradigm termed Symphonies                         MonoScene [3] and OccDepth [31], adopt 3D convolutional
+                                         (Scene-from-Insts), that delves into the integration of                    networks to elevate 2D image features into the 3D domain.
+                                         instance queries to orchestrate 2D-to-3D reconstruction                    TPVFormer [17], OccFormer [47], and CTF-Occ [39] ex-
+                                         and 3D scene modeling. Leveraging our proposed Se-                         plore decomposing 3D volumes into coarse view repre-
+                                         rial Instance-Propagated Attentions, Symphonies dynam-                     sentations and enhancing voxel interactions using Trans-
+                                         ically encodes instance-centric semantics, facilitating in-                former [24, 40, 49] architectures.
+                                         tricate interactions between image-based and volumetric                        Despite these advancements, contemporary approaches
+                                         domains. Simultaneously, Symphonies enables holistic                       tend to prioritize voxel-wise modeling for 3D scenes and
+                                         scene comprehension by capturing context through the ef-                   resort to pixel-voxel projection [6, 24, 32, 33] for dimen-
+                                         ficient fusion of instance queries, alleviating geometric am-              sion promotion. While focusing on these regional repre-
+                                         biguity such as occlusion and perspective errors through                   sentations, they inadvertently neglect higher-level instance
+                                         contextual scene reasoning. Experimental results demon-                    semantics, leading to vulnerability to geometric ambigu-
+                                         strate that Symphonies achieves state-of-the-art perfor-                   ity arising from occlusion and perspective errors. Humans,
+                                         mance on challenging benchmarks—SemanticKITTI and                          in contrast, naturally perceive and comprehend through the
+                                         SSCBench-KITTI-360, yielding remarkable mIoU scores                        concept of “instance”, where segments of pixels or voxels
+                                         of 15.04 and 18.58, respectively. These results showcase                   provide valuable semantic insights, while collectively shap-
+                                         the paradigm’s promising advancements. The code for                        ing the scene’s context. In light of these limitations, a fun-
+                                         our method is available at https://github.com/                             damental question arises: How can we leverage the notion
+                                         hustvl/Symphonies.                                                         of instances to steer 3D scene modeling and 2D-to-3D re-
+                                                                                                                    construction?
+                                                                                                                        Drawing inspiration from this notion, we propose Sym-
+                                         1. Introduction                                                            phonies (Scene-from-Insts), a novel method that leverages
+                                                                                                                    contextual instance queries derived from image inputs to
+                                         The advent of autonomous driving has brought forth novel                   enhance scene modeling, exploiting inherent instance se-
+                                         challenges in the realm of 3D perception. In the pursuit of                mantics and scene context. Stemming from this basis, we
+                                         safe navigation and obstacle avoidance, autonomous vehi-                   propose Serial Instance-Propagated Attentions to intricately
+                                         cles must possess the capability to accurately predict the oc-             interact with image and voxel features, deformably aggre-
+                                           * Equal contribution. Work done during Haoyi Jiang’s internship at
+                                                                                                                    gating instance-centric semantics. This seamless interaction
+                                         Horizon Robotics.                                                          bridges the gap between low-level pixel/voxel representa-
+                                           † Corresponding author.                                                  tions and high-level semantics, facilitating dimension pro-
+
+
+                                                                                                                1
+                                                Pixel-Voxel Projection
+                                                                                                                     (a)
+
+
+
+
+                     Image Features
+                                                    2. Instance to Scene
+                          1. Image to                                                                                (b)
+                             Instance
+
+                                                      3. Scene to Instance
+                                 Instance Queries                                                     Scene Volume
+
+
+Figure 1. Comparison between voxel-wise modeling (a) and Symphonies (b). Conventional methods primarily depend on Inverse
+Perspective Mapping (IPM)-based voxel-pixel projection and voxel-wise feature aggregation, resulting in geometric ambiguity and com-
+putational redundancy. In contrast, Symphonies leverages instance queries as intermediaries to engage with image and voxel features, thus
+exploiting instance semantics and enhancing the contextual comprehension of the scene.
+
+
+motion and scene modeling, as illustrated in Fig. 1. Further-                  tonomous driving and scene understanding.
+more, the fusion of multiple instance queries collectively
+enriches broader contextual information for scene reason-
+                                                                             2. Related Works
+ing, contributing to the alleviation of geometric ambigu-
+ity. In tandem, we introduce the Depth-Rectified Voxel Pro-                  3D Semantic Scene Completion. 3D Semantic Scene
+posal Layer to refine the initial geometry, elevating 2D im-                 Completion (SSC) entails predicting occupancy and seman-
+age features to the implicit surface of the scene.                           tics for each voxel within a 3D scene, which was initially
+    To evaluate the effectiveness of our method, ex-                         introduced by SSCNet [38]. Subsequent methods can be
+tensive experiments are conducted on the challenging                         broadly categorized based on their model architectures and
+SemanticKITTI [1] and SSCBench-KITTI-360 [22, 25]                            input modalities. Volume networks [20, 46] predominantly
+datasets. Symphonies achieves a remarkable state-of-the-                     utilize Truncated Signed Distance Function (TSDF) fea-
+art performance of 15.04 and 18.58 mIoU, respectively, sig-                  tures generated from depth data, processed through 3D con-
+nificantly outperforming previous vision-based methods by                    volutional networks. On the other hand, view-volume net-
+a substantial margin. Ablation experiments further under-                    works [11, 21, 26, 34, 42] extract RGB or depth features
+score the promising advancements of our approach in the                      with 2D networks before converting them into 3D volumes.
+field of SSC. In summary, our contributions involve:                         For a more in-depth overview of SSC, we refer readers to
+• We introduce Symphonies, a pioneering paradigm for                         the survey by Roldão et al. [35].
+  3D Semantic Scene Completion (SSC), which delves                               Recently, camera-based SSC has garnered increasing at-
+  into modeling instance-centric semantics using sparse in-                  tention for its immense potential in the field of autonomous
+  stance queries, facilitating efficient interactions between                driving. MonoScene [3] presents the first purely visual
+  image and volume features through our proposed Serial                      solution, sampling RGB features along the line of sight
+  Instance-Propagated Attentions.                                            and adapting a 3D UNet architecture. TPVFormer [17]
+• Symphonies effectively captures global scene context                       introduces a Tri-Perspective View (TPV) representation
+  through the fusion of instance queries, enabling a holis-                  to decompose voxels onto various view planes for effi-
+  tic comprehension of the surroundings. The scene context                   cient scene encoding. VoxFormer [23] proposes a two-
+  contributes to mitigating geometric ambiguity via contex-                  stage framework that diffuses the global scene from pro-
+  tual scene reasoning and refined geometry provided by                      posed voxel features, resembling the Masked Autoencoder
+  the proposed Depth-Rectified Voxel Proposal Layer.                         (MAE) [13]. OccDepth [31] improves 2D-to-3D geomet-
+• Our proposed method significantly surpasses existing                       ric projection leveraging implicit stereo depth information.
+  approaches on challenging SSC benchmarks, achieving                        OccFormer [47] applies a Transformer-based decoder and a
+  15.04 mIoU on SemanticKITTI and 18.58 mIoU on                              mask-wise prediction paradigm akin to MaskFormer [8, 9].
+  SSCBench-KITTI-360. These results underscore the con-                      NDC-Scene [45] explores alleviating geometric ambigu-
+  siderable potential of our paradigm in advancing au-                       ity through Normalized Device Coordinates (NDC). Occ-
+
+
+                                                                         2
+                                                                     Symphonies Decoder Layer × N
+     Image
+    Encoder                                                                    KV
+
+
+
+
+                                          Voxel Proposal Layer
+
+
+
+
+                                                                                                                                                                         Segmentation Head
+                    Multi-Scale Image
+
+
+
+
+                                                                     Cross-Attention
+
+
+
+
+                                                                                                                                      Cross-Attention
+                                                                                                                                      Instance-Scene
+                                                                     Instance-Image
+
+
+
+
+                                                                                                                                                        Self-Attention
+                    Features 𝑭𝟐𝑫
+
+
+
+
+                                                                                                                                                          Instance
+                                                                 Q                                                                Q
+   Backbone                                                                                          KV
+                    Instance Queries
+                    𝒒𝒊𝒏𝒔
+
+
+
+
+                                                                                           Cross-Attention
+                                                                                           Scene-Instance
+
+
+
+
+                                                                                                                 Self-Attention
+                                                                                       Q                                                        KV
+
+
+
+
+                                                                                                                     Scene
+                    Initial Voxels 𝒒𝒗𝒐𝒙                                                                                                                                                      Deformable Attention
+
+                                                                                                                                                                                             Standard Attention
+
+
+Figure 2. Overview of Symphonies. The Symphonies framework encompasses several key components. It commences with extract-
+ing multi-scale image features via the image backbone and Instance-Aware Image Encoder. The Depth-Rectified Voxel Proposal Layer
+generates initial voxel features estimating the implicit surface. Subsequently, the Symphonies Decoder Layers, which consist of Serial
+Instance-Propagated Attentions, facilitate continuous interactions among the image, instances, and the scene, iterated N times. The Seg-
+mentation Head upsamples voxel features to the designated resolution and predicts class logits for each voxel.
+
+
+Net [37] further envisions occupancy as a general scene de-                                                            3. Scene from Instances
+scriptor for a wide scope of driving tasks.
+   In contrast to prior works, our proposed Symphonies dif-                                                            This section presents a comprehensive elaboration of our
+fers by integrating instance queries to enhance scene mod-                                                             proposed Symphonies method, beginning with an archi-
+eling through instance semantics and enriched contextual                                                               tectural overview in Sec. 3.1. It proceeds to detail the
+awareness, mitigating geometric ambiguity arising from                                                                 Depth-Rectified Voxel Proposal Layer in Sec. 3.2 and the
+voxel-wise modeling without resorting to additional Bird’s                                                             Symphonies Decoder Layer in Sec. 3.3, shedding light on
+Eye View (BEV) or occupancy prediction networks.                                                                       their synergistic contributions. Further insights into train-
+                                                                                                                       ing losses are discussed in Sec. 3.4.
+Camera-Based 3D Perception. The surge in autonomous                                                                    3.1. Overview
+driving applications has rekindled interest in camera-based
+3D perception, given its cost-effectiveness and alignment                                                              The architectural details of our proposed Symphonies are
+with human visual perception. Early 3D object detec-                                                                   illustrated in Fig. 2. In essence, Symphonies exclusively
+tion methods, such as FCOS3D [41] and DETR3D [43],                                                                     takes RGB images as input and extracts multi-scale 2D fea-
+straightforwardly extend 2D detectors to predict additional                                                            tures F 2D through a ResNet-50 [12] image backbone and
+3D bounding boxes. Among subsequent Transformer-based                                                                  an Instance-Aware Deformable Transformer [49] Encoder,
+approaches, BEVFormer [24] and BEVDet [16] adopt                                                                       enhancing both global and instance semantics on the im-
+the BEV space to align multi-frame features, while Po-                                                                 age plane. In the Symphonies Decoder, instance queries
+larDETR [7] establishes explicit correlations between im-                                                              qins ∈ RN ×C and the volumetric scene representation
+age patterns. In addition, PETR [27] and PETRv2 [28] uti-                                                              qvox ∈ RC×X×Y ×Z are initialized with learnable embed-
+lize 3D position embeddings to encode 2D features.                                                                     dings. Here, C signifies embedding dimensions, N denotes
+    BEV segmentation, which is beneficial for represen-                                                                the number of instance queries, while X, Y , and Z indicate
+tation learning and route planning, has also been ex-                                                                  the scene grid dimensions.
+plored. Approaches such as OFT [33], Lift-Splat [32],                                                                      The subsequent “scene-from-instances” process com-
+and FIERY [14] transform the camera plane into BEV via                                                                 mences with the Depth-Rectified Voxel Proposal Layer ini-
+Inverse Perspective Mapping (IPM). PolarBEV [29] uses                                                                  tializing voxel proposals qp with image features on the im-
+angle-specific and radius-specific embeddings to rasterize                                                             plicit surface. Multi-scale image features F 2D , scene fea-
+BEV features. BEVFormer [24] and CVT [48] aggregate                                                                    tures qvox , and instance queries qins are passed through our
+BEV queries through cross-attention layers, while GKT [6]                                                              proposed Serial Instance-Propagated Attentions within the
+optimizes computational efficiency by constraining local at-                                                           Symphonies Decoder Layers. This iterative process con-
+tention calculations.                                                                                                  tinuously propagates image features F 2D to scene features
+    These aspects closely relate to our work in SSC, where                                                             qvox guided by instance queries qins , while simultaneously
+techniques like Deformable Attention [49] inspire our                                                                  aggregating instance semantics from both modalities. The
+methodology to enhance 3D scene completion.                                                                            Segmentation Head then upsamples the scene features to the
+
+
+                                                                                                             3
+target resolution, and predicts per-voxel class logits with a
+single 1×1×1 convolution after an Atrous Spatial Pyramid
+Pooling (ASPP) [5] module.                                                 Multi-Scale Image
+                                                                           Features 𝑭𝟐𝑫          Voxel Proposal Layer
+                                                                                                                              KV
+Depth Estimator. The depth prediction, acquired from a
+pre-trained depth estimator, is not explicitly illustrated in                                                    Q      Deformable
+                                                                           Learnable Initial
+the diagram for clarity. It is employed to infer the implicit                                                         Cross-Attention
+                                                                           Voxels 𝒒𝒗𝒐𝒙
+surface within the Voxel Proposal Layer and compute in-                                          Proposed Voxels 𝒒𝒑
+stance reference points in the scene volume. Specifically,
+we adopt the pre-trained Mobilestereonet [36] as the depth                 Depth Prediction 𝒛𝒄
+estimator, aligning with VoxFormer [23].
+                                                                      Figure 3. Illustration of the Depth-Rectified Voxel Proposal
+                                                                      Layer.
+Instance-Aware Image Encoder. The Instance-Aware
+Image Encoder, vital for integrating instance semantics in
+the absence of direct instance-level supervision, employs a           Deformable Attention [49]. This process involves select-
+Deformable Transformer [49] adept at capturing long-range             ing the proposed voxels qp associated with the positions Vp
+dependencies around diverse instances by attending to de-             from scene volume qvox , along with corresponding pixel
+formable reference points. Additionally, it is augmented by           positions pI and 2D image features F 2D . This process is
+utilizing the pre-trained weight of MaskDINO [19] from                expressed as qp = DeformAttn(qp , pI , F 2D ).
+panoptic segmentation [18], to enrich its instance aware-                The Deformable Attention operation, denoted as
+ness.                                                                 DeformAttn, dynamically aggregates query features q
+3.2. Depth-Rectified Voxel Proposal Layer                             from features x with deformable reference points pq . The
+                                                                      mathematical expression is given by:
+The Depth-Rectified Voxel Proposal Layer generates initial
+scene features for voxels located on the implicit surface,                                                K
+                                                                                                          X
+known as voxel proposals, which establishes coarse geom-                 DeformAttn(q, pq , x) =                Aqk W x(pq + ∆pqk )     (4)
+etry awareness for subsequent instance-level aggregations.                                                k=1
+The implicit surface is computed through the conversion of
+                                                                      Here, K represents the number of sampling points, and Aqk
+camera coordinates to world coordinates using depth esti-
+                                                                      stands for the learnable attention weight at sampling point k
+mation, described as follows:
+                                                                      deformable based on queries q. The term ∆pqk denotes the
+                   xC = K−1 · (zc ⊙ xI )                   (1)        offset applied to pq , and W denotes the projection weight.
+                      W            −1    C                            The computation of multi-heads is omitted for brevity.
+                  x       = [R, T ]     ·x                 (2)
+                                                                         In contrast to the Query Proposal in VoxFormer [23],
+where xI , xC , and xW represent homogeneous coordinates              which employs an extra occupancy network [34] for gen-
+of pixels, camera frustum, and the world, respectively. ⊙             erating coarse occupancy features, we refrain from it as it
+denotes the element-wise multiplication. The intrinsic ma-            introduces additional geometric ambiguity in occlusion re-
+trix K encompasses camera parameters, while the extrinsic             gions.
+matrix is composed of the rotation matrix R and the trans-
+                                                                      3.3. Symphonies Decoder Layer
+lation vector T . zc corresponds to the z-coordinate of the
+camera, i.e., the depth estimation.                                   The Symphonies Decoder Layer orchestrates continuous in-
+    Based on the camera-to-world transformation, the posi-            teractions between instance queries and scene representa-
+tions Vp of voxel proposals are determined by mapping im-             tions, exploiting the instance-centric semantics overlooked
+age points xI to their corresponding world coordinates xW ,           in prior voxel-wise modeling methods, thereby enhancing
+confined within the volume V :                                        3D scene modeling. It consists of the proposed Serial
+                                                                      Instance-Propagated Attentions, as shown in Fig. 2. Firstly,
+         Vp = {xW | xW = T IW (xI , zc ),                             the deformable cross-attention modules for instance-image
+                          ∀ xI ∈ I such that xW ∈ V }      (3)        and instance-scene interactions enable instance queries to
+                                                                      selectively attend to relevant segments from both modali-
+Here, T IW refers to the camera-to-world transformation, I            ties, aggregating instance semantics. Furthermore, the in-
+represents image pixels, and V represents voxel grids.                stance self-attention module strengthens the internal struc-
+    As illustrated in Fig. 3, the determined voxel features are       tures of semantically enriched instance queries while collec-
+initialized by aggregating multi-scale image features using           tively synthesizing contextual information for holistic scene
+
+
+                                                                  4
+comprehension. Subsequently, the scene-instance cross-                function is formulated as follows:
+attention module aggregates scene features from instance
+queries, leveraging instance semantics and global context,                             L = Lgeo     sem
+                                                                                            scal + Lscal + Lce                  (5)
+mitigating geometric ambiguity through context-aware rea-
+soning. The scene self-attention mechanism further diffuses              Following the DETR series [4], auxiliary losses are ap-
+voxel features throughout the entire scene.                           plied after each Symphonies Decoder Layer for enhanced
+                                                                      supervision, following the same formulation as L but scaled
+   The following paragraphs present a detailed explanation
+                                                                      by a factor of 0.5.
+of the computations involved in their exact order of oper-
+ation. To streamline the explanation, detailed discussions
+on certain components, including Feed-Forward Networks
+                                                                      4. Experiments
+(FFN), Layer Norms (LN), and identity connections, have               In this section, we present the evaluation results of our pro-
+been omitted.                                                         posed Symphonies on SemanticKITTI [1] and SSCBench-
+                                                                      KITTI-360 [22] datasets. The comparative analysis includ-
+Deformable Instance-Image Cross-Attention. For each                   ing the performance of Symphonies against existing ap-
+instance query qins , deformable attention extracts surround-         proaches is detailed in Sec. 4.3. Additionally, comprehen-
+ing features from multi-scale image features F 2D using               sive ablation studies are conducted in Sec. 4.4 to shed light
+learnable 2D reference points p2D  ins , denoted as qins =
+                                                                      on the thorough understanding of Symphonies.
+DeformAttn(qins , p2Dins , F
+                             2D
+                                ).
+                                                                      4.1. Dataset and Metric
+Scene-Instance Cross-Attention. This attention mecha-                 The evaluation is performed on SemanticKITTI [1]
+nism aggregates scene features qvox from instance queries,            and SSCBench-KITTI-360 [22] datasets, both providing
+                 ∈F OV
+formulated as qvox                       ∈F OV
+                          = CrossAttn(qvox     , qins , qins ),       densely annotated urban driving scene sequences, 22 and
+where F OV refers to the “field of view” which is pre-                9 respectively, from the KITTI Odometry Benchmark [10].
+computed based on world-to-camera transformation exclud-              These datasets voxelize the point clouds and label the entire
+ing invisible voxels, reducing computational redundancy.              scene measuring 51.2m × 51.2m × 64m, with voxel grids
+                                                                      of 256 × 256 × 32 and voxel size of 0.2m. SemanticKITTI
+                                                                      comprises 10 sequences for training, 1 sequence for vali-
+Deformable Scene Self-Attention. The scene self-
+                                                                      dation, and 11 sequences for testing. It furnishes RGB im-
+attention enables feature propagation across the scene,
+                                             ∈F OV                    ages with shapes of 1226 × 370 as inputs and encompasses
+where voxels attend to their neighbors: qvox         =
+                ∈F OV                                                 20 semantic classes. SSCBench-KITTI-360 provides 7 se-
+DeformAttn(qvox , pV , qvox ). Here, pV represents vox-
+                                                                      quences for training, 1 sequence for validation, and 1 se-
+els’ relative coordinates in the scene.
+                                                                      quence for testing, with 19 semantic classes, where RGB
+                                                                      images have a resolution of 1408 × 376 as inputs. For
+Deformable Instance-Scene Cross-Attention. Instance                   our camera-based approach, we exclusively adopt RGB im-
+semantics are enhanced by integrating refined informa-                ages as input, and report the intersection over union (IoU)
+tion from the reconstructed voxel features qvox . Through             and mean IoU (mIoU) metrics for occupied voxel grids and
+the transformation applied to 2D reference points, 3D                 voxel-wise semantic predictions respectively, aligned with
+reference points are derived as p3D    ins = T
+                                                 IW 2D
+                                                   (pins ).           standard practices.
+The instance-scene cross-attention are then formulated as
+qins = DeformAttn(qins , p3D
+                          ins , qvox ).
+                                                                      4.2. Implementation Details
+                                                                      In line with prior studies [3, 17, 23], we train Symphonies
+Instance Self-Attention. The instance self-attention cap-             for 30 epochs on 4 NVIDIA 3090 GPUs, with a batch size
+tures internal relations and global context within instance           of 4 images. We apply random horizontal flip augmentation
+queries, expressed as qins = SelfAttn(qins ).                         and employ the AdamW [30] optimizer with an initial learn-
+                                                                      ing rate of 2e-4 and a weight decay of 1e-4. Learning rate
+3.4. Losses                                                           reduction occurs by a factor of 0.1 at the 25th epoch. The
+In the Symphonies framework, we adopt the Scene-Class                 ResNet-50 [12] backbone and Image Encoder are initialized
+Affinity Loss Lscal from MonoScene [3] to optimize pre-               with pre-trained MaskDINO [19] weights.
+cision, recall, and specificity concurrently. A detailed de-
+                                                                      4.3. Main Results
+scription of this loss is provided in the supplementary ma-
+terial. The Scene-Class Affinity Loss is applied to semantic          We conduct a comprehensive comparison of Symphonies
+and geometric predictions, in conjunction with the cross-             with the latest state-of-the-art camera-based methodologies
+entropy loss weighted by class frequencies. The overall loss          on the SemanticKITTI and SSCBench-KITTI-360 datasets.
+
+
+                                                                  5
+                                                                                                                                                                                                                                                                                 ■ motorcyclist
+                                                                                                                                                             ■ motorcycle
+                                                                                ■ other-grnd.
+
+
+
+
+                                                                                                                                                                                            ■ vegetation
+                                                                                                                                                                            ■ other-veh.
+
+
+
+
+                                                                                                                                                                                                                                                                                                                                        ■ traf.-sign
+                                             ■ sidewalk
+
+
+
+
+                                                                                                                                                                                                                                                                  ■ bicyclist
+                                                                                                  ■ building
+                                                                ■ parking
+
+
+
+
+                                                                                                                                               ■ bicycle
+
+
+
+
+                                                                                                                                                                                                                                                  ■ person
+                                                                                                                                                                                                                                ■ terrain
+
+
+
+
+                                                                                                                                                                                                                                                                                                        ■ fence
+                                                                                                                                                                                                               ■ trunk
+                                                                                                                                 ■ truck
+                                  (15.30%)
+
+
+
+
+                                               (11.13%)
+                                ■ road
+
+
+
+
+                                                                  (1.12%)
+
+
+
+
+                                                                                  (0.56%)
+
+
+
+
+                                                                                                    (14.1%)
+
+
+
+
+                                                                                                                     (3.92%)
+
+
+
+                                                                                                                                   (0.16%)
+
+
+
+                                                                                                                                                 (0.03%)
+
+
+
+                                                                                                                                                               (0.03%)
+
+
+
+                                                                                                                                                                              (0.20%)
+
+
+
+
+                                                                                                                                                                                              (39.3%)
+
+
+
+
+                                                                                                                                                                                                                 (0.51%)
+
+
+
+
+                                                                                                                                                                                                                                  (9.17%)
+
+
+
+                                                                                                                                                                                                                                                    (0.07%)
+
+
+
+                                                                                                                                                                                                                                                                    (0.07%)
+
+
+
+                                                                                                                                                                                                                                                                                   (0.05%)
+
+
+
+
+                                                                                                                                                                                                                                                                                                          (3.90%)
+
+
+
+                                                                                                                                                                                                                                                                                                                            (0.29%)
+
+
+
+                                                                                                                                                                                                                                                                                                                                          (0.08%)
+                                                                                                                                                                                                                                                                                                                          ■ pole
+                                                                                                                   ■ car
+ Method           IoU mIoU
+          †
+ LMSCNet [34] 31.38 7.07 46.70 19.50 13.50 3.10 10.30 14.30 0.30 0.00 0.00 0.00 10.80 0.00 10.40 0.00 0.00 0.00 5.40 0.00 0.00
+ AICNet† [21]   23.93 7.09 39.30 18.30 19.80 1.60 9.60 15.30 0.70 0.00 0.00 0.00 9.60 1.90 13.50 0.00 0.00 0.00 5.00 0.10 0.00
+ JS3C-Net† [44] 34.00 8.97 47.30 21.70 19.90 2.80 12.70 20.10 0.80 0.00 0.00 4.10 14.20 3.10 12.40 0.00 0.20 0.20 8.70 1.90 0.30
+ MonoScene∗ [3] 34.16 11.08 54.70 27.10 24.80 5.70 14.40 18.80 3.30 0.50 0.70 4.40 14.90 2.40 19.50 1.00 1.40 0.40 11.10 3.30 2.10
+ TPVFormer [17] 34.25 11.26 55.10 27.20 27.40 6.50 14.80 19.20 3.70 1.00 0.50 2.30 13.90 2.60 20.40 1.10 2.40 0.30 11.00 2.90 1.50
+ VoxFormer [23] 42.95 12.20 53.90 25.30 21.10 5.60 19.80 20.80 3.50 1.00 0.70 3.70 22.40 7.50 21.30 1.40 2.60 0.20 11.10 5.10 4.90
+ OccFormer [47] 34.53 12.32 55.90 30.30 31.50 6.50 15.70 21.60 1.20 1.50 1.70 3.20 16.80 3.90 21.30 2.20 1.10 0.20 11.90 3.80 3.70
+ Symphonies     42.19 15.04 58.40 29.30 26.90 11.70 24.70 23.60 3.20 3.60 2.60 5.60 24.20 10.00 23.10 3.20 1.90 2.00 16.10 7.70 8.00
+
+Table 1. Quantitative results on SemanticKITTI test. † denotes the results provided by [3]. ∗ represents the reproduced results in
+[17, 47]. The best results are in bold.
+
+
+
+
+                                                                                                                                                                                                                                                                                                                    ■ other-struct.
+                                                                                ■ motorcycle
+
+
+
+
+                                                                                                                                                                                           ■ other-grnd.
+
+
+
+
+                                                                                                                                                                                                                                          ■ vegetation
+                                                                                                               ■ other-veh.
+
+
+
+
+                                                                                                                                                                                                                                                                                                                                      ■ other-obj.
+                                                                                                                                                                                                                                                                                                  ■ traf.-sign
+                                                                                                                                                                              ■ sidewalk
+
+
+
+                                                                                                                                                                                                           ■ building
+                                                                                                                                                             ■ parking
+                                                                    ■ bicycle
+
+
+
+
+                                                                                                                               ■ person
+
+
+
+
+                                                                                                                                                                                                                                                              ■ terrain
+                                                                                                                                                                                                                           ■ fence
+                                                                                                ■ truck
+
+
+
+
+                                                                                                                                                  (14.98%)
+
+
+
+
+                                                                                                                                                                                                             (15.67%)
+
+
+
+
+                                                                                                                                                                                                                                                   (41.99%)
+                                                                                                                                              ■ road
+                                                      (2.85%)
+
+
+
+                                                                      (0.01%)
+
+
+
+                                                                                  (0.01%)
+
+
+
+                                                                                                  (0.16%)
+
+
+
+
+                                                                                                                 (5.75%)
+
+
+
+                                                                                                                                    (0.02%)
+
+
+
+
+                                                                                                                                                               (2.31%)
+
+
+
+
+                                                                                                                                                                                (6.43%)
+
+
+
+                                                                                                                                                                                             (2.05%)
+
+
+
+
+                                                                                                                                                                                                                                (0.96%)
+
+
+
+
+                                                                                                                                                                                                                                                                    (7.10%)
+
+
+
+
+                                                                                                                                                                                                                                                                                       (0.22%)
+
+
+
+                                                                                                                                                                                                                                                                                                    (0.06%)
+
+
+
+                                                                                                                                                                                                                                                                                                                      (4.33%)
+
+
+
+
+                                                                                                                                                                                                                                                                                                                                        (0.28%)
+                                                                                                                                                                                                                                                                                ■ pole
+                                                    ■ car
+
+
+
+
+     Method      IoU Prec. Rec. mIoU
+ LiDAR-based methods
+ SSCNet [38]    53.58 69.63 69.92 16.95 31.95 0.00 0.17 10.29 0.00 0.07 65.70 17.33 41.24 3.22 44.41 6.77 43.72 28.87 0.78 0.75 8.69 0.67
+ LMSCNet [34] 47.35 72.77 57.55 13.65 20.91 0.00 0.00 0.26 0.58 0.00 62.95 13.51 33.51 0.20 43.67 0.33 40.01 26.80 0.00 0.00 3.63 0.00
+ Camera-based methods
+ MonoScene [3] 37.87 56.73 53.26 12.31 19.34 0.43 0.58 8.02 2.03 0.86 48.35 11.38 28.13 3.32 32.89 3.53 26.15 16.75 6.92 5.67 4.20 3.09
+ TPVFormer [17] 40.22 59.32 55.54 13.64 21.56 1.09 1.37 8.06 2.57 2.38 52.99 11.99 31.07 3.78 34.83 4.80 30.08 17.52 7.46 5.86 5.48 2.70
+ VoxFormer [23] 38.76 58.52 53.44 11.91 17.84 1.16 0.89 4.56 2.06 1.63 47.01 9.67 27.21 2.89 31.18 4.97 28.99 14.69 6.51 6.92 3.79 2.43
+ OccFormer [47] 40.27 59.70 55.31 13.81 22.58 0.66 0.26 9.89 3.82 2.77 54.30 13.44 31.53 3.55 36.42 4.80 31.00 19.51 7.77 8.51 6.95 4.60
+ Symphonies     44.12 69.24 54.88 18.58 30.02 1.85 5.90 25.07 12.06 8.20 54.94 13.83 32.76 6.93 35.11 8.58 38.33 11.52 14.01 9.57 14.44 11.28
+
+Table 2. Quantitative results on SSCBench-KITTI360 test. The results for counterparts are provided in [22]. The best results among
+all methods are in bold, and the best results for camera-based methods are underlined.
+
+
+The results, outlined in Tab. 1 and Tab. 2, establish the supe-                                                                               outperforms LiDAR-based methods in terms of mIoU, de-
+rior performance of Symphonies. It exhibits substantial im-                                                                                   spite LiDAR’s inherent advantage in IoU owing to its more
+provements of 2.72 and 4.77 mIoU on SemanticKITTI and                                                                                         precise position awareness, particularly at a distance.
+SSCBench-KITTI-360, respectively. Symphonies show-
+cases particular excellence in instance classes, e.g., build-                                                                                 4.4. Ablation Studies
+ings, cars, persons, and bicycles. This underscores its                                                                                       The ablation analysis is conducted on the SemanticKITTI
+prowess in capturing and modeling intricate instance se-                                                                                      validation set from four key perspectives: overall architec-
+mantics. While VoxFormer attains a marginally higher IoU                                                                                      tural components, the Symphonies Decoder, the Voxel Pro-
+on SemanticKITTI, its adoption of two-stage training and                                                                                      posal Layer, and the Image Encoder.
+extra coarse occupancy prediction network disrupts end-to-
+end training and introduces additional geometric ambigu-
+ity. This complexity hampers its robustness, especially on                                                                                    Ablation on architectural components. Tab. 3 presents
+KITTI-360.                                                                                                                                    the breakdown analysis of various architectural components
+                                                                                                                                              within Symphonies. Commencing with a ResNet-50 back-
+   The superiority of Symphonies becomes more pro-                                                                                            bone, an Image Encoder without pre-trained weight, a 2D-
+nounced on the SSCBench-KITTI-360 benchmark, where it                                                                                         to-3D projection via FLoSP [3], and a single 3D ASPP
+surpasses other camera-based counterparts by a substantial                                                                                    layer as the 3D decoder, the vanilla baseline can be con-
+margin of 4.77 mIoU, attributed to the ample data samples                                                                                     sidered as a light-weight alternative to MonoScene. Initial-
+and high-quality annotations. Moreover, Symphonies even                                                                                       izing the Image Encoder with pre-trained weights leads to
+
+
+                                                                                                                                  6
+                   Method                             IoU            mIoU         Params (M)      FLOPs (G)
+                   Baseline                    34.06            10.44                57.22          529.20
+                   + Pre-trained Encoder       35.97 (+1.91)    12.59 (+2.15)        57.22          529.20
+                   + Voxel Proposal Layer      36.54 (+0.57)    13.34 (+0.75)        57.42          535.84
+                   + Symphonies Decoder        41.92 (+5.38)    14.89 (+1.55)        59.31          611.89
+
+                              Table 3. Ablation study on architectural components in Symphonies.
+
+
+a notable improvement of 2.15 mIoU, emphasizing the ef-             the stereo VPL based on MobileStereoNet [36] (0.66 EPE
+fectiveness of instance awareness brought by 2D segmen-             on KITTI 2015), as shown in Tab. 5. This indicates that the
+tation pre-training. Further, the proposed Depth-Rectified          rectification of more precise depth estimation contributes to
+Voxel Proposal Layer improves performance by 0.75 mIoU              mitigating geometric ambiguity, aligning with the findings
+through more accurate geometry. The Symphonies Decoder              in VoxFormer.
+significantly boosts performance by 5.38 IoU, attributed to
+its dynamic instance modeling and context-capturing capa-                     2D-to-3D Projection        IoU     mIoU
+bilities. In summary, the analysis in Tab. 3 affirms the ef-                  FLoSP [3]                 36.02    11.96
+fectiveness of the proposed components in Symphonies.                         VPL (mono)                38.37    12.20
+                                                                              VPL (stereo)              41.92    14.89
+Ablation on the Symphonies Decoder. To gain insights
+into the functionality of contextual instance queries, we as-       Table 5. Ablation on the Depth-Rectified Voxel Proposal Layer.
+sess the modular interactions within the Symphonies De-
+coder Layer. As depicted in Tab. 4, the incorporation of
+instance queries with either instance-image or instance-            Ablation on the Instance-Aware Image Encoder. Tab. 6
+scene cross-attention considerably enhances performance.            evidently showcases the synergistic effects of utilizing
+This substantiates the significance of instance queries for         pre-trained weights for the Image Encoder with in-
+adaptive aggregation of instance semantics. Among them,             stance queries. Solely utilizing pre-trained weights from
+the instance-image cross-attention brings less improvement,         MaskDINO [19] contributes an additional improvement of
+suggesting that original image features have already been           0.48 mIoU. Moreover, incorporating instance queries with
+adequately captured in the preceding Voxel Proposal Layer.          the pre-trained encoder yields a significant improvement
+Furthermore, instance self-attention further yields an im-          of 1.36 mIoU, implying that the proposed instance queries
+provement of 0.52 IoU, underlining the contextual effec-            benefit from the enhanced instance awareness of the en-
+tiveness of efficient fusion among instance queries.                coder.
+
+ Scn. Scn.-Inst. Inst.-Img. Inst.-Scn. Inst.                           Pre-trained Encoder     Inst. Queries    IoU      mIoU
+                                                IoU    mIoU
+ SA     CA          CA         CA       SA
+                                                                                                                41.09    13.53
+                                               35.97   13.34                                        ✓           41.42    13.32
+  ✓                                            41.18   14.01                    ✓                               41.18    14.01
+  ✓        ✓          ✓                        41.14   14.56                    ✓                   ✓           41.92    14.89
+  ✓        ✓                     ✓             41.26   14.66
+  ✓        ✓                     ✓        ✓    41.78   14.76        Table 6. Ablation study on the Instance-Aware Image Encoder.
+  ✓        ✓          ✓          ✓        ✓    41.92   14.89
+
+      Table 4. Ablation study on Symphonies Decoder.                4.5. Visualizations
+                                                                    Qualitative Results. Fig. 4 presents the visualizations of
+                                                                    Symphonies on SemanticKITTI val, in comparison to the
+Ablation on the Voxel Proposal Layer. Comparing the                 counterpart MonoScene. Symphonies generates more de-
+Depth-Rectified Voxel Proposal Layer (VPL) with FLoSP               tailed predictions for instance-centric classes such as cars
+from MonoScene [3] casting pixels to voxels along the               and trunks, as well as preserves clear and coherent lay-
+line of sight, as well as the mono VPL using monocular              outs for structures like buildings and vegetation, attributed
+depth estimator AdaBins [2] (0.058 REL on KITTI), we                to the enriched instance semantics and contextual informa-
+note significant occupancy prediction improvements using            tion provided by instance queries. In contrast, MonoScene
+
+
+                                                                7
+Figure 4. Qualitative visualizations on SemanticKITTI val. Symphonies consistently produces detailed predictions for objects such as
+cars and trunks, while maintaining coherent layouts for structures like buildings and vegetation.
+
+
+produces vague predictions with a radial shape, which is in-
+                                                                                                              Ⅲ
+dicative of the aforementioned ambiguous geometry. These                                     Ⅱ
+results underscore the superior capability of Symphonies in                                  Ⅰ
+capturing fine-grained scene representations and enhancing                                                                                                 Ⅰ
+                                                                       (a) Reference points for Inst.-Image Cross-Attention.
+overall scene understanding.
+
+Attention Map Analysis. The attention map analysis in                                      Ⅲ                Ⅰ
+Fig. 5 provides insights into the mechanisms of the Se-                                              Ⅱ                                                    Ⅱ
+
+rial Instance-Propagated Attentions within Symphonies lay-
+ers. Notably, instance queries exhibit selective attention
+to corresponding regions in both the image and the scene.
+Additionally, they activate the semantically related regions
+                                                                                                                                                         Ⅲ
+within the scene-instance cross-attention. This observation
+                                                                        (b) Reference points for Inst.-Scene Cross-Attention.   (c) Attention Maps for Scene-
+validates the effect of our claimed instance-centric seman-                                                                         Inst. Cross-Attention.
+
+tics in facilitating effective scene modeling.
+                                                                       Figure 5. Analysis of attention maps within Symphonies.
+5. Conclusion
+In this paper, we introduced Symphonies, a novel paradigm            Broader Impacts and Limitations. We envision that
+for 3D Semantic Scene Completion. Symphonies effec-                  the incorporation of instance-centric representations in our
+tively integrates instance-centric semantics and scene con-          paradigm will contribute to future research, especially
+text from both images and volumes, addressing the limi-              within the context of end-to-end paradigm in UniAD [15]
+tations posed by geometric ambiguity in prior voxel-wise             and spur autonomous driving. However, it is essential to ac-
+modeling methods. Extensive experiments demonstrate the              knowledge that our work represents an initial step in lever-
+superiority of our approach over existing methods. We                aging instance-centric queries. Limitations, such as the ab-
+anticipate Symphonies to inspire future research and con-            sence of instance-level annotations, may affect the perfor-
+tribute to advancements in autonomous driving and 3D per-            mance of instance-based methods. Our future endeavors
+ception.                                                             aim to extend this paradigm to multi-view and temporal
+
+
+                                                                 8
+                                                                                                                                                                                                                                       ■ motorcyclist
+                                                                                                                                        ■ motorcycle
+                                                                       ■ other-grnd.
+
+
+
+
+                                                                                                                                                                      ■ vegetation
+                                                                                                                                                       ■ other-veh.
+
+
+
+
+                                                                                                                                                                                                                                                                                ■ traf.-sign
+                                              ■ sidewalk
+
+
+
+
+                                                                                                                                                                                                                         ■ bicyclist
+                                                                                       ■ building
+                                                           ■ parking
+
+
+
+
+                                                                                                                            ■ bicycle
+
+
+
+
+                                                                                                                                                                                                             ■ person
+                                                                                                                                                                                                 ■ terrain
+
+
+
+
+                                                                                                                                                                                                                                                        ■ fence
+                                                                                                                                                                                     ■ trunk
+                                                                                                                ■ truck
+                                   (15.30%)
+
+
+
+
+                                                (11.13%)
+                                 ■ road
+
+
+
+
+                                                             (1.12%)
+
+
+
+                                                                         (0.56%)
+
+
+
+
+                                                                                         (14.1%)
+
+
+
+
+                                                                                                      (3.92%)
+
+
+
+
+                                                                                                                  (0.16%)
+
+
+
+                                                                                                                              (0.03%)
+
+
+
+                                                                                                                                          (0.03%)
+
+
+
+
+                                                                                                                                                         (0.20%)
+
+
+
+
+                                                                                                                                                                        (39.3%)
+
+
+
+                                                                                                                                                                                       (0.51%)
+
+
+
+
+                                                                                                                                                                                                   (9.17%)
+
+
+
+                                                                                                                                                                                                               (0.07%)
+
+
+
+                                                                                                                                                                                                                           (0.07%)
+
+
+
+                                                                                                                                                                                                                                         (0.05%)
+
+
+
+                                                                                                                                                                                                                                                          (3.90%)
+
+
+
+                                                                                                                                                                                                                                                                      (0.29%)
+
+
+
+                                                                                                                                                                                                                                                                                  (0.08%)
+                                                                                                                                                                                                                                                                    ■ pole
+                                                                                                    ■ car
+ Method            IoU mIoU
+           †
+ LMSCNet [34] 28.61 6.70 40.68 18.22 4.38 0.00 10.31 18.33 0.00 0.00 0.00 0.00 13.66 0.02 20.54 0.00 0.00 0.00 1.21 0.00 0.00
+ AICNet† [21]   29.59 8.31 43.55 20.55 11.97 0.07 12.94 14.71 4.53 0.00 0.00 0.00 15.37 2.90 28.71 0.00 0.00 0.00 2.52 0.06 0.00
+ JS3C-Net† [44] 38.98 10.31 50.49 23.74 11.94 0.07 15.03 24.65 4.41 0.00 0.00 6.15 18.11 4.33 26.86 0.67 0.27 0.20 3.94 3.77 1.45
+ MonoScene∗ [3] 36.86 11.08 56.52 26.72 14.27 0.46 14.09 23.26 6.98 0.61 0.45 1.48 17.89 2.81 29.64 1.86 1.20 0.00 5.84 4.14 2.25
+ TPVFormer [17] 35.61 11.36 56.50 25.87 20.60 0.85 13.88 23.81 8.08 0.36 0.05 4.35 16.92 2.26 30.38 0.51 0.89 0.00 5.94 3.14 1.52
+ VoxFormer [23] 44.02 12.35 54.76 26.35 15.50 0.70 17.65 25.79 5.63 0.59 0.51 3.77 24.39 5.08 29.96 1.78 3.32 0.00 7.64 7.11 4.18
+ OccFormer [47] 36.50 13.46 58.85 26.88 19.61 0.31 14.40 25.09 25.53 0.81 1.19 8.52 19.63 3.93 32.62 2.78 2.82 0.00 5.61 4.26 2.86
+ NDC-Scene [45] 37.24 12.70 59.20 28.24 21.42 1.67 14.94 26.26 14.75 1.67 2.37 7.73 19.09 3.51 31.04 3.60 2.74 0.00 6.65 4.53 2.73
+ Symphonies     41.92 14.89 56.37 27.58 15.28 0.95 21.64 28.68 20.44 2.54 2.82 13.89 25.72 6.60 30.87 3.52 2.24 0.00 8.40 9.57 5.76
+
+Table 7. Quantitative results on SemanticKITTI val. † denotes the results provided by [3]. ∗ represents the reproduced results in
+[17, 47]. The best results are in bold.
+
+
+scenarios. Despite these limitations, we believe that our                                                                [7] Shaoyu Chen, Xinggang Wang, Tianheng Cheng, Qian
+paradigm holds promise in advancing the field of SSC.                                                                        Zhang, Chang Huang, and Wenyu Liu. Polar parametrization
+                                                                                                                             for vision-based surround-view 3d detection. arXiv preprint
+A. Additional Experimental Results                                                                                           arXiv:2206.10965, 2022. 3
+                                                                                                                         [8] Bowen Cheng, Alexander G. Schwing, and Alexander Kir-
+Results on SemanticKITTI val. We present further                                                                             illov. Per-pixel classification is not all you need for semantic
+quantitative results on the SemanticKITTI val set in Tab. 7                                                                  segmentation. In Adv. Neural Inform. Process. Syst., pages
+for a more comprehensive comparison. Symphonies consis-                                                                      17864–17875, 2021. 2
+tently achieves state-of-the-art performance, aligning with                                                              [9] Bowen Cheng, Ishan Misra, Alexander G. Schwing, Alexan-
+our primary findings.                                                                                                        der Kirillov, and Rohit Girdhar. Masked-attention mask
+                                                                                                                             transformer for universal image segmentation. In IEEE Conf.
+References                                                                                                                   Comput. Vis. Pattern Recog., pages 1280–1289, 2022. 2
+                                                                                                                        [10] Andreas Geiger, Philip Lenz, and Raquel Urtasun. Are we
+ [1] Jens Behley, Martin Garbade, Andres Milioto, Jan Quen-                                                                  ready for autonomous driving? the kitti vision benchmark
+     zel, Sven Behnke, Cyrill Stachniss, and Jürgen Gall. Se-                                                               suite. In IEEE Conf. Comput. Vis. Pattern Recog., 2012. 5
+     mantickitti: A dataset for semantic scene understanding of li-                                                     [11] Yuxiao Guo and Xin Tong. View-volume network for seman-
+     dar sequences. In Int. Conf. Comput. Vis., pages 9296–9306,                                                             tic scene completion from a single depth image. In IJCAI,
+     2019. 2, 5                                                                                                              pages 726–732, 2018. 2
+ [2] Shariq Farooq Bhat, Ibraheem Alhashim, and Peter Wonka.                                                            [12] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun.
+     Adabins: Depth estimation using adaptive bins. In IEEE                                                                  Deep residual learning for image recognition. In IEEE Conf.
+     Conf. Comput. Vis. Pattern Recog., 2021. 7                                                                              Comput. Vis. Pattern Recog., pages 770–778, 2016. 3, 5
+ [3] Anh-Quan Cao and Raoul de Charette. Monoscene: Monoc-                                                              [13] Kaiming He, Xinlei Chen, Saining Xie, Yanghao Li, Piotr
+     ular 3d semantic scene completion. In IEEE Conf. Comput.                                                                Dollár, and Ross B. Girshick. Masked autoencoders are scal-
+     Vis. Pattern Recog., pages 3981–3991, 2022. 1, 2, 5, 6, 7, 9                                                            able vision learners. In IEEE Conf. Comput. Vis. Pattern
+ [4] Nicolas Carion, Francisco Massa, Gabriel Synnaeve, Nicolas                                                              Recog., pages 15979–15988, 2022. 2
+     Usunier, Alexander Kirillov, and Sergey Zagoruyko. End-to-                                                         [14] Anthony Hu, Zak Murez, Nikhil Mohan, Sofı́a Dudas, Jef-
+     end object detection with transformers. In Eur. Conf. Com-                                                              frey Hawke, Vijay Badrinarayanan, Roberto Cipolla, and
+     put. Vis., pages 213–229, 2020. 5                                                                                       Alex Kendall. FIERY: future instance prediction in bird’s-
+ [5] Liang-Chieh Chen, George Papandreou, Iasonas Kokkinos,                                                                  eye view from surround monocular cameras. In Int. Conf.
+     Kevin Murphy, and Alan L. Yuille. Deeplab: Semantic im-                                                                 Comput. Vis., pages 15253–15262, 2021. 3
+     age segmentation with deep convolutional nets, atrous con-                                                         [15] Yihan Hu, Jiazhi Yang, Li Chen, Keyu Li, Chonghao Sima,
+     volution, and fully connected crfs. IEEE Trans. Pattern Anal.                                                           Xizhou Zhu, Siqi Chai, Senyao Du, Tianwei Lin, Wenhai
+     Mach. Intell., pages 834–848, 2018. 4                                                                                   Wang, Lewei Lu, Xiaosong Jia, Qiang Liu, Jifeng Dai, Yu
+ [6] Shaoyu Chen, Tianheng Cheng, Xinggang Wang, Wenming                                                                     Qiao, and Hongyang Li. Planning-oriented autonomous driv-
+     Meng, Qian Zhang, and Wenyu Liu. Efficient and robust                                                                   ing. In IEEE Conf. Comput. Vis. Pattern Recog., 2023. 8
+     2d-to-bev representation learning via geometry-guided ker-                                                         [16] Junjie Huang, Guan Huang, Zheng Zhu, and Dalong Du.
+     nel transformer. arXiv preprint arXiv:2206.04584, 2022. 1,                                                              Bevdet: High-performance multi-camera 3d object detection
+     3                                                                                                                       in bird-eye-view. arXiv preprint arXiv:2112.11790, 2021. 3
+
+
+                                                                                                                9
+[17] Yuanhui Huang, Wenzhao Zheng, Yunpeng Zhang, Jie Zhou,                   with polar rasterization and surface estimation. In Confer-
+     and Jiwen Lu. Tri-perspective view for vision-based 3d se-               ence on Robot Learning, pages 437–446, 2022. 3
+     mantic occupancy prediction. In IEEE Conf. Comput. Vis.             [30] Ilya Loshchilov and Frank Hutter. Decoupled weight decay
+     Pattern Recog., pages 9223–9232, 2023. 1, 2, 5, 6, 9                     regularization. In Int. Conf. Learn. Represent., 2019. 5
+[18] Alexander Kirillov, Ross B. Girshick, Kaiming He, and Piotr         [31] Ruihang Miao, Weizhou Liu, Mingrui Chen, Zheng Gong,
+     Dollár. Panoptic feature pyramid networks. In IEEE Conf.                Weixin Xu, Chen Hu, and Shuchang Zhou. Occdepth:
+     Comput. Vis. Pattern Recog., 2019. 4                                     A depth-aware method for 3d semantic scene completion.
+[19] Feng Li, Hao Zhang, Huaizhe Xu, Shilong Liu, Lei Zhang,                  arXiv preprint arXiv:2302.13540, 2023. 1, 2
+     Lionel M. Ni, and Heung-Yeung Shum. Mask DINO: to-                  [32] Jonah Philion and Sanja Fidler. Lift, splat, shoot: Encoding
+     wards A unified transformer-based framework for object de-               images from arbitrary camera rigs by implicitly unprojecting
+     tection and segmentation. In IEEE Conf. Comput. Vis. Pat-                to 3d. In Eur. Conf. Comput. Vis., pages 194–210, 2020. 1, 3
+     tern Recog., pages 3041–3050, 2023. 4, 5, 7                         [33] Thomas Roddick, Alex Kendall, and Roberto Cipolla. Ortho-
+[20] Jie Li, Yu Liu, Dong Gong, Qinfeng Shi, Xia Yuan, Chunxia                graphic feature transform for monocular 3d object detection.
+     Zhao, and Ian D. Reid. RGBD based dimensional decompo-                   In Brit. Mach. Vis. Conf., page 285, 2019. 1, 3
+     sition residual network for 3d semantic scene completion. In        [34] Luis Roldão, Raoul de Charette, and Anne Verroust-Blondet.
+     IEEE Conf. Comput. Vis. Pattern Recog., pages 7693–7702,                 Lmscnet: Lightweight multiscale 3d semantic completion.
+     2019. 2                                                                  In 3DV, pages 111–119, 2020. 2, 4, 6, 9
+[21] Jie Li, Kai Han, Peng Wang, Yu Liu, and Xia Yuan.                   [35] Luis Roldão, Raoul de Charette, and Anne Verroust-Blondet.
+     Anisotropic convolutional networks for 3d semantic scene                 3d semantic scene completion: A survey. Int. J. Comput. Vis.,
+     completion. In IEEE Conf. Comput. Vis. Pattern Recog.,                   130(8):1978–2005, 2022. 2
+     pages 3348–3356, 2020. 2, 6, 9                                      [36] Faranak Shamsafar, Samuel Woerz, Rafia Rahim, and An-
+[22] Yiming Li, Sihang Li, Xinhao Liu, Moonjun Gong, Ke-                      dreas Zell. Mobilestereonet: Towards lightweight deep net-
+     nan Li, Nuo Chen, Zijun Wang, Zhiheng Li, Tao Jiang,                     works for stereo matching. In WACV, pages 677–686, 2022.
+     Fisher Yu, Yue Wang, Hang Zhao, Zhiding Yu, and Chen                     4, 7
+     Feng. Sscbench: A large-scale 3d semantic scene com-                [37] Chonghao Sima, Wenwen Tong, Tai Wang, Li Chen, Silei
+     pletion benchmark for autonomous driving. arXiv preprint                 Wu, Hanming Deng, Yi Gu, Lewei Lu, Ping Luo, Dahua
+     arXiv:2306.09001, 2023. 2, 5, 6                                          Lin, and Hongyang Li. Scene as occupancy. arXiv preprint
+[23] Yiming Li, Zhiding Yu, Christopher B. Choy, Chaowei                      arXiv:2306.02851, 2023. 3
+     Xiao, José M. Álvarez, Sanja Fidler, Chen Feng, and An-           [38] Shuran Song, Fisher Yu, Andy Zeng, Angel X. Chang,
+     ima Anandkumar. Voxformer: Sparse voxel transformer for                  Manolis Savva, and Thomas A. Funkhouser. Semantic scene
+     camera-based 3d semantic scene completion. In IEEE Conf.                 completion from a single depth image. In IEEE Conf. Com-
+     Comput. Vis. Pattern Recog., pages 9087–9098, 2023. 2, 4,                put. Vis. Pattern Recog., pages 190–198, 2017. 2, 6
+     5, 6, 9                                                             [39] Xiaoyu Tian, Tao Jiang, Longfei Yun, Yue Wang, Yilun
+[24] Zhiqi Li, Wenhai Wang, Hongyang Li, Enze Xie, Chong-                     Wang, and Hang Zhao. Occ3d: A large-scale 3d occu-
+     hao Sima, Tong Lu, Yu Qiao, and Jifeng Dai. Bevformer:                   pancy prediction benchmark for autonomous driving. arXiv
+     Learning bird’s-eye-view representation from multi-camera                preprint arXiv:2304.14365, 2023. 1
+     images via spatiotemporal transformers. In Eur. Conf. Com-          [40] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszko-
+     put. Vis., pages 1–18, 2022. 1, 3                                        reit, Llion Jones, Aidan N. Gomez, Lukasz Kaiser, and Illia
+[25] Yiyi Liao, Jun Xie, and Andreas Geiger. KITTI-360: A novel               Polosukhin. Attention is all you need. In Adv. Neural Inform.
+     dataset and benchmarks for urban scene understanding in 2d               Process. Syst., pages 5998–6008, 2017. 1
+     and 3d. IEEE Trans. Pattern Anal. Mach. Intell., pages 3292–        [41] Tai Wang, Xinge Zhu, Jiangmiao Pang, and Dahua Lin.
+     3310, 2023. 2                                                            FCOS3D: fully convolutional one-stage monocular 3d object
+[26] Shice Liu, Yu Hu, Yiming Zeng, Qiankun Tang, Beibei Jin,                 detection. In ICCVW, pages 913–922, 2021. 3
+     Yinhe Han, and Xiaowei Li. See and think: Disentangling             [42] Yida Wang, David Joseph Tan, Nassir Navab, and Federico
+     semantic scene completion. In Adv. Neural Inform. Process.               Tombari. Forknet: Multi-branch volumetric semantic com-
+     Syst., pages 261–272, 2018. 2                                            pletion from a single depth image. In Int. Conf. Comput. Vis.,
+[27] Yingfei Liu, Tiancai Wang, Xiangyu Zhang, and Jian Sun.                  pages 8607–8616, 2019. 2
+     PETR: position embedding transformation for multi-view 3d           [43] Yue Wang, Vitor Guizilini, Tianyuan Zhang, Yilun Wang,
+     object detection. In Eur. Conf. Comput. Vis., pages 531–548,             Hang Zhao, and Justin Solomon. DETR3D: 3d object detec-
+     2022. 3                                                                  tion from multi-view images via 3d-to-2d queries. In Con-
+[28] Yingfei Liu, Junjie Yan, Fan Jia, Shuailin Li, Qi Gao, Tian-             ference on Robot Learning, pages 180–191, 2021. 3
+     cai Wang, Xiangyu Zhang, and Jian Sun. Petrv2: A uni-               [44] Xu Yan, Jiantao Gao, Jie Li, Ruimao Zhang, Zhen Li, Rui
+     fied framework for 3d perception from multi-camera images.               Huang, and Shuguang Cui. Sparse single sweep lidar point
+     arXiv preprint arXiv:2206.01256, 2022. 3                                 cloud segmentation via learning contextual shape priors from
+[29] Zhi Liu, Shaoyu Chen, Xiaojie Guo, Xinggang Wang, Tian-                  scene completion. In AAAI, pages 3101–3109, 2021. 6, 9
+     heng Cheng, Hongmei Zhu, Qian Zhang, Wenyu Liu, and Yi              [45] Jiawei Yao, Chuming Li, Keqiang Sun, Yingjie Cai, Hao
+     Zhang. Vision-based uneven BEV representation learning                   Li, Wanli Ouyang, and Hongsheng Li. Ndc-scene: Boost
+
+
+                                                                    10
+     monocular 3d semantic scene completion in normalized de-
+     vice coordinates space. arXiv preprint arXiv:2309.14616,
+     2023. 2, 9
+[46] Pingping Zhang, Wei Liu, Yinjie Lei, Huchuan Lu, and Xi-
+     aoyun Yang. Cascaded context pyramid for full-resolution
+     3d semantic scene completion. In Int. Conf. Comput. Vis.,
+     pages 7800–7809, 2019. 2
+[47] Yunpeng Zhang, Zheng Zhu, and Dalong Du. Occformer:
+     Dual-path transformer for vision-based 3d semantic occu-
+     pancy prediction. arXiv preprint arXiv:2304.05316, 2023.
+     1, 2, 6, 9
+[48] Brady Zhou and Philipp Krähenbühl. Cross-view transform-
+     ers for real-time map-view semantic segmentation. In IEEE
+     Conf. Comput. Vis. Pattern Recog., pages 13750–13759,
+     2022. 3
+[49] Xizhou Zhu, Weijie Su, Lewei Lu, Bin Li, Xiaogang Wang,
+     and Jifeng Dai. Deformable DETR: deformable transformers
+     for end-to-end object detection. In Int. Conf. Learn. Repre-
+     sent., 2021. 1, 3, 4
+
+
+
+
+                                                                    11
+

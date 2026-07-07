@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>GenRC: Generative 3D Room Completion from Sparse Image Collections</title>
+<style>
+body { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; line-height:1.65; margin:0; color:#202124; background:#f7f7f5; }
+main { max-width: 980px; margin: 0 auto; padding: 32px 24px 56px; background:#fff; }
+h1 { font-size: 30px; margin:0 0 8px; }
+h2 { margin-top: 30px; border-top:1px solid #ddd; padding-top:18px; }
+.meta { color:#5f6368; }
+.badge { display:inline-block; padding:2px 8px; border:1px solid #ccc; border-radius:6px; margin-right:6px; background:#fafafa; }
+table { border-collapse: collapse; width:100%; margin: 14px 0; }
+td, th { border:1px solid #ddd; padding:8px; vertical-align:top; }
+th { background:#f1f3f4; }
+code { background:#f1f3f4; padding:2px 4px; border-radius:4px; }
+</style>
+</head>
+<body><main>
+<h1>GenRC: Generative 3D Room Completion from Sparse Image Collections</h1>
+<p class="meta"><span class="badge">P0</span><span class="badge">deep</span><span class="badge">score 3.55/5</span><span class="badge">room-scale RGB-D mesh completion</span></p>
+<h2>资料状态</h2>
+<table>
+<tr><th>类型</th><td>paper</td></tr>
+<tr><th>本地 PDF</th><td>ref/genrc_eccv2024.pdf</td></tr>
+<tr><th>本地 repo</th><td>无</td></tr>
+<tr><th>commit</th><td>N/A</td></tr>
+<tr><th>license 文件</th><td>未在 repo 根目录确认</td></tr>
+</table>
+<h2>Sources</h2><ul><li>https://minfenli.github.io/GenRC/</li><li>https://www.ecva.net/papers/eccv_2024/papers_ECCV/html/5406_ECCV_2024_paper.php</li></ul>
+<h2>对 directional view coverage gap 的定位</h2><p>作为 mid-term 主线：补视觉后，GenRC/SceneCompleter/Seen2Scene 负责把低覆盖区域转成物理几何假设。</p>
+<h2>Inputs / Outputs</h2>
+<ul><li><strong>Inputs:</strong> sparse RGB-D images / sparse image collections。</li><li><strong>Outputs:</strong> room-scale completed 3D mesh with texture。</li></ul>
+<h2>Method Pipeline</h2><ul><li>把 sparse RGB-D 投影为 highly incomplete 3D mesh。</li><li>用 E-Diffusion 生成 view-consistent panoramic RGB-D，保证 global geometry/appearance consistency。</li><li>把补全后的 panoramic RGB-D 融合为完整 room mesh。</li></ul>
+<h2>Objectives / Losses</h2><p>training-free pipeline，核心依赖 diffusion prior 和 RGB-D consistency；不是 end-to-end supervised scene completion。</p>
+<h2>Assumptions</h2><p>非常贴合室内/走廊，且输出 mesh；但本轮未确认官方代码完整可用。</p>
+<h2>Failure Modes</h2><p>completion 可能补出合理但错误的房间拓扑；门后/转角等 high uncertainty 区域要标注置信度。</p>
+<h2>Isaac Sim / 平台迁移判断</h2><p>adapter needed but strong；mesh 输出最接近 Isaac USD/collision proxy。</p>
+<h2>Transfer Matrix 摘要</h2>
+<table>
+<tr><th>method family</th><td>room-scale RGB-D mesh completion</td></tr>
+<tr><th>camera-pose conditioning</th><td>强</td></tr>
+<tr><th>large-angle support</th><td>强</td></tr>
+<tr><th>3D consistency</th><td>4.0/5</td></tr>
+<tr><th>Isaac Sim path</th><td>adapter needed but strong；mesh 输出最接近 Isaac USD/collision proxy。</td></tr>
+<tr><th>code/weights</th><td>1.4/5</td></tr>
+<tr><th>priority score</th><td>3.55/5</td></tr>
+</table>
+</main></body></html>

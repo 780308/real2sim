@@ -1,0 +1,64 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Scalable Real2Sim: Physics-Aware Asset Generation via Robotic Pick-and-Place Setups</title><style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.65;max-width:1120px;margin:32px auto;padding:0 24px;color:#17202a;background:#fbfbf8}
+h1{font-size:30px;margin-bottom:8px}h2{font-size:22px;margin-top:30px;border-bottom:1px solid #ddd;padding-bottom:4px}h3{font-size:18px;margin-top:22px}
+p,li{font-size:15px}.meta{color:#555}.card{border:1px solid #ddd;border-radius:8px;padding:14px 16px;background:#fff;margin:14px 0}
+.table-line{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;background:#fff;padding:2px 6px;margin:0;border-left:1px solid #ddd;border-right:1px solid #ddd}
+pre{background:#111827;color:#f9fafb;padding:14px;border-radius:8px;overflow:auto}
+</style></head><body><h1>Scalable Real2Sim: Physics-Aware Asset Generation via Robotic Pick-and-Place Setups</h1>
+
+<h2>定位</h2>
+<p>最完整覆盖“完整几何层 + collision + physical parameters”的论文，补足 3DGS/mesh 方法通常缺失的物理属性层。</p>
+
+<p class="table-line">| 字段 | 内容 |</p>
+<p class="table-line">| --- | --- |</p>
+<p class="table-line">| priority / score | P0 / 4.19/5 |</p>
+<p class="table-line">| family | object visual geometry + collision geometry + inertial parameter estimation |</p>
+<p class="table-line">| sources | https://github.com/nepfaff/scalable-real2sim&lt;br&gt;https://scalable-real2sim.github.io/&lt;br&gt;https://arxiv.org/abs/2503.00370 |</p>
+<p class="table-line">| local_pdf | ref/scalable_real2sim_2503_00370.pdf |</p>
+<p class="table-line">| local_supplementary_pdfs | 无 |</p>
+<p class="table-line">| local_repo | repos/scalable-real2sim |</p>
+<p class="table-line">| commit / license | a8e4d97 / LICENSE (cloned) |</p>
+
+<h2>Inputs / Outputs</h2>
+<ul>
+<li>Inputs: robot pick-and-place data, multi-view object observations, gripper masks, RGB/depth/video, robot torque/kinematic state.</li>
+<li>Outputs: textured visual mesh, convex collision geometry, mass, center of mass, rotational inertia.</li>
+</ul>
+
+<h2>Full Method Pipeline</h2>
+<ul>
+<li>Collect object observations with robot manipulation setup.</li>
+<li>Use alpha-transparent training and gripper masks to reconstruct object-centric visual geometry.</li>
+<li>Simplify visual geometry into convex collision geometry by approximate convex decomposition.</li>
+<li>Design excitation trajectories and solve physically feasible inertial parameters from robot measurements.</li>
+</ul>
+
+<h2>Losses / Objectives</h2>
+<p>photometric/geometry reconstruction losses; inertial parameter estimation uses constrained optimization / augmented Lagrangian / physically feasible constraints.</p>
+
+<h2>Assumptions</h2>
+<p>需要机器人可抓取/搬运物体并采集运动数据；数据采集链路比单纯视觉方法复杂。</p>
+
+<h2>Failure Modes</h2>
+<p>gripper mask 错误会破坏重建；薄/软/透明物体参数估计困难；对大型固定物体如门/桌子需要改造采集 protocol。</p>
+
+<h2>对 Directional View Gap 的关系</h2>
+<p>不补视角，但可以把视觉补齐后的 mesh 变成 simulatable object description。</p>
+
+<h2>Isaac Sim Transfer</h2>
+<p>direct conceptually: visual mesh + convex collision + inertial parameters 正是 Isaac asset 所需。</p>
+
+<h2>可迁移模块</h2>
+<ul>
+<li>scene/object representation: object visual geometry + collision geometry + inertial parameter estimation</li>
+<li>view/object completion: 不补视角，但可以把视觉补齐后的 mesh 变成 simulatable object description。</li>
+<li>geometry/collision: textured visual mesh, convex collision geometry, mass, center of mass, rotational inertia.</li>
+<li>simulator integration: direct conceptually: visual mesh + convex collision + inertial parameters 正是 Isaac asset 所需。</li>
+<li>evaluation metrics: mesh watertightness, collision proxy validity, object-level novel-view consistency, task success / collision rate.</li>
+</ul>
+
+<h2>Recommended Role</h2>
+<p>P0 物理层参考；用于建立 asset validation schema 和后续 physical parameter estimation 实验。</p>
+
+<h2>Next Experiment</h2>
+<p>先对小型可搬动物体复现 visual/collision/inertia schema；门/桌椅这类大物体用 VLM/PhysX 估计默认物理属性并人工校验。</p></body></html>

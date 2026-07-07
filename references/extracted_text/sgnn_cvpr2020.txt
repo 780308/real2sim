@@ -1,0 +1,522 @@
+                            SG-NN: Sparse Generative Neural Networks for
+                           Self-Supervised Scene Completion of RGB-D Scans
+
+                       Angela Dai              Christian Diller           Matthias Nießner
+                                           Technical University of Munich
+
+
+
+
+Figure 1: Our method takes as input a partial RGB-D scan and predicts a high-resolution 3D reconstruction while predicting
+unseen, missing geometry. Key to our approach is its self-supervised formulation, enabling training solely on real-world,
+incomplete scans. This not only obviates the need for synthetic ground truth, but is also capable of generating more complete
+scenes than any single target scene seen during training. To achieve high-quality surfaces, we further propose a new sparse
+generative neural network, capable of generating large-scale scenes at much higher resolution than existing techniques.
+
+                             Abstract                            1. Introduction
+   We present a novel approach that converts partial and             In recent years, we have seen incredible progress on
+noisy RGB-D scans into high-quality 3D scene reconstruc-         RGB-D reconstruction of indoor environments using com-
+tions by inferring unobserved scene geometry. Our ap-            modity RGB-D sensors such as the Microsoft Kinect,
+proach is fully self-supervised and can hence be trained         Google Tango, or Intel RealSense [22, 16, 23, 36, 5,
+solely on real-world, incomplete scans. To achieve self-         10]. However, despite remarkable achievements in RGB-
+supervision, we remove frames from a given (incomplete)          D tracking and reconstruction quality, a fundamental chal-
+3D scan in order to make it even more incomplete; self-          lenge still remains – the incomplete nature of resulting 3D
+supervision is then formulated by correlating the two levels     scans caused by inherent occlusions due to the physical lim-
+of partialness of the same scan while masking out regions        itations of the scanning process; i.e., even in a careful scan-
+that have never been observed. Through generalization            ning session it is inevitable that some regions of a 3D scene
+across a large training set, we can then predict 3D scene        remain unobserved. This unfortunately renders the resulting
+completion without ever seeing any 3D scan of entirely com-      reconstructions unsuitable for many applications, not only
+plete geometry. Combined with a new 3D sparse genera-            those that require quality 3D content, such as video games
+tive neural network architecture, our method is able to pre-     or AR/VR, but also robotics where a completed 3D map sig-
+dict highly-detailed surfaces in a coarse-to-fine hierarchi-     nificantly facilitates tasks such as grasping or querying 3D
+cal fashion, generating 3D scenes at 2cm resolution, more        objects in a 3D environment.
+than twice the resolution of existing state-of-the-art meth-         In order to overcome the incomplete and partial nature
+ods as well as outperforming them by a significant margin        of 3D reconstructions, various geometric inpainting tech-
+in reconstruction quality.1                                      niques have been proposed, for instance, surface interpola-
+                                                                 tion based on the Poisson equation [17, 18] or CAD shape-
+  1 Source code available here.                                  fitting techniques [1, 2, 8]. A very recent direction leverages
+
+
+
+                                                               849
+generative deep neural networks, often focusing volumet-            2. Related Work
+ric representations for shapes [11] or entire scenes [31, 12].
+These techniques show great promise since they can learn            RGB-D Reconstruction Scanning and reconstructing 3D
+generalized patterns in a large variety of environments;            surfaces has a long history across several research com-
+however, existing data-driven scene completion methods              munities. With the increase in availability of commod-
+rely on supervised training, requiring fully complete ground        ity range sensors, capturing and reconstructing 3D scenes
+truth 3D models, thus depending on large-scale synthetic            has become a vital area of research. One seminal tech-
+datasets such as ShapeNet [4] or SUNCG [31]. As a re-               nique is the volumetric fusion approach of Curless and
+sult, although we have seen impressive results from these           Levoy [7], operating on truncated signed distance fields
+approaches on synthetic test sets, domain transfer and ap-          to produce a surface reconstruction. It has been adopted
+plication to real-world 3D scans remains a major limitation.        by many state-of-the-art real-time reconstruction methods,
+                                                                    from KinectFusion [22, 16] to VoxelHashing [23] and
+    In order to address the shortcomings of supervised learn-
+                                                                    BundleFusion [10], as well as state-of-the-art offline recon-
+ing techniques for scan completion, we propose a new self-
+                                                                    struction approaches [5].
+supervised completion formulation that can be trained only
+                                                                        These methods have produced impressive results in
+on (partial) real-world data. Our main idea is to learn to gen-
+                                                                    tracking and scalability of 3D reconstruction from com-
+erate more complete 3D models from less complete data,
+                                                                    modity range sensors. However, a significant limitation that
+while masking out any unknown regions; that is, from an
+                                                                    still remains is the partial nature of 3D scanning; i.e., a per-
+existing RGB-D scan, we use the scan as the target and re-
+                                                                    fect scan is usually not possible due to occlusions and un-
+move frames to obtain a more incomplete input. In the loss
+                                                                    observed regions and thus, the resulting 3D representation
+function, we can now correlate the difference in partialness
+                                                                    cannot reach the quality of manually created 3D assets.
+between the two scans, and constrain the network to predict
+the delta while masking out unobserved areas. Although
+there is no single training sample which contains a fully-          Deep Learning on 3D Scans With recent advances in
+complete 3D reconstruction, we show that our network can            deep learning and the improved availability of large-scale
+nonetheless generalize to predict high levels of complete-          3D scan datasets such as ScanNet [9] or Matterport [3],
+ness through a combined aggregation of patterns across the          learned approaches on 3D data can be used for a variety
+entire training set. This way, our approach can be trained          of tasks like classification, segmentation, or completion.
+without requiring any fully-complete ground truth counter-              Many current methods make use of convolutional op-
+parts that would make generalization through a synthetic-           erators that have been shown to work well on 2D data.
+to-real domain gap challenging.                                     When extended into 3D, they operate on regular grid rep-
+    Furthermore, we propose a new sparse generative neural          resentations such as distance fields [11] or occupancy grids
+network architecture that can predict high-resolution geom-         [20]. Since dense volumetric grids can come with high
+etry in a fully-convolutional fashion. For training, we pro-        computational and memory costs, several recent approaches
+pose a progressively growing network architecture trained           have leveraged the sparsity of the 3D data for discrim-
+in coarse-to-fine fashion; i.e., we first predict the 3D scene      inative 3D tasks. PointNet [26, 27] introduced a deep
+at a low resolution, and then continue increasing the surface       network architecture for learning on point cloud data for
+resolution through the training process. We show that our           semantic segmentation and classification tasks. Octree-
+self-supervised, sparse generative approach can outperform          based approaches have also been developed [29, 33, 34]
+state-of-the-art fully-supervised methods, despite their ac-        that have been shown to be very memory efficient; how-
+cess to much larger quantities of synthetic 3D data.                ever, generative tasks involving large, varying-sized envi-
+    We present the following main contributions:                    ronments seems challenging and octree generation has only
+                                                                    been shown for single ShapeNet-style objects [28, 32]. An-
+  • A self-supervised approach for scene completion, en-            other option leveraging the sparsity of 3D geometric data
+    abling training solely on incomplete, real-world scan           is through sparse convolutions [14, 13, 6], which have seen
+    data while predicting geometry more complete than               success in discriminative tasks such as semantic segmenta-
+    any seen during training, by leveraging common pat-             tion, but not in the context of generative 3D modeling tasks,
+    terns in the deltas of incompleteness.                          where the overall structure of the scene is unknown.
+
+  • A generative formulation for sparse convolutions to             Shape and Scene Completion Completing 3D scans has
+    produce a sparse truncated signed distance function             been well-studied in geometry processing. Traditional
+    representation at high resolution: we formulate this            methods, such as Poisson Surface Reconstruction [17, 18],
+    hierarchically to progressively generate a 3D scene in          locally optimize for a surface to fit to observed points, and
+    end-to-end fashion                                              work well for small missing regions. Recently, various
+
+
+
+                                                                  850
+deep learning-based approaches have been developed with            formulate the training from incomplete scan data to less in-
+greater capacity for learning global structures of shapes, en-     complete scan data; that is, from an existing RGB-D scan
+abling compelling completion of larger missing regions in          we can remove frames in order to create a more partial ob-
+scans of objects [37, 11, 15, 35, 24]. Larger-scale com-           servation of the scene. This enables learning to complete in
+pletion of scans has been seen with SSCNet [31], operat-           regions where scan geometry is known while ignoring re-
+ing on a depth image of a scene, and ScanComplete [12],            gions of unobserved space. Crucially, our generative model
+which demonstrated scene completion on room- and build-            can then learn to generate more complete models than seen
+ing floor-scale scans. However, both these approaches op-          in a specific sample of the target data.
+erate on dense volumetric grids, significantly limiting their         To obtain an output high-resolution 3D model of a scene,
+output resolutions. Moreover, these approaches are fully           we propose Sparse Generative Neural Networks (SG-NN), a
+supervised with complete 3D scene data, requiring training         generative model to produce a sparse surface representation
+on synthetic 3D scene data (where complete ground truth is         of a scene. We build upon sparse convolutions [14, 13, 6],
+known), in order to complete real-world scans.                     which have been shown to produce compelling semantic
+    An alternative approach for shape completion could             segmentation results on 3D scenes by operating only on
+through leveraging a single implicit latent space, as in           surface geometry. In contrast to these discriminative tasks
+DeepSDF [24] or Occupancy Networks [21]; however, it               where the geometric structure is given as input, we de-
+still remains a challenge as to how to scale a single latent       velop our SG-NN to generate new, unseen 3D geometry
+space to represent large, varying-sized environments.              suitable for generative 3D modeling tasks. This is designed
+                                                                   in coarse-to-fine fashion, with a progressively growing net-
+3. Method Overview                                                 work architecture which predicts each next higher resolu-
+                                                                   tion, finally predicting a high-resolution surface as a sparse
+    From an RGB-D scan of a 3D scene, our method learns
+                                                                   TSDF. Since our sparse generative network operates in a
+to generate a high-quality reconstruction of the complete 3D
+                                                                   fully-convolutional fashion, we can operate on 3D scans of
+scene, in a self-supervised fashion. The input RGB-D scan
+                                                                   varying spatial sizes.
+is represented as a truncated signed distance field (TSDF),
+as a sparse set of voxel locations within truncation and their
+                                                                   4. Self-Supervised Completion
+corresponding distance values. The output complete 3D
+model of the scene is also generated as a sparse TSDF (simi-          Our approach for self-supervision of scene completion of
+larly, a set of locations and per-voxel distances), from which     RGB-D scans is based on learning how to complete scan ge-
+a mesh can be extracted by Marching Cubes [19].                    ometry in regions that have been seen, while ignoring unob-
+    We design the 3D scene completion as a self-supervised         served regions. To this end, we can generate input and target
+process, enabling training purely on real-world scan data          TSDFs with similar scanning patterns as real-world scans;
+without requiring any fully-complete ground truth scenes.          from an input scan composed of RGB-D frames {f0 , ...fn },
+Since real-world scans are always incomplete due to occlu-         we can generate the target TSDF Starget through volumet-
+sions and physical sensor limitations, this is essential for       ric fusion [7] of {f0 , ...fn }, and the input TSDF Sinput
+generating high-quality, complete models from real-world           through volumetric fusion of a subset of the original frames
+scan data. To achieve self-supervision, our main idea is to        {fk } ⊂ {f0 , ...fn }.
+
+
+
+
+Figure 2: Our self-supervision approach for scan completion learns through deltas in partialness of RGB-D scans. From a
+given (incomplete) RGB-D scan, on the left, we produce a more incomplete version of the scan by removing some of its depth
+frames (middle). We can then train to complete the more incomplete scan (middle) using the original scan as a target (left),
+while masking out unobserved regions in the target scene (in orange). This enables our prediction to produce scenes that are
+more complete than the target scenes seen during training, as the training process effectively masks out incompleteness.
+
+
+
+                                                                 851
+   This produces input incomplete scans that maintain                 generate a more incomplete version of the scan Sinput .
+scanned data characteristics, as well as a correspondence                At train time, we consider cropped views of these scans
+between Sinput and Starget going from a more incomplete               for efficiency, using random crops of size 64×64×128 vox-
+scan to a less incomplete scan. Since Starget remains                 els. The fully-convolutional nature of our approach enables
+nonetheless incomplete, we do not wish to use all of its data         testing on full scenes of varying sizes at inference time.
+as the complete target for supervision, as this could result
+in contradictory signals in the training set (e.g., table legs
+                                                                      5. Generating a Sparse 3D Scene Representa-
+have been seen in one scan but not in another, then it be-
+comes unclear whether to generate table legs).                            tion
+   Thus, to effectively learn to generate a complete 3D                  The geometry of a 3D scene occupies a very sparse set
+model beyond even the completeness of the target training             of the total 3D extent of the scene, so we aim to generate a
+data, we formulate the completion loss only on observed               3D representation of a scene in a similarly sparse fashion.
+regions in the target scan. That is, the loss is only con-            Thus we propose Sparse Generative Neural Networks (SG-
+sidered in regions where Starget (v) > −τ , for a voxel v             NN) to hierarchically generate a sparse, truncated signed
+with τ indicating the voxel size. Figure 2 shows an exam-             distance field representation of a 3D scene, from which we
+ple Sinput , Starget , and prediction, with this self-supervision     can extract the isosurface as the final output mesh.
+setup, we can learn to predict geometry that was unobserved              An overview of our network architecture for the scene
+in Starget , e.g., occluded regions behind objects.                   completion task is shown in Figure 3. The model is de-
+                                                                      signed in encoder-decoder fashion, with an input partial
+4.1. Data Generation
+                                                                      scan first encoded to representative features at low spatial
+    As input we consider an RGB-D scan comprising a set               resolution, before generating the final TSDF output.
+of depth images and their 6-DoF camera poses. For real-                  A partial scan, represented as a TSDF, is encoded with
+world scan data we use the Matterport3D [3] dataset, which            a series of 3D sparse convolutions [14, 13] which operate
+contains a variety of RGB-D scans taken with a Matterport             only on the locations where the TSDF is within trunca-
+tripod setup. Note that for Matterport3D, we train and eval-          tion distance and using the distance values as input features.
+uate on the annotated room regions, whereas the raw RGB-              Each set of convolutions spatially compresses the scene by
+D data is a sequence covering many different rooms, so we             a factor of two. Our generative model takes the encoding of
+perform an approximate frame-to-room association by tak-              the scene and converts the features into a (low-resolution)
+ing frames whose camera locations lie within the room.                dense 3D grid. The dense representation enables prediction
+    From a given RGB-D scan, we construct the target scan             of the full scene geometry at very coarse resolution; here,
+Starget using volumetric fusion [7] with 2cm voxels and               we use a series of dense 3D convolutions to produce a fea-
+truncation of 3 voxels. A subset of the frames is taken by            ture map F0 from which we also predict coarse occupancy
+randomly removing ≈ 50% of the frames (see Section 6                  O0 and TSDF S0 representations of the complete scene.
+for more analysis of varying degrees of incompleteness in             We then construct a sparse representation of the predicted
+Sinput , Starget ). We can then again use volumetric fusion to        scene based on O0 : the features input to the next level are
+
+
+
+
+Figure 3: Our Sparse Generative Neural Network architecture for the task of scan completion. An input scan is encoded
+using a series of sparse convolutions, each set reducing the spatial dimensions by a factor of two. To generate high-resolution
+scene geometry, the coarse encoding is converted to a dense representation for a coarse prediction of the complete geometry.
+The predicted coarse geometry is converted to a sparse representation and input to our sparse, coarse-to-fine hierarchy, where
+each level of the hierarchy predicts the geometry of the next resolution (losses indicated in orange). The final output is a
+TSDF represented by sparse set of voxel locations and their corresponding distance values.
+
+
+
+                                                                    852
+composed as concat(Fk , Ok , Sk ) ∀ sigmoid(Ok (v)) > 0.5.         5.1. Training
+This can then be processed with sparse convolutions, then
+                                                                      We train our SG-NN on a single NVIDIA GeForce RTX
+upsampled by a factor of two to predict the scene geome-
+                                                                   2080, using the Adam optimizer with a learning rate of
+try at the next higher resolution. This enables generative,
+                                                                   0.001 and batch size of 8. We use Nlevel = 2000 iterations
+sparse predictions in a hierarchical fashion. To generate the
+                                                                   for progressive introduction of each higher resolution out-
+final surface geometry, the last hierarchy level of our SG-
+                                                                   put, and train our model for ≈ 40 hours until convergence.
+NN outputs sparse On , Sn , and Fn , which are then input to
+a final set of sparse convolutions to refine and predict the
+output signed distance field values.                               6. Results and Evaluation
+                                                                       We evaluate our sparse generative neural network on
+Sparse skip connections. For scene completion, we also             scene completion for RGB-D scans on both real-world
+leverage skip connections between the encoder and decoder          scans where no fully complete ground truth is available [3],
+parts of the network architecture, connecting feature maps         as well as in a supervised setting on synthetic scans
+of same spatial resolution. This is in the same spirit as U-       which have complete ground truth information [31]. We
+Net [30], but in our case the encoder and decoder features         use the train/test splits provided by both datasets: 72/18
+maps are both sparse and typically do not contain the same         and 5519/155 trainval/test scenes comprising 1788/394 and
+set of sparse locations. Thus we concatenate features from         39600/1000 rooms, respectively. To measure completion
+the set of source locations which are shared with the desti-       quality, we follow [12] and use an ℓ1 error metric between
+nation locations, and use zero feature vectors for the desti-      predicted and target TSDFs, where unobserved regions in
+nation locations which do not exist in the source.                 the target are masked out. Note that unsigned distances are
+                                                                   used in the error computation to avoid sign ambiguities. We
+Progressive Generation. In order to encourage more effi-           measure the ℓ1 distance in voxel units of the entire volume
+cient and stable training, we train our generative model pro-      (entire volume), the unobserved region of the volume (unob-
+gressively, starting with the lowest resolution, and introduc-     served space), near the target surface (target), and near the
+ing each successive hierarchy level after Nlevel iterations.       predicted surface (predicted), using a threshold of ≤ 1 to
+Each hierarchy level predicts the occupancy and TSDF of            determine nearby regions, and a global truncation of 3. For
+the next level, enabling successive refinement from coarse         all metrics, unobserved regions in the targets are ignored;
+predictions, as shown in Figure 4.                                 note that on synthetic data where complete ground truth is
+                                                                   available, we do not have any unobserved regions to ignore.
+Loss. We formulate the loss for the generated scene ge-
+ometry on the final predicted TSDF locations and values,           Comparison to state of the art. In Table 1, we compare
+using an ℓ1 loss with the target TSDF values at those loca-        to several state-of-the-art approaches for scan completion
+tions. Following [11], we log-transform the TSDF values of         on real-world scans from the Matterport3D dataset [3]: the
+the predictions and the targets before applying the ℓ1 loss,       shape completion approach 3D-EPN [11], and the scene
+in order to encourage more accurate prediction near the sur-       completion approach ScanComplete [12]. These methods
+face geometry. We additionally employ proxy losses at each         both require fully-complete ground truth data for supervi-
+hierarchy level for outputs Ok and Sk , using binary cross         sion, which is not available for the real-world scenes, so
+entropy with target occupancies and ℓ1 with target TSDF            we train them on synthetic scans [31]. Since 3D-EPN and
+values, respectively. This helps avoid a trivial solution of       ScanComplete use dense 3D convolutions, limiting voxel
+zero loss for the final surface with no predicted geometry.        resolution, we use 5cm resolution for training and evalua-
+Note that for our self-supervised completion, we compute           tion of all methods. Our self-supervised approach enables
+these losses only in regions of observed target values, as         training on incomplete real-world scan data, avoiding do-
+described in Section 4.                                            main transfer while outperforming previous approaches that
+                                                                   leverage large amounts of synthetic 3D data. Qualitative
+                                                                   comparisons are shown in Figure 5.
+                                                                       To evaluate our SG-NN separate from its self-
+                                                                   supervision, we also evaluate synthetic scan completion
+                                                                   with full ground truth [31], in comparison to Poisson Sur-
+                                                                   face Reconstruction [17, 18], SSCNet[31], 3D-EPN [11],
+                                                                   and ScanComplete [12]. All data-driven approaches are
+Figure 4: Progressive generation of a 3D scene using our           fully supervised, using input scans from [12]. Similar to the
+SG-NN which formulates a generative model to predict a             real scan scenario, we train and evaluate at 5cm resolution
+sparse TSDF as output.                                             due to resolution limitations of the prior learned approaches.
+
+
+
+                                                                 853
+Figure 5: Comparison to state-of-the-art scan completion approaches on Matterport3D [3] data (5cm resolution), with input
+scans generated from a subset of frames. In contrast to the fully-supervised 3D-EPN [11] and ScanComplete [12], our
+self-supervised approach produces more accurate, complete scene geometry.
+
+                         Method                   ℓ1 error         ℓ1 error       ℓ1 error    ℓ1 error
+                                               entire volume   unobserved space    target    predicted
+                         3D-EPN (unet) [11]         0.31             0.28           0.45        1.12
+                         ScanComplete [12]          0.20             0.15           0.51        0.74
+                         Ours                       0.17             0.14           0.35        0.67
+
+Table 1: Quantitative scan completion results on real-world scan data [3], with ℓ1 distance measured in voxel units for 5cm
+voxels. Since target scans are incomplete, unobserved space in the target is masked out for all metrics. 3D-EPN [11] and
+ScanComplete [12] require full supervision, and so are trained on synthetic data [31]. Despite their access to large quantities
+of synthetic 3D data, our self-supervised approach outperforms these methods while training solely on real-world data.
+
+In Table 2, we see that our sparse generative approach out-       leveraging knowledge of observed and unobserved space in
+performs state of the art in a fully-supervised scenario.         RGB-D scans. To evaluate the completion quality of our
+                                                                  method against the completeness of the target scene data,
+                                                                  we perform a qualitative evaluation, as we lack fully com-
+Can self-supervision predict more complete geome-                 plete ground truth to for quantitative evaluation. In Figure 7,
+try than seen during training? Our approach to self-              we see that our completion quality can exceed the com-
+supervision is designed to enable prediction of scene ge-         pleteness of target scene data. We additionally evaluate our
+ometry beyond the completeness of the target scan data, by
+
+
+
+                                                               854
+                Method                                       ℓ1 error           ℓ1 error        ℓ1 error    ℓ1 error
+                                                          entire volume     unobserved space     target    predicted
+                Poisson Surface Reconstruction [17, 18]        0.53               0.51            1.70        1.18
+                SSCNet [31]                                    0.54               0.53            0.93        1.11
+                3D-EPN (unet) [11]                             0.25               0.30            0.65        0.47
+                ScanComplete [12]                              0.18               0.23            0.53        0.42
+                Ours                                           0.15               0.16            0.50        0.28
+Table 2: Quantitative scan completion results on synthetic scan data [31], where complete ground truth is available to super-
+vise all data-driven approaches. ℓ1 distance is measured in voxel units for 5cm voxels.
+
+
+approach with and without our self-supervision masking in
+Figure 7, where w/o self-supervision masking is trained us-
+ing the same set of less-incomplete/more-incomplete scans
+but without the loss masking. This can perform effective
+completion in regions commonly observed in target scans,
+but often fails to complete regions that are commonly oc-
+cluded. In contrast, our formulation for self-supervision us-
+ing masking of unobserved regions enables predicting scene
+geometry even where the target scan remains incomplete.
+                                                                       Figure 6: Evaluating varying target data completeness
+Comparison of our self-supervision approach to mask-                   available for training.     We generate various incom-
+ing out by random crops. In Table 3, we evaluate against               plete versions of the Matterport3D [3] scans using ≈
+another possible self-supervision approach: randomly crop-             30%, 40%, 50%, 60%, and 100% (all) of the frames associ-
+ping out target geometry to be used as incomplete inputs               ated with each room scene, and evaluate on the 50% incom-
+(using crops for self-supervision), similar to [25]. This sce-         plete scans. Our self-supervised approach remains robust to
+nario does not reflect the data characteristics of real-world          the level of completeness of the target training data.
+scan partialness (e.g., from occlusions and lack of visibil-
+ity), resulting in poor completion performance.                        the Matterport3D [3] scans using varying amounts of the
+                                                                       frames available: ≈ 30%, 40%, 50%, 60%, and 100% (all)
+What’s the impact of the input/output representation?                  of the frames associated with each room scene. We train
+In Table 3, we evaluate the effect of a point cloud input              our approach using three different versions of input-target
+(vs. TSDF input), as well as occupancy output (vs. TSDF                completeness: 50% − all (our default), 40% − 60%, and
+output). We find that the TSDF representation has more                 30% − 50%. Even as the completeness of the target data
+potential descriptiveness in characterizing a surface (and its         decreases, our approach maintains robustness in predicting
+neighboring regions), resulting in improved performance in             complete scene geometry.
+both input and output representation.
+                                                                       Limitations Our SG-NN approach for self-supervised
+What’s the impact of the degree of completeness of the                 scan completion enables high-resolution geometric predic-
+target data during training? In Figure 6, we evaluate the              tion of complete geometry from real-world scans. How-
+effect of the amount of completeness of the target data avail-         ever, to generate the full appearance of a 3D scene, gen-
+able for training. We create several incomplete versions of            eration and inpainting of color is also required. Currently,
+
+                    Method                                ℓ1 error           ℓ1 error       ℓ1 error    ℓ1 error
+                                                       entire volume     unobserved space    target    predicted
+                    Using crops for self-supervision        0.13               0.09           1.25        0.68
+                    Point cloud input                       0.15               0.09           1.82        0.92
+                    Occupancy output                        0.13               0.10           0.89        0.86
+                    2 hierarchy levels                      0.10               0.08           0.74        0.68
+                    Ours                                    0.09               0.07           0.71        0.60
+Table 3: Ablation study of our self-supervision and generative model design choices on real-world scan data [3], with ℓ1
+distance measured in voxel units for 2cm voxels.
+
+
+
+
+                                                                  855
+our method also does not consider or predict the semantic          face enables much higher output geometric resolution than
+object decomposition of a scene; however, we believe this          previous on large-scale 3D scenes. Self-supervision allow-
+would be an interesting direction, specifically in the context     ing training only on real-world scan data for scan comple-
+for enabling interaction with a 3D environment (e.g., inte-        tion opens up new possibilities for various generative 3D
+rior redesign or robotic understanding).                           modeling based only on real-world observations, perhaps
+                                                                   mitigating the need for extensive synthetic data generation
+7. Conclusion                                                      or domain transfer, and we believe this is a promising av-
+                                                                   enue for future research.
+   In this paper, we presented a self-supervised approach
+for completion of RGB-D scan geometry that enables train-
+                                                                   Acknowledgments
+ing solely on incomplete, real-world scans while learning
+a generative geometric completion process capable of pre-             This work was supported by the ZD.B, a Google Re-
+dicting 3D scene geometry more complete than any single            search Grant, a TUM-IAS Rudolf Mößbauer Fellowship, an
+target scene seen during training. Our sparse generative ap-       NVidia Professorship Award, and the ERC Starting Grant
+proach to generating a sparse TSDF representation of a sur-        Scan2CAD (804724).
+
+
+
+
+Figure 7: Scan completion results on Matterport3D [3] data (2cm resolution), with input scans generated from a subset of
+frames. Our self-supervision approach using loss masking enables more complete scene prediction than direct supervision
+using the target RGB-D scan, particularly in regions where occlusions commonly occur.
+
+
+
+                                                                 856
+References                                                                   scans. In 2018 IEEE Conference on Computer Vision and
+                                                                             Pattern Recognition, CVPR 2018, Salt Lake City, UT, USA,
+ [1] Armen Avetisyan, Manuel Dahnert, Angela Dai, Manolis                    June 18-22, 2018, pages 4578–4587, 2018. 2, 3, 5, 6, 7
+     Savva, Angel X. Chang, and Matthias Nießner. Scan2cad:
+                                                                        [13] Benjamin Graham, Martin Engelcke, and Laurens van der
+     Learning CAD model alignment in RGB-D scans. In IEEE
+                                                                             Maaten. 3d semantic segmentation with submanifold sparse
+     Conference on Computer Vision and Pattern Recognition,
+                                                                             convolutional networks. In 2018 IEEE Conference on Com-
+     CVPR 2019, Long Beach, CA, USA, June 16-20, 2019, pages
+                                                                             puter Vision and Pattern Recognition, CVPR 2018, Salt Lake
+     2614–2623, 2019. 1
+                                                                             City, UT, USA, June 18-22, 2018, pages 9224–9232, 2018.
+ [2] Armen Avetisyan, Angela Dai, and Matthias Niessner. End-
+                                                                             2, 3, 4
+     to-end cad model retrieval and 9dof alignment in 3d scans.
+                                                                        [14] Benjamin Graham and Laurens van der Maaten. Sub-
+     In The IEEE International Conference on Computer Vision
+                                                                             manifold sparse convolutional networks. arXiv preprint
+     (ICCV), October 2019. 1
+                                                                             arXiv:1706.01307, 2017. 2, 3, 4
+ [3] Angel X. Chang, Angela Dai, Thomas A. Funkhouser, Ma-
+     ciej Halber, Matthias Nießner, Manolis Savva, Shuran Song,         [15] Xiaoguang Han, Zhen Li, Haibin Huang, Evangelos
+     Andy Zeng, and Yinda Zhang. Matterport3d: Learning from                 Kalogerakis, and Yizhou Yu. High-resolution shape com-
+     RGB-D data in indoor environments. In 2017 International                pletion using deep neural networks for global structure and
+     Conference on 3D Vision, 3DV 2017, Qingdao, China, Octo-                local geometry inference. In IEEE International Conference
+     ber 10-12, 2017, pages 667–676, 2017. 2, 4, 5, 6, 7, 8                  on Computer Vision, ICCV 2017, Venice, Italy, October 22-
+                                                                             29, 2017, pages 85–93, 2017. 3
+ [4] Angel X Chang, Thomas Funkhouser, Leonidas Guibas,
+     Pat Hanrahan, Qixing Huang, Zimo Li, Silvio Savarese,              [16] Shahram Izadi, David Kim, Otmar Hilliges, David
+     Manolis Savva, Shuran Song, Hao Su, et al. Shapenet:                    Molyneaux, Richard A. Newcombe, Pushmeet Kohli, Jamie
+     An information-rich 3d model repository. arXiv preprint                 Shotton, Steve Hodges, Dustin Freeman, Andrew J. Davison,
+     arXiv:1512.03012, 2015. 2                                               and Andrew W. Fitzgibbon. Kinectfusion: real-time 3d re-
+ [5] Sungjoon Choi, Qian-Yi Zhou, and Vladlen Koltun. Robust                 construction and interaction using a moving depth camera. In
+     reconstruction of indoor scenes. In 2015 IEEE Conference                Proceedings of the 24th Annual ACM Symposium on User In-
+     on Computer Vision and Pattern Recognition (CVPR), pages                terface Software and Technology, Santa Barbara, CA, USA,
+     5556–5565. IEEE, 2015. 1, 2                                             October 16-19, 2011, pages 559–568, 2011. 1, 2
+ [6] Christopher B. Choy, JunYoung Gwak, and Silvio Savarese.           [17] Michael M. Kazhdan, Matthew Bolitho, and Hugues Hoppe.
+     4d spatio-temporal convnets: Minkowski convolutional neu-               Poisson surface reconstruction. In Proceedings of the
+     ral networks. In IEEE Conference on Computer Vision and                 Fourth Eurographics Symposium on Geometry Processing,
+     Pattern Recognition, CVPR 2019, Long Beach, CA, USA,                    Cagliari, Sardinia, Italy, June 26-28, 2006, pages 61–70,
+     June 16-20, 2019, pages 3075–3084, 2019. 2, 3                           2006. 1, 2, 5, 7
+ [7] Brian Curless and Marc Levoy. A volumetric method for              [18] Michael M. Kazhdan and Hugues Hoppe. Screened pois-
+     building complex models from range images. In Proceedings               son surface reconstruction. ACM Trans. Graph., 32(3):29:1–
+     of the 23rd annual conference on Computer graphics and                  29:13, 2013. 1, 2, 5, 7
+     interactive techniques, pages 303–312. ACM, 1996. 2, 3, 4          [19] William E. Lorensen and Harvey E. Cline. Marching cubes:
+ [8] Manuel Dahnert, Angela Dai, Leonidas J. Guibas, and                     A high resolution 3d surface construction algorithm. In
+     Matthias Niessner. Joint embedding of 3d scan and cad ob-               Proceedings of the 14th Annual Conference on Computer
+     jects. In The IEEE International Conference on Computer                 Graphics and Interactive Techniques, SIGGRAPH 1987,
+     Vision (ICCV), October 2019. 1                                          Anaheim, California, USA, July 27-31, 1987, pages 163–
+ [9] Angela Dai, Angel X. Chang, Manolis Savva, Maciej Hal-                  169, 1987. 3
+     ber, Thomas Funkhouser, and Matthias Niessner. Scannet:            [20] Daniel Maturana and Sebastian Scherer. Voxnet: A 3d
+     Richly-annotated 3d reconstructions of indoor scenes. In The            convolutional neural network for real-time object recogni-
+     IEEE Conference on Computer Vision and Pattern Recogni-                 tion. In 2015 IEEE/RSJ International Conference on Intel-
+     tion (CVPR), July 2017. 2                                               ligent Robots and Systems, IROS 2015, Hamburg, Germany,
+[10] Angela Dai, Matthias Nießner, Michael Zollhöfer, Shahram               September 28 - October 2, 2015, pages 922–928, 2015. 2
+     Izadi, and Christian Theobalt. Bundlefusion: Real-time             [21] Lars Mescheder, Michael Oechsle, Michael Niemeyer, Se-
+     globally consistent 3d reconstruction using on-the-fly surface          bastian Nowozin, and Andreas Geiger. Occupancy networks:
+     reintegration. ACM Trans. Graph., 36(3):24:1–24:18, 2017.               Learning 3d reconstruction in function space. In Proceed-
+     1, 2                                                                    ings IEEE Conf. on Computer Vision and Pattern Recogni-
+[11] Angela Dai, Charles Ruizhongtai Qi, and Matthias Nießner.               tion (CVPR), 2019. 3
+     Shape completion using 3d-encoder-predictor cnns and               [22] Richard A. Newcombe, Shahram Izadi, Otmar Hilliges,
+     shape synthesis. In 2017 IEEE Conference on Computer Vi-                David Molyneaux, David Kim, Andrew J. Davison, Push-
+     sion and Pattern Recognition, CVPR 2017, Honolulu, HI,                  meet Kohli, Jamie Shotton, Steve Hodges, and Andrew W.
+     USA, July 21-26, 2017, pages 6545–6554, 2017. 2, 3, 5, 6, 7             Fitzgibbon. Kinectfusion: Real-time dense surface map-
+[12] Angela Dai, Daniel Ritchie, Martin Bokeloh, Scott Reed,                 ping and tracking. In 10th IEEE International Symposium on
+     Jürgen Sturm, and Matthias Nießner. Scancomplete: Large-               Mixed and Augmented Reality, ISMAR 2011, Basel, Switzer-
+     scale scene completion and semantic segmentation for 3d                 land, October 26-29, 2011, pages 127–136, 2011. 1, 2
+
+
+
+
+                                                                      857
+[23] M. Nießner, M. Zollhöfer, S. Izadi, and M. Stamminger.            [34] Peng-Shuai Wang, Chun-Yu Sun, Yang Liu, and Xin Tong.
+     Real-time 3d reconstruction at scale using voxel hashing.               Adaptive O-CNN: a patch-based deep representation of 3d
+     ACM Transactions on Graphics (TOG), 2013. 1, 2                          shapes. ACM Trans. Graph., 37(6):217:1–217:11, 2018. 2
+[24] Jeong Joon Park, Peter Florence, Julian Straub, Richard A.         [35] Weiyue Wang, Qiangui Huang, Suya You, Chao Yang, and
+     Newcombe, and Steven Lovegrove. Deepsdf: Learning con-                  Ulrich Neumann. Shape inpainting using 3d generative ad-
+     tinuous signed distance functions for shape representation. In          versarial network and recurrent convolutional networks. In
+     IEEE Conference on Computer Vision and Pattern Recogni-                 IEEE International Conference on Computer Vision, ICCV
+     tion, CVPR 2019, Long Beach, CA, USA, June 16-20, 2019,                 2017, Venice, Italy, October 22-29, 2017, pages 2317–2325,
+     pages 165–174, 2019. 3                                                  2017. 3
+[25] Deepak Pathak, Philipp Krähenbühl, Jeff Donahue, Trevor          [36] Thomas Whelan, Stefan Leutenegger, Renato F. Salas-
+     Darrell, and Alexei A. Efros. Context encoders: Feature                 Moreno, Ben Glocker, and Andrew J. Davison. Elasticfu-
+     learning by inpainting. In 2016 IEEE Conference on Com-                 sion: Dense SLAM without A pose graph. In Robotics: Sci-
+     puter Vision and Pattern Recognition, CVPR 2016, Las Ve-                ence and Systems XI, Sapienza University of Rome, Rome,
+     gas, NV, USA, June 27-30, 2016, pages 2536–2544. IEEE                   Italy, July 13-17, 2015, 2015. 1
+     Computer Society, 2016. 7                                          [37] Zhirong Wu, Shuran Song, Aditya Khosla, Fisher Yu, Lin-
+[26] Charles Ruizhongtai Qi, Hao Su, Kaichun Mo, and                         guang Zhang, Xiaoou Tang, and Jianxiong Xiao. 3d
+     Leonidas J. Guibas. Pointnet: Deep learning on point sets               shapenets: A deep representation for volumetric shapes. In
+     for 3d classification and segmentation. In 2017 IEEE Con-               IEEE Conference on Computer Vision and Pattern Recogni-
+     ference on Computer Vision and Pattern Recognition, CVPR                tion, CVPR 2015, Boston, MA, USA, June 7-12, 2015, pages
+     2017, Honolulu, HI, USA, July 21-26, 2017, pages 77–85,                 1912–1920, 2015. 3
+     2017. 2
+[27] Charles Ruizhongtai Qi, Li Yi, Hao Su, and Leonidas J.
+     Guibas. Pointnet++: Deep hierarchical feature learning on
+     point sets in a metric space. In Advances in Neural Informa-
+     tion Processing Systems 30: Annual Conference on Neural
+     Information Processing Systems 2017, 4-9 December 2017,
+     Long Beach, CA, USA, pages 5099–5108, 2017. 2
+[28] Gernot Riegler, Ali Osman Ulusoy, Horst Bischof, and An-
+     dreas Geiger. Octnetfusion: Learning depth fusion from data.
+     In 2017 International Conference on 3D Vision, 3DV 2017,
+     Qingdao, China, October 10-12, 2017, pages 57–66, 2017.
+     2
+[29] Gernot Riegler, Ali Osman Ulusoy, and Andreas Geiger.
+     Octnet: Learning deep 3d representations at high resolutions.
+     In 2017 IEEE Conference on Computer Vision and Pattern
+     Recognition, CVPR 2017, Honolulu, HI, USA, July 21-26,
+     2017, pages 6620–6629, 2017. 2
+[30] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-
+     net: Convolutional networks for biomedical image segmen-
+     tation. In International Conference on Medical image com-
+     puting and computer-assisted intervention, pages 234–241.
+     Springer, 2015. 5
+[31] Shuran Song, Fisher Yu, Andy Zeng, Angel X. Chang,
+     Manolis Savva, and Thomas A. Funkhouser. Semantic scene
+     completion from a single depth image. In 2017 IEEE Con-
+     ference on Computer Vision and Pattern Recognition, CVPR
+     2017, Honolulu, HI, USA, July 21-26, 2017, pages 190–198,
+     2017. 2, 3, 5, 6, 7
+[32] Maxim Tatarchenko, Alexey Dosovitskiy, and Thomas Brox.
+     Octree generating networks: Efficient convolutional archi-
+     tectures for high-resolution 3d outputs. In IEEE Interna-
+     tional Conference on Computer Vision, ICCV 2017, Venice,
+     Italy, October 22-29, 2017, pages 2107–2115, 2017. 2
+[33] Peng-Shuai Wang, Yang Liu, Yu-Xiao Guo, Chun-Yu Sun,
+     and Xin Tong. O-CNN: octree-based convolutional neu-
+     ral networks for 3d shape analysis. ACM Trans. Graph.,
+     36(4):72:1–72:11, 2017. 2
+
+
+
+
+                                                                      858
+

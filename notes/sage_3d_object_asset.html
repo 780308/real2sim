@@ -1,0 +1,64 @@
+<!doctype html><html><head><meta charset="utf-8"><title>SAGE-3D: Towards Physically Executable 3D Gaussian for Embodied Navigation</title><style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.65;max-width:1120px;margin:32px auto;padding:0 24px;color:#17202a;background:#fbfbf8}
+h1{font-size:30px;margin-bottom:8px}h2{font-size:22px;margin-top:30px;border-bottom:1px solid #ddd;padding-bottom:4px}h3{font-size:18px;margin-top:22px}
+p,li{font-size:15px}.meta{color:#555}.card{border:1px solid #ddd;border-radius:8px;padding:14px 16px;background:#fff;margin:14px 0}
+.table-line{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;background:#fff;padding:2px 6px;margin:0;border-left:1px solid #ddd;border-right:1px solid #ddd}
+pre{background:#111827;color:#f9fafb;padding:14px;border-radius:8px;overflow:auto}
+</style></head><body><h1>SAGE-3D: Towards Physically Executable 3D Gaussian for Embodied Navigation</h1>
+
+<h2>定位</h2>
+<p>虽是导航而非 manipulation，但它系统化验证了 object-level semantics + collision bodies + 3DGS visual layer 的必要性。</p>
+
+<p class="table-line">| 字段 | 内容 |</p>
+<p class="table-line">| --- | --- |</p>
+<p class="table-line">| priority / score | P0 / 3.88/5 |</p>
+<p class="table-line">| family | semantically and physically aligned 3DGS environment |</p>
+<p class="table-line">| sources | https://github.com/Galery23/SAGE-3D_Official&lt;br&gt;https://arxiv.org/abs/2510.21307&lt;br&gt;https://sage-3d.github.io/ |</p>
+<p class="table-line">| local_pdf | ref/sage_3d_2510_21307.pdf |</p>
+<p class="table-line">| local_supplementary_pdfs | 无 |</p>
+<p class="table-line">| local_repo | repos/SAGE-3D_Official |</p>
+<p class="table-line">| commit / license | 1b841f2 / n/a (cloned) |</p>
+
+<h2>Inputs / Outputs</h2>
+<ul>
+<li>Inputs: 3DGS indoor scenes, object annotations, mesh scenes/collision bodies, Isaac Sim 5.0+.</li>
+<li>Outputs: InteriorGS object-annotated 3DGS scenes, collision meshes, USDZ assets, VLN benchmark.</li>
+</ul>
+
+<h2>Full Method Pipeline</h2>
+<ul>
+<li>Ground object-level semantics into 3DGS scenes.</li>
+<li>Extract collision bodies for each object from mesh sources.</li>
+<li>Use 3DGS-Mesh hybrid representation: 3DGS for appearance, mesh collision for physics.</li>
+<li>Run embodied navigation benchmark in Isaac Sim 5.0+.</li>
+</ul>
+
+<h2>Losses / Objectives</h2>
+<p>dataset/benchmark construction; policy training uses VLN losses/rewards; not a reconstruction-loss paper.</p>
+
+<h2>Assumptions</h2>
+<p>数据来自 artist-created mesh scenes rather than real scans；对真实 Go2 场景需构建 equivalent asset pipeline。</p>
+
+<h2>Failure Modes</h2>
+<p>可执行性来自已有 mesh，不是从坏 3DGS 自动恢复；navigation collision 简化不等于 manipulation contact 精度。</p>
+
+<h2>对 Directional View Gap 的关系</h2>
+<p>不补视角，但证明 3DGS 必须和 object/collision layer 对齐才能用于 embodied tasks。</p>
+
+<h2>Isaac Sim Transfer</h2>
+<p>direct: README 明确 Isaac Sim 5.0+，并有 USDZ/Collision Mesh datasets。</p>
+
+<h2>可迁移模块</h2>
+<ul>
+<li>scene/object representation: semantically and physically aligned 3DGS environment</li>
+<li>view/object completion: 不补视角，但证明 3DGS 必须和 object/collision layer 对齐才能用于 embodied tasks。</li>
+<li>geometry/collision: InteriorGS object-annotated 3DGS scenes, collision meshes, USDZ assets, VLN benchmark.</li>
+<li>simulator integration: direct: README 明确 Isaac Sim 5.0+，并有 USDZ/Collision Mesh datasets。</li>
+<li>evaluation metrics: mesh watertightness, collision proxy validity, object-level novel-view consistency, task success / collision rate.</li>
+</ul>
+
+<h2>Recommended Role</h2>
+<p>P0 Isaac 5.0 视觉/物理混合环境参考；对 Go2 导航平台非常相关。</p>
+
+<h2>Next Experiment</h2>
+<p>参考 InteriorGS 数据格式，为一个 Go2 room scene 生成 object annotation + collision body + 3DGS visual package。</p></body></html>

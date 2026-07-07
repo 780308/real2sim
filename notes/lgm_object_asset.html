@@ -1,0 +1,64 @@
+<!doctype html><html><head><meta charset="utf-8"><title>LGM: Large Multi-View Gaussian Model for High-Resolution 3D Content Creation</title><style>
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.65;max-width:1120px;margin:32px auto;padding:0 24px;color:#17202a;background:#fbfbf8}
+h1{font-size:30px;margin-bottom:8px}h2{font-size:22px;margin-top:30px;border-bottom:1px solid #ddd;padding-bottom:4px}h3{font-size:18px;margin-top:22px}
+p,li{font-size:15px}.meta{color:#555}.card{border:1px solid #ddd;border-radius:8px;padding:14px 16px;background:#fff;margin:14px 0}
+.table-line{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;background:#fff;padding:2px 6px;margin:0;border-left:1px solid #ddd;border-right:1px solid #ddd}
+pre{background:#111827;color:#f9fafb;padding:14px;border-radius:8px;overflow:auto}
+</style></head><body><h1>LGM: Large Multi-View Gaussian Model for High-Resolution 3D Content Creation</h1>
+
+<h2>定位</h2>
+<p>少数直接生成 3D Gaussians 的 object content model，可补 visual layer；mesh/collision仍需后处理。</p>
+
+<p class="table-line">| 字段 | 内容 |</p>
+<p class="table-line">| --- | --- |</p>
+<p class="table-line">| priority / score | P1 / 3.43/5 |</p>
+<p class="table-line">| family | single/text-to-3D Gaussian generation + mesh conversion |</p>
+<p class="table-line">| sources | https://github.com/3DTopia/LGM&lt;br&gt;https://arxiv.org/abs/2402.05054 |</p>
+<p class="table-line">| local_pdf | ref/lgm_2402_05054.pdf |</p>
+<p class="table-line">| local_supplementary_pdfs | 无 |</p>
+<p class="table-line">| local_repo | repos/LGM |</p>
+<p class="table-line">| commit / license | fe8d12c / LICENSE (cloned) |</p>
+
+<h2>Inputs / Outputs</h2>
+<ul>
+<li>Inputs: text prompt or single-view image; multi-view diffusion generated views.</li>
+<li>Outputs: high-resolution 3D Gaussians, optional smooth textured mesh.</li>
+</ul>
+
+<h2>Full Method Pipeline</h2>
+<ul>
+<li>Generate multi-view images from image/text.</li>
+<li>Use asymmetric U-Net to predict multi-view Gaussian features.</li>
+<li>Fuse features into 3D Gaussians.</li>
+<li>Convert generated Gaussians to textured mesh if needed.</li>
+</ul>
+
+<h2>Losses / Objectives</h2>
+<p>regression objectives on multi-view Gaussian reconstruction and rendering supervision.</p>
+
+<h2>Assumptions</h2>
+<p>generated object prior may not match real object; scale/pose unknown。</p>
+
+<h2>Failure Modes</h2>
+<p>mesh conversion耗时且可能不稳定；背面细节 hallucination。</p>
+
+<h2>对 Directional View Gap 的关系</h2>
+<p>可作为 object backside/visual layer prior。</p>
+
+<h2>Isaac Sim Transfer</h2>
+<p>adapter needed: Gaussian visual + mesh conversion。</p>
+
+<h2>可迁移模块</h2>
+<ul>
+<li>scene/object representation: single/text-to-3D Gaussian generation + mesh conversion</li>
+<li>view/object completion: 可作为 object backside/visual layer prior。</li>
+<li>geometry/collision: high-resolution 3D Gaussians, optional smooth textured mesh.</li>
+<li>simulator integration: adapter needed: Gaussian visual + mesh conversion。</li>
+<li>evaluation metrics: mesh watertightness, collision proxy validity, object-level novel-view consistency, task success / collision rate.</li>
+</ul>
+
+<h2>Recommended Role</h2>
+<p>P1 3DGS object generation baseline。</p>
+
+<h2>Next Experiment</h2>
+<p>比较 LGM 直接生成 Gaussians 与 Hunyuan3D mesh+PBR 的 visual fidelity/mesh usability。</p></body></html>
